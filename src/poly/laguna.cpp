@@ -265,13 +265,13 @@ void Laguna::assign_scratch() {
     att_ = fbuf(heads);
     gate_ = fbuf(n * max_gate_);
     // the full layers' few-token attention takes attend()'s blocks of rows (heads of 128, groups of 6), whose sums of
-    // every block need room of their own: without it attend() keeps its slower kernels, which read the whole
-    // conversation several times over
+    // every block need room of their own: without it attend() keeps its slower kernels, which read the cache at a
+    // fraction of the card's pace
     int full_heads = 0;
     for (int il = 0; il < n_layer_; ++il)
         if (!swa_[(size_t) il]) full_heads = std::max(full_heads, heads_[(size_t) il]);
     score_n_ = std::max((size_t) chunk_ * max_head_ * opt_.max_context,
-                        full_heads ? attend_split_floats(chunk_, full_heads, opt_.max_context, head_dim_) : 0);
+                        full_heads ? attend_group_floats(chunk_, full_heads, opt_.max_context, head_dim_) : 0);
     score_ = fbuf(score_n_);
     if (rows_ >= kStageRows) awork_ = fbuf(heads + heads / 2 + 1 + 3 * n * max_head_);   // a prompt batch's attention
     if (rows_ >= kStageRows && opt_.kv_format == KvFmt::kQ8_0) {

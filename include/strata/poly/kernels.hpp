@@ -275,7 +275,8 @@ struct Kvq8 {
 /// groups of 8, over the whole conversation then take a launch block each block of rows, a launch as many tokens as
 /// score has room for those blocks' sums of at the longest the call can attend (attend_split_floats() for chunk of
 /// them); the results differ from the other kernels' in the last bits.  So do heads of 128 in groups of 2 to 7 (Laguna's
-/// full layers, 6), over an fp16 cache or a q8_0 one (kq8 and vq8 both): the same blocks, the group's heads in 8 places.
+/// full layers, 6), over an fp16 cache or a q8_0 one (kq8 and vq8 both): blocks of 256 rows, the group's heads in 8
+/// places, a quarter of the room in score that attend_split_floats() gives.
 /// With `kq8` or `vq8` (codes not null) that cache is read as Q8_0 rather than fp16: its codes/scale pointers
 /// follow the same row and head index the fp16 cache would, and a block of 32 values dequantizes as
 /// `(float)codes[..] * __half2float(scales[..])`.  The fp16 path is unchanged where they are left null.
@@ -288,6 +289,8 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
 /// The floats of score that attend()'s blocks of rows take for calls of up to chunk tokens attending up to max_rows
 /// rows (score_floats): with that much a model's every call takes them.
 size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim);
+/// The same for heads of 128 in groups of 2 to 7 (attend()'s blocks of 256 rows for them).  CUDA and HIP only.
+size_t attend_group_floats(int chunk, int n_head, int max_rows, int dim);
 /// attend() for a prompt batch: the same attention with cuBLAS products on the tensor cores, several times
 /// faster on many tokens.  The products read the cache's halves where they lie, take the queries and the
 /// softmax's weights rounded to halves, and sum floats.  A token's result depends on the tokens beside it, so

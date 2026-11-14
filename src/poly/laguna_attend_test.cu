@@ -1,7 +1,8 @@
-// src/poly/laguna_attend_test.cu - attend()'s blocks of rows for Laguna's full layers (heads of 128 values, 6 a group,
-// over an fp16 and a q8_0 cache) against the score, softmax and value kernels it takes without the room for them,
-// and against itself: a token alone, with the tokens of a call beside it, and with the position on the card.  The
-// last three must be the same bits.  Then both ways' time for a token over 70,000 rows, the blocks of rows the faster.
+// src/poly/laguna_attend_test.cu - attend()'s blocks of rows for Laguna's full layers (attn_group_kernel: heads of 128
+// values, 6 a group, over an fp16 and a q8_0 cache) against the score, softmax and value kernels it takes without the
+// room for them, and against itself: a token alone, with the tokens of a call beside it, and with the position on the
+// card.  The last three must be the same bits.  Then both ways' time for a token over 70,000 rows, the blocks of rows
+// the faster.
 //
 // usage: poly_laguna_attend_test   (exit 0: all passed; 77: no CUDA card)
 #include "strata/poly/kernels.hpp"
