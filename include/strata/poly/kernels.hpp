@@ -274,7 +274,8 @@ struct Kvq8 {
 /// score_floats: the floats score holds, when more than the above.  Heads of 64 values in groups of 4, or of 128 in
 /// groups of 8, over the whole conversation then take a launch block each block of rows, a launch as many tokens as
 /// score has room for those blocks' sums of at the longest the call can attend (attend_split_floats() for chunk of
-/// them); the results differ from the other kernels' in the last bits.
+/// them); the results differ from the other kernels' in the last bits.  So do heads of 128 in groups of 2 to 7 (Laguna's
+/// full layers, 6), over an fp16 cache or a q8_0 one (kq8 and vq8 both): the same blocks, the group's heads in 8 places.
 /// With `kq8` or `vq8` (codes not null) that cache is read as Q8_0 rather than fp16: its codes/scale pointers
 /// follow the same row and head index the fp16 cache would, and a block of 32 values dequantizes as
 /// `(float)codes[..] * __half2float(scales[..])`.  The fp16 path is unchanged where they are left null.
