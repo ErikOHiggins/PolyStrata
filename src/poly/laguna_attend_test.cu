@@ -1,8 +1,8 @@
-// src/poly/laguna_attend_test.cu - attend()'s blocks of rows for Laguna's full layers (attn_group_kernel: heads of 128
-// values, 6 a group, over an fp16 and a q8_0 cache) against the score, softmax and value kernels it takes without the
-// room for them, and against itself: a token alone, with the tokens of a call beside it, and with the position on the
-// card.  The last three must be the same bits.  Then both ways' time for a token over 70,000 rows, the blocks of rows
-// the faster.
+// src/poly/laguna_attend_test.cu - attend()'s blocks of rows for Laguna's full layers (attn_split_group_kernel:
+// heads of 128 values, 6 a group, over an fp16 and a q8_0 cache) against the score, softmax and value kernels it
+// takes without the room for them, and against itself: a token alone, with the tokens of a call beside it, and with
+// the position on the card.  The last three must be the same bits.  Then both ways' time for a token over 70,000
+// rows, the blocks of rows the faster.
 //
 // usage: poly_laguna_attend_test   (exit 0: all passed; 77: no CUDA card)
 #include "strata/poly/kernels.hpp"
@@ -143,7 +143,8 @@ int main() {
     b.vq = Kvq8{upload(vc), upload(vs)};
     b.score_n = std::max(size_t(kChunk) * kHeads * kMaxRows, attend_split_floats(kChunk, kHeads, kMaxRows, kDim));
     if (cudaMalloc(&b.score, b.score_n * sizeof(float)) != cudaSuccess ||
-        cudaMalloc(&b.out, q.size() * sizeof(float)) != cudaSuccess || cudaMalloc(&b.at, sizeof(long long)) != cudaSuccess) {
+        cudaMalloc(&b.out, q.size() * sizeof(float)) != cudaSuccess ||
+        cudaMalloc(&b.at, sizeof(long long)) != cudaSuccess) {
         std::printf("CUDA: %s (about 750 MB of VRAM is needed)\n", cudaGetErrorString(cudaGetLastError()));
         return 1;
     }
@@ -165,7 +166,8 @@ int main() {
         bad += ok ? 0 : 1;
     }
     cudaFree(b.q), cudaFree(b.k), cudaFree(b.v), cudaFree(b.score), cudaFree(b.out), cudaFree(b.at);
-    cudaFree((void*) b.kq.codes), cudaFree((void*) b.kq.scales), cudaFree((void*) b.vq.codes), cudaFree((void*) b.vq.scales);
+    cudaFree((void*) b.kq.codes), cudaFree((void*) b.kq.scales);
+    cudaFree((void*) b.vq.codes), cudaFree((void*) b.vq.scales);
     if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
         std::printf("CUDA: %s\n", cudaGetErrorString(e));
         return 1;

@@ -1616,7 +1616,7 @@ attn_split_kernel(const float* __restrict__ q, const half* __restrict__ kcache, 
 // has.  A head's sink, with `sinks`, takes its share of the weight as one more score that weighs no value.
 constexpr int JOIN_WARPS = 16;
 
-template <int DIM, int KEYS = SPLIT_KEYS>   // KEYS: the rows of a block (attn_group_kernel's are GROUP_KEYS)
+template <int DIM, int KEYS = SPLIT_KEYS>   // KEYS: the rows of a block (attn_split_group_kernel's are GROUP_KEYS)
 __global__ void __launch_bounds__(JOIN_WARPS * WARP)
 attn_join_kernel(const float* __restrict__ part, float* __restrict__ out, int n_head, long long pos, int first,
                  int tokens, int blocks, const long long* __restrict__ at, const float* __restrict__ sinks) {
@@ -1673,7 +1673,7 @@ constexpr int GROUP_KEYS = 256, GROUP_ROWS = 4;
 
 template <bool Q8>
 __global__ void __launch_bounds__(8 * WARP)
-attn_group_kernel(const float* __restrict__ q, const half* __restrict__ kcache, const half* __restrict__ vcache,
+attn_split_group_kernel(const float* __restrict__ q, const half* __restrict__ kcache, const half* __restrict__ vcache,
                   const int8_t* __restrict__ kcodes, const uint16_t* __restrict__ kscales,
                   const int8_t* __restrict__ vcodes, const uint16_t* __restrict__ vscales, float* __restrict__ part,
                   int n_head, int kv_heads, int per, long long pos, int first, int tokens, float scale, int blocks,
@@ -3241,8 +3241,9 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
     const int most = grid(size_t(at ? room : pos + rows), SPLIT_KEYS);
     const int fit = (int) std::min<size_t>(chunk, score_floats / (size_t(n_head) * most * (dim + 2)));
     const bool split64 = dim == 64 && per == 4, split128 = dim == 128 && per == 8;
-    // heads of 128 values in groups of 2 to 7 (laguna's full layers, 6), over an fp16 or a q8_0 cache: attn_group_kernel,
-    // blocks of GROUP_KEYS rows.  No other architecture has the shape, so nothing else takes this.
+    // heads of 128 values in groups of 2 to 7 (laguna's full layers, 6), over an fp16 or a q8_0 cache:
+    // attn_split_group_kernel, blocks of GROUP_KEYS rows.  No other architecture has the shape, so nothing else
+    // takes this.
     const bool group128 = dim == 128 && per >= 2 && per < 8 && kq == vq;
 #if defined(STRATA_USE_HIP)
     // STRATA_HIP_SPLIT_ATTEND=1 (opt-in): up to 4 tokens over a long q8_0 cache, heads of 256 values in groups of 8, in one flash-decoding pass that
@@ -3271,11 +3272,11 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
                 const int blocks = grid(size_t(at ? room : pos + first + c), GROUP_KEYS);
                 const dim3 split(blocks, kv_heads, c), join(n_head, c);
                 if (kq)
-                    attn_group_kernel<true><<<split, 8 * WARP, 0, cs(stream)>>>(
+                    attn_split_group_kernel<true><<<split, 8 * WARP, 0, cs(stream)>>>(
                         q, nullptr, nullptr, kq8.codes, kq8.scales, vq8.codes, vq8.scales, score, n_head, kv_heads, per,
                         (long long) pos, first, c, scale, blocks, at);
                 else
-                    attn_group_kernel<false><<<split, 8 * WARP, 0, cs(stream)>>>(
+                    attn_split_group_kernel<false><<<split, 8 * WARP, 0, cs(stream)>>>(
                         q, (const half*) kcache, (const half*) vcache, nullptr, nullptr, nullptr, nullptr, score, n_head,
                         kv_heads, per, (long long) pos, first, c, scale, blocks, at);
                 attn_join_kernel<128, GROUP_KEYS><<<join, JOIN_WARPS * WARP, 0, cs(stream)>>>(
