@@ -2164,6 +2164,11 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_include_directories(poly_attend_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                      ${_strata_gpu_include_directories})
   target_link_libraries(poly_attend_test PRIVATE ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  # attend_group() for Laguna's full layers (heads of 128, 6 a group, fp16 and q8_0) against attend(), run by hand
+  add_executable(poly_laguna_attend_test src/poly/laguna_attend_test.cu src/poly/kernels.cu)
+  target_include_directories(poly_laguna_attend_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                                            ${_strata_gpu_include_directories})
+  target_link_libraries(poly_laguna_attend_test PRIVATE ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
   add_executable(poly_hip_value_split_test src/poly/hip_value_split_test.cu src/poly/kernels.cu)
   target_include_directories(poly_hip_value_split_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                             ${_strata_gpu_include_directories})

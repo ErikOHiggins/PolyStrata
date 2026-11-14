@@ -264,7 +264,13 @@ void Laguna::assign_scratch() {
     v_ = fbuf(kv);
     att_ = fbuf(heads);
     gate_ = fbuf(n * max_gate_);
-    score_n_ = (size_t) chunk_ * max_head_ * opt_.max_context;
+    // the full layers' few-token attention (attend_group(): heads of 128, groups of 6) keeps the sums of every block
+    // of rows here; without the room it falls back to attend()'s slower kernels
+    int full_heads = 0;
+    for (int il = 0; il < n_layer_; ++il)
+        if (!swa_[(size_t) il]) full_heads = std::max(full_heads, heads_[(size_t) il]);
+    score_n_ = std::max((size_t) chunk_ * max_head_ * opt_.max_context,
+                        full_heads ? attend_group_floats(chunk_, full_heads, opt_.max_context, head_dim_) : 0);
     score_ = fbuf(score_n_);
     if (rows_ >= kStageRows) awork_ = fbuf(heads + heads / 2 + 1 + 3 * n * max_head_);   // a prompt batch's attention
     if (rows_ >= kStageRows && opt_.kv_format == KvFmt::kQ8_0) {
@@ -493,9 +499,9 @@ void Laguna::attn(Block& B, int64_t pos, int n) {
                      q8 ? (uint16_t*) q8w_ : nullptr, q8 ? (uint16_t*) q8w_ + work_halves_ : nullptr,
                      q8 ? work_halves_ : 0);
     else
-        attend(q_, q8 ? nullptr : B.keys, q8 ? nullptr : B.vals, pos, n, score_, chunk_, att_, head_dim_, heads, n_kv_,
-               scale, st_, window, ring, false, at,
-               !at ? 0 : B.swa ? std::min(window_ + n - 1, opt_.max_context) : room(n), score_n_, kq, vq);
+        attend_group(q_, q8 ? nullptr : B.keys, q8 ? nullptr : B.vals, pos, n, score_, chunk_, att_, head_dim_, heads,
+                     n_kv_, scale, st_, window, ring, false, at,
+                     !at ? 0 : B.swa ? std::min(window_ + n - 1, opt_.max_context) : room(n), score_n_, kq, vq);
     gate(B, n);
     lin(B.wo, att_, ao_, n);
 }
@@ -534,8 +540,8 @@ void Laguna::attn_rows(Block& B, int n) {
         pos_ = r.pos;
         const int sized = B.swa ? std::min(window_, opt_.max_context) : room(1);
         pos_ = keep;
-        attend(q_ + i * hq, kch, vch, r.pos, 1, score_, chunk_, att_ + i * hq, head_dim_, heads, n_kv_, scale, st_,
-               window, ring, false, ai, sized, score_n_, kq, vq);
+        attend_group(q_ + i * hq, kch, vch, r.pos, 1, score_, chunk_, att_ + i * hq, head_dim_, heads, n_kv_, scale,
+                     st_, window, ring, false, ai, sized, score_n_, kq, vq);
     }
     gate(B, n);
     lin(B.wo, att_, ao_, n);

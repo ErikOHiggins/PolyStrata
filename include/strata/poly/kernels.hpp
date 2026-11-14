@@ -287,6 +287,18 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
 /// The floats of score that attend()'s blocks of rows take for calls of up to chunk tokens attending up to max_rows
 /// rows (score_floats): with that much a model's every call takes them.
 size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim);
+/// attend() for heads of 128 values in groups of 2 to 7 (Laguna's full layers, 6), over an fp16 cache or a q8_0 one
+/// (kq8 and vq8 both): a launch block each block of 256 rows, its sums added up by a second launch, the group's
+/// heads in 8 places.  The same arguments as attend(), and its results to the last bits (the sums go in another
+/// order); a token comes out the same whatever tokens the call has beside it.  Any other call (another shape, a
+/// window, a ring, `whole`, or score without attend_group_floats() of room) goes to attend() as it is.  CUDA and
+/// HIP only.
+void attend_group(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows, float* score,
+                  int chunk, float* out, int dim, int n_head, int kv_heads, float scale, void* stream, int window = 0,
+                  int ring = 0, bool whole = false, const long long* at = nullptr, int room = 0,
+                  size_t score_floats = 0, Kvq8 kq8 = {}, Kvq8 vq8 = {}, const float* sinks = nullptr);
+/// The floats of score that attend_group() takes for calls of up to chunk tokens attending up to max_rows rows.
+size_t attend_group_floats(int chunk, int n_head, int max_rows, int dim);
 /// attend() for a prompt batch: the same attention with cuBLAS products on the tensor cores, several times
 /// faster on many tokens.  The products read the cache's halves where they lie, take the queries and the
 /// softmax's weights rounded to halves, and sum floats.  A token's result depends on the tokens beside it, so
