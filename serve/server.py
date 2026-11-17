@@ -3237,6 +3237,7 @@ class Service:
         self.reasoning_close_retry = False            # #1053 (opt-in): close the thinking once when a reply ends inside it
         self.codex_compaction_cache = False           # #924 (opt-in): a Codex compaction is rendered with its conversation's tools
         self.codex_thread_titles = False              # #923 (opt-in): answer Codex's thread-title turns without the engine
+        self.keepalive_events = False                 # (opt-in): keep-alives as API events, not SSE comments
         self.sampling_defaults = dict(sampling_defaults or {})   # the run config's `sampling` block
         self.model_arch = None                        # the config's family ("qwen4exp", "qwen35moe"): None = no model-card defaults
         self.shared = {}                              # the web app's Chat settings for every client (POST /settings)
@@ -5493,8 +5494,14 @@ def openai_chunks(svc: Service, req: dict, ids, thinking, tools, max_new, cancel
         if kind == "ping":
             # a PP line: the prompt is being read and there is nothing to say yet.  It used to be only the SSE comment;
             # now it carries the progress when the client asked, and stays the comment when there is nothing to report.
+            # "keepalive_events" (opt-in): a chunk with an empty delta instead of the comment.  An older openai-go
+            # (pool, poolside's agent, is built on one) takes the blank line after a comment as an event with no data
+            # and ends the stream on the JSON error, so a prompt that reads for a while never gets its answer.
             pp = prompt_progress(svc) if want_progress else None
-            yield None if pp is None else {**chunk({}), "prompt_progress": pp}
+            if pp is not None:
+                yield {**chunk({}), "prompt_progress": pp}
+            else:
+                yield chunk({}) if svc.keepalive_events else None
         elif kind == "mcp":
             c = chunk({})
             c["strata_mcp"] = x
@@ -5578,18 +5585,27 @@ def openai_collect(chunks) -> dict:
     return out
 
 
-def structured_chunks(chunks, validator):
-    """Buffer structured streams so a client never receives unvalidated content."""
+def structured_chunks(chunks, validator, events=False):
+    """Buffer structured streams so a client never receives unvalidated content.  `events` (the config's
+    "keepalive_events"): the keep-alives sent while the answer is held are chunks with an empty delta, not comments."""
     buffered = []
     heartbeat = time.monotonic()
+
+    def beat():
+        return {**buffered[0], "choices": [{"index": 0, "delta": {}, "finish_reason": None}]} \
+            if events and buffered else None
+
     try:
         for chunk in chunks:
-            progress = chunk is not None and "prompt_progress" in chunk
-            if chunk is not None and not progress:
-                buffered.append(chunk)      # a progress chunk carries no content: there is nothing in it to validate
-            if chunk is None or progress or time.monotonic() - heartbeat >= 1:
+            # a chunk with an empty delta that ends nothing (prompt progress, a keepalive_events keep-alive) carries no
+            # content: there is nothing in it to validate, so it goes out as it came
+            empty = chunk is not None and not chunk["choices"][0]["delta"] and \
+                chunk["choices"][0]["finish_reason"] is None
+            if chunk is not None and not empty:
+                buffered.append(chunk)
+            if chunk is None or empty or time.monotonic() - heartbeat >= 1:
                 heartbeat = time.monotonic()
-                yield chunk if progress else None
+                yield chunk if empty else beat()
         result = openai_collect(buffered)
         choice = result["choices"][0]
         content = validated_json(choice["message"]["content"], validator, choice["finish_reason"])
@@ -5617,7 +5633,8 @@ def anthropic_events(svc: Service, req: dict, ids, thinking, tools, max_new, can
     streamed, finished = set(), set()              # calls sent piece by piece; those whose final tool_call came (#211)
     for kind, x in svc.run(ids, thinking, tools, max_new, req, cancel, force=force):
         if kind == "ping":
-            yield None
+            # "keepalive_events" (opt-in): Anthropic's own keep-alive event instead of the SSE comment (openai_chunks)
+            yield ("ping", {"type": "ping"}) if svc.keepalive_events else None
             continue
         if kind == "event":
             ev: Event = x
@@ -6644,7 +6661,7 @@ def make_handler(svc: Service):
                                {t["name"] for t in extra}) if use_mcp else None
             chunks = openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, run=run, force=force)
             if validator is not None:
-                chunks = structured_chunks(chunks, validator)
+                chunks = structured_chunks(chunks, validator, svc.keepalive_events)
             chunks = self._capture(chunks, "openai")
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
@@ -7440,6 +7457,7 @@ def model_settings(cfg: dict, overrides: dict | None = None) -> dict:
         "anthropic_think_unasked": mode == "model",
         "tool_call_recovery": flag("tool_call_recovery"),                    # opt-in: see OutputParser's recover
         "warm_start": flag("warm_start"),                                    # opt-in: see Service.start_warm
+        "keepalive_events": flag("keepalive_events"),                        # opt-in: see openai_chunks
         "repeat_stop_tokens": rs,
         "reasoning_budget_tokens": budget if budget is not None else 0,
         "reasoning_loop_recovery": loops,

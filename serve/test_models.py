@@ -615,7 +615,7 @@ class Start(unittest.TestCase):
                 "reasoning_close_retry": True, "fit_max_tokens": True,
                 "reasoning_effort": "low", "codex_thread_titles": True, "codex_compaction_cache": True,
                 "aliases": ["a1", "a2"], "anthropic_thinking": "on_request", "tool_call_recovery": True,
-                "warm_start": True, "repeat_stop_tokens": 7, "reasoning_budget_tokens": 512,
+                "warm_start": True, "keepalive_events": True, "repeat_stop_tokens": 7, "reasoning_budget_tokens": 512,
                 "reasoning_loop_recovery": True, "idle_unload_s": 60, "min_free_vram_mib": 1000, "before_load": "true",
                 "before_load_timeout_s": 5, "before_load_ignore_failure": True, "before_load_strict": True,
                 "memory_debug": True, "gpu": 0, "backend": "cuda", "sampling": {"temperature": 0.7}}
@@ -624,14 +624,16 @@ class Start(unittest.TestCase):
             "aliases", "anthropic_think_unasked", "backend", "before_load", "before_load_ignore_failure",
             "before_load_strict", "before_load_timeout_s", "codex_compaction_cache", "codex_thread_titles",
             "config_effort", "drop_oldest", "truncate_middle", "fit_max_tokens", "gpu_index", "gpu_indices", "idle_unload_s",
-            "memory_debug", "min_free_vram_mib", "preserve_thinking", "reasoning_budget_tokens", "reasoning_close_retry",
-            "reasoning_loop_recovery", "repeat_stop_tokens", "sampling_defaults", "tool_call_recovery", "warm_start")}
+            "keepalive_events", "memory_debug", "min_free_vram_mib", "preserve_thinking", "reasoning_budget_tokens",
+            "reasoning_close_retry", "reasoning_loop_recovery", "repeat_stop_tokens", "sampling_defaults",
+            "tool_call_recovery", "warm_start")}
         self.assertEqual(got, {
             "aliases": ["a1", "a2"], "anthropic_think_unasked": False, "backend": "cuda", "before_load": "true",
             "before_load_ignore_failure": True, "before_load_strict": True, "before_load_timeout_s": 5.0,
             "codex_compaction_cache": True, "codex_thread_titles": True, "config_effort": "low", "drop_oldest": True,
             "truncate_middle": True,
-            "fit_max_tokens": True, "gpu_index": 0, "gpu_indices": [0], "idle_unload_s": 60.0, "memory_debug": True,
+            "fit_max_tokens": True, "gpu_index": 0, "gpu_indices": [0], "idle_unload_s": 60.0, "keepalive_events": True,
+            "memory_debug": True,
             "min_free_vram_mib": 1000, "preserve_thinking": True, "reasoning_budget_tokens": 512,
             "reasoning_close_retry": True, "reasoning_loop_recovery": "recover", "repeat_stop_tokens": 7,
             "sampling_defaults": {"temperature": 0.7}, "tool_call_recovery": True, "warm_start": True})
