@@ -965,6 +965,15 @@ print(r.choices[0].message.content)
   `--prefill auto` (8192 tokens), a 42,131 token prompt read in 15 s sent six of them. A prompt shorter than one chunk
   sends nothing, and that is on purpose: its only line arrives once the prompt is read, because the last tokens go
   through the verify windows rather than the batched path, so it stops up to `--short-read` tokens short of the end.
+- **Keep-alives as events (opt-in).** The keep-alive is an SSE comment (`: keep-alive`), which the SSE standard says
+  clients ignore. An older openai-go does not: it takes the blank line after the comment as an event with no data,
+  fails to parse it as JSON and ends the stream, so pool (poolside's agent, built on one) disconnects while a long
+  prompt is read and never gets the answer. `"keepalive_events": true` in `strata-<model>.json` sends the API's own
+  event instead: on `/v1/chat/completions` a chunk of the same completion with an empty delta (as the last chunk has,
+  and as `prompt_progress` rides on), on `/v1/messages` Anthropic's `event: ping`. A structured answer held for
+  validation is kept alive the same way. `/v1/responses` keeps the comment, because the Responses API has no
+  keep-alive event (Codex gets its `response.in_progress` every 15 s as before). Off by default, so the stream is
+  unchanged unless you turn it on.
 - **Chat apps.** Any app with an "OpenAI-compatible" provider works: base URL `http://127.0.0.1:8080/v1`, any API key.
   Zed's llama.cpp provider reads `/props` and offers tools from `chat_template_caps`. Its generic OpenAI-compatible
   provider does not: add `"capabilities": {"tools": true, "chat_completions": true}` on that model in Zed's settings.
@@ -2295,8 +2304,9 @@ duplicate keys, non-finite numbers, schema violations and incomplete generations
 `error.code: structured_output_failed`; invalid request schemas return **400**. JSON formats combined with
 tools/MCP are refused explicitly. Without `response_format`, ordinary text and tool behavior stays the same.
 
-Structured SSE buffers the answer while sending keep-alive comments. It emits content only after validation,
-then usage/timings and `[DONE]`; failures emit an SSE error and `[DONE]` without invalid content deltas.
+Structured SSE buffers the answer while sending keep-alive comments (chunks with an empty delta with
+`"keepalive_events": true`). It emits content only after validation, then usage/timings and `[DONE]`; failures
+emit an SSE error and `[DONE]` without invalid content deltas.
 `/v1/status.structured_output` advertises the formats, validation method and buffered streaming behavior.
 
 ### API request monitor
