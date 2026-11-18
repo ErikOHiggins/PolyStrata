@@ -158,6 +158,20 @@ class Oracle(unittest.TestCase):
         self.assertGreater(n, 40)
 
 
+class PreTokenizerNames(unittest.TestCase):
+    """The GGUF's `tokenizer.ggml.pre` picks the split.  `qwen2` (Occamy 1.0's files) cuts a combining mark off its
+    letters, as llama.cpp's LLAMA_VOCAB_PRE_TYPE_QWEN2 does; `qwen35` keeps it with them."""
+
+    def pieces(self, pre, text):
+        return ST.Tokenizer(["a"], [], pre=pre)._pieces(text)
+
+    def test_qwen2_is_qwen2s_split_not_qwen35s(self):
+        text = "cafe\u0301 x"
+        self.assertEqual(self.pieces("qwen2", text), ["cafe", "\u0301", " x"])
+        self.assertEqual(self.pieces("kolibri1", text), ["cafe", "\u0301", " x"])
+        self.assertEqual(self.pieces("qwen35", text), ["cafe\u0301", " x"])
+
+
 class Marks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -117,9 +117,10 @@ FLINT_SEQUENCE = (
     r"|\s+",
 )
 
-# The `kolibri1` pre-tokenizer (Kolibri 1), from llama.cpp's LLAMA_VOCAB_PRE_TYPE_QWEN2: the patch that adds the
-# architecture gives its pre-tokenizer that type ("same split regex as qwen2"), so the letters are cut without the
-# combining marks that Qwen 3's pattern keeps with them.
+# The `qwen2` pre-tokenizer, llama.cpp's LLAMA_VOCAB_PRE_TYPE_QWEN2, which also takes `kolibri1` (Kolibri 1): the patch
+# that adds that architecture gives its pre-tokenizer this type ("same split regex as qwen2").  The letters are cut
+# without the combining marks that Qwen 3's pattern keeps with them.  A file can name `qwen2` itself: Occamy 1.0's
+# GGUFs do (a Qwen3.6-35B-A3B fine-tune whose tokenizer.json splits as Qwen 2), and they got qwen35's split before.
 QWEN2_PATTERN = (
     r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])"
     r"|[^\r\n\p{L}\p{N}]?\p{L}+"
@@ -135,6 +136,7 @@ QWEN2_PATTERN = (
 LAGUNA_SEQUENCE = (r"[^\n]+|[\n]+", QWEN2_PATTERN)
 
 PRE_PATTERNS = {"glm4": GLM4_PATTERN, "glm5": GLM4_PATTERN,   # every other name: QWEN35_PATTERN, as before
+                "qwen2": QWEN2_PATTERN,
                 "gemma4": GEMMA4_PATTERN, "lfm2": GLM4_PATTERN, "kolibri1": QWEN2_PATTERN}
 PRE_SEQUENCES = {"joyai-llm": DEEPSEEK3_SEQUENCE, "deepseek-v3": DEEPSEEK3_SEQUENCE, "flint": FLINT_SEQUENCE,
                  "laguna": LAGUNA_SEQUENCE}
