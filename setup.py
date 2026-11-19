@@ -3915,43 +3915,84 @@ def build_vision_cpu(eng: Path, stamp: Path, meta: dict, llama, vsrc, portable=F
 
 
 # ------------------------------------------------------------------------------------------------ image generation
-IMAGE_ENGINE = ROOT / "engine-image"           # sd-cli for Qwen-Image-2.1-Turbo (tools/image/qimage.py), --images
+IMAGE_ENGINE = ROOT / "engine-image"           # sd-server and its Web UI for FLUX.2 klein (tools/image/sdimage.py), --images
 
 
-def _qimage():
+def _sdimage():
     if str(ROOT / "tools" / "image") not in sys.path:
         sys.path.insert(0, str(ROOT / "tools" / "image"))
-    import qimage
-    return qimage
+    import sdimage
+    return sdimage
 
 
-def get_sd_cpp() -> Path:
-    """stable-diffusion.cpp and its ggml at the pinned commits (tools/image/qimage.py), as zips: no git."""
-    QI = _qimage()
-    src = ROOT / "third_party" / "stable-diffusion.cpp"
-    if QI.source_ok(src):
+def get_sd_cpp(backend: str) -> Path:
+    """stable-diffusion.cpp and the submodules a build on `backend` needs (ggml, the Web UI, CUTLASS for CUDA) at the
+    pinned commits (tools/image/sdimage.py), as zips: no git."""
+    SI = _sdimage()
+    tp = ROOT / "third_party"
+    src = tp / "stable-diffusion.cpp"
+    if SI.source_ok(src, backend):
         return src
-    z1 = ROOT / "third_party" / f"stable-diffusion.cpp-{QI.SD_CPP_COMMIT[:7]}.zip"
-    z2 = ROOT / "third_party" / f"sd-ggml-{QI.SD_GGML_COMMIT[:7]}.zip"
-    download(QI.SD_CPP_ZIP, z1, "stable-diffusion.cpp source")
-    download(QI.SD_GGML_ZIP, z2, "stable-diffusion.cpp's ggml source")
+    sd_zip = tp / f"stable-diffusion.cpp-{SI.SD_CPP_COMMIT[:7]}.zip"
+    download(SI.SD_CPP_ZIP, sd_zip, "stable-diffusion.cpp source")
+    subs = {}
+    for sub in SI.submodules_for(backend):
+        url, commit = SI.SUBMODULES[sub]
+        z = tp / f"sd-{Path(sub).name}-{commit[:7]}.zip"
+        download(url, z, f"stable-diffusion.cpp's {sub}")
+        subs[sub] = z
+    zips = [sd_zip, *subs.values()]
     try:
-        src = QI.unpack_source(ROOT / "third_party", z1, z2)
+        src = SI.unpack_source(tp, sd_zip, subs)
     except zipfile.BadZipFile:
-        for z in (z1, z2):
+        for z in zips:
             drop_archive(z)
         raise
-    for z in (z1, z2):
+    for z in zips:
         z.unlink(missing_ok=True)
         z.with_name(z.name + ".done").unlink(missing_ok=True)
     return src
 
 
+def find_pnpm() -> str:
+    """The pnpm that builds sd-server's Web UI (sd.cpp's CMake runs it): one on PATH, else the one setup put into
+    third_party/pnpm earlier, else npm installs the version the Web UI names there (no sudo).  Needs Node.js 20+."""
+    SI = _sdimage()
+    need = ".".join(map(str, SI.NODE_MIN[:1]))
+    node = shutil.which("node")
+    if node is None:
+        fail(f"building the image page (stable-diffusion.cpp's Web UI) needs Node.js {need} or newer",
+             "install it (https://nodejs.org/, or your distribution's nodejs and npm packages) and run setup again")
+    try:
+        found = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
+        version = tuple(int(x) for x in found.lstrip("v").split(".")[:2])
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        found, version = "", (0, 0)
+    if version < SI.NODE_MIN:
+        fail(f"building the image page needs Node.js {need} or newer, this PC has {found or 'an unreadable version'}",
+             "install a newer Node.js (https://nodejs.org/) and run setup again")
+    have = shutil.which("pnpm.cmd" if WIN else "pnpm") or shutil.which("pnpm")
+    if have:
+        return have
+    local = ROOT / "third_party" / "pnpm"
+    exe = local / "node_modules" / ".bin" / ("pnpm.cmd" if WIN else "pnpm")
+    if not exe.exists():
+        npm = shutil.which("npm.cmd" if WIN else "npm") or shutil.which("npm")
+        if npm is None:
+            fail("building the image page needs pnpm, and there is no npm to install it with",
+                 "install npm (it comes with Node.js; Linux: the npm package) or pnpm, and run setup again")
+        say(f"  Installing pnpm {SI.PNPM_VERSION} into third_party/pnpm (for building the image page) ...")
+        run([npm, "install", "--prefix", str(local), "--no-audit", "--no-fund", f"pnpm@{SI.PNPM_VERSION}"])
+    if not exe.exists():
+        fail(f"npm finished without {exe}", "install pnpm yourself (npm install -g pnpm) and run setup again")
+    return str(exe)
+
+
 def vulkan_sdk() -> Path | None:
-    """What a Vulkan build of sd-cli needs (the Vulkan headers and glslc): $VULKAN_SDK, the distribution's packages,
+    """What a Vulkan build of sd-server needs (the Vulkan headers and glslc): $VULKAN_SDK, the distribution's packages,
     else (Linux) the LunarG SDK unpacked into third_party (no sudo, ~370 MB).  Returns the SDK folder it put on PATH,
     None when the system's files are used."""
-    QI = _qimage()
+    SI = _sdimage()
     have = os.environ.get("VULKAN_SDK")
     if have and Path(have).is_dir():
         return None
@@ -3962,12 +4003,12 @@ def vulkan_sdk() -> Path | None:
              "install it from https://vulkan.lunarg.com/sdk/home#windows, open a new window and run setup again "
              "(or --image-backend cpu)")
     base = ROOT / "third_party" / "vulkan-sdk"
-    sdk = base / QI.VULKAN_SDK_VERSION / "x86_64"
+    sdk = base / SI.VULKAN_SDK_VERSION / "x86_64"
     if not (sdk / "bin" / "glslc").exists():
         import tarfile
-        tar = ROOT / "third_party" / f"vulkansdk-{QI.VULKAN_SDK_VERSION}.tar.xz"
-        download(QI.VULKAN_SDK_URL, tar, f"the Vulkan SDK {QI.VULKAN_SDK_VERSION} (LunarG, for compiling only)")
-        verify_sha256(tar, QI.VULKAN_SDK_SIZE, QI.VULKAN_SDK_SHA256)
+        tar = ROOT / "third_party" / f"vulkansdk-{SI.VULKAN_SDK_VERSION}.tar.xz"
+        download(SI.VULKAN_SDK_URL, tar, f"the Vulkan SDK {SI.VULKAN_SDK_VERSION} (LunarG, for compiling only)")
+        verify_sha256(tar, SI.VULKAN_SDK_SIZE, SI.VULKAN_SDK_SHA256)
         shutil.rmtree(base, ignore_errors=True)
         base.mkdir(parents=True)
         with tarfile.open(tar) as t:
@@ -3982,32 +4023,21 @@ def vulkan_sdk() -> Path | None:
     return sdk
 
 
-def apply_native_runner(src: Path) -> None:
-    """I2: tools/image/sdcpp_native's runner into the stable-diffusion.cpp source (idempotent)."""
-    import importlib.util
-    QI = _qimage()
-    spec = importlib.util.spec_from_file_location("strata_sdcpp_native_apply", QI.NATIVE_DIR / "apply.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod.apply(src)
-
-
-def build_image_engine(backend: str, gpu: dict) -> tuple[Path, list[str]]:
-    """Compile sd-cli for `backend` into engine-image/ (again only when the pins or the backend changed) -> (its path,
-    the library folders it runs with)."""
-    QI = _qimage()
+def build_image_engine(backend: str, gpu: dict) -> tuple[Path, Path, list[str]]:
+    """Compile sd-server with its Web UI for `backend` into engine-image/ (again only when the pins or the backend
+    changed) -> (sd-server's path, the Web UI's HTML file, the library folders sd-server runs with)."""
+    SI = _sdimage()
     IMAGE_ENGINE.mkdir(exist_ok=True)
-    exe, stamp = IMAGE_ENGINE / QI.SD_EXE, IMAGE_ENGINE / "BUILD.json"
+    exe, webui, stamp = IMAGE_ENGINE / SI.SD_EXE, IMAGE_ENGINE / SI.WEBUI_FILE, IMAGE_ENGINE / "BUILD.json"
     arch = gpu.get("arch") if backend in ("cuda", "hip") else None
-    want = QI.build_stamp(backend, arch)
+    want = SI.build_stamp(backend, arch)
     meta = json.loads(stamp.read_text(encoding="utf-8")) if stamp.exists() else {}
     lib_dirs = [d for d in meta.get("lib_dirs") or [] if Path(d).is_dir()]
-    if exe.exists() and {k: meta.get(k) for k in want} == want:
+    if exe.exists() and webui.exists() and {k: meta.get(k) for k in want} == want:
         ok(f"image generator already built ({backend})")
-        return exe, lib_dirs
-    src = get_sd_cpp()
-    if backend in QI.NATIVE_BACKENDS:                 # PolyStrata's DiT runner (inert unless the config asks for it)
-        apply_native_runner(src)
+        return exe, webui, lib_dirs
+    pnpm = find_pnpm()
+    src = get_sd_cpp(backend)
     vcvars, lib_dirs = None, []
     if backend == "cuda":
         nvcc, cuda_v = find_nvcc()
@@ -4016,7 +4046,7 @@ def build_image_engine(backend: str, gpu: dict) -> tuple[Path, list[str]]:
                  "install it from https://developer.nvidia.com/cuda-downloads and run setup again "
                  "(or --image-backend vulkan / cpu)")
         root = Path(nvcc).resolve().parent.parent
-        defs = QI.cmake_defs("cuda", arch=arch, cuda_root=root) + [f"-DCMAKE_CUDA_COMPILER={nvcc}"] + \
+        defs = SI.cmake_defs("cuda", arch=arch, cuda_root=root, pnpm=pnpm) + [f"-DCMAKE_CUDA_COMPILER={nvcc}"] + \
             host_compiler_defs(True)
         vcvars = find_vcvars(cuda_v) if WIN else None
         lib_dirs = [str(root / "bin")] if WIN else [str(d) for d in (root / "lib64", root / "lib") if d.is_dir()]
@@ -4024,11 +4054,11 @@ def build_image_engine(backend: str, gpu: dict) -> tuple[Path, list[str]]:
         root, dirs = rocm_root([arch])
         os.environ.update({"HIP_PLATFORM": "amd", "ROCM_PATH": str(root), "HIP_PATH": str(root)})
         os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(dirs + [os.environ.get("LD_LIBRARY_PATH", "")]).rstrip(os.pathsep)
-        defs = QI.cmake_defs("hip", arch=arch, rocm=root)
+        defs = SI.cmake_defs("hip", arch=arch, rocm=root, pnpm=pnpm)
         lib_dirs = list(dirs)
     elif backend == "vulkan":
         sdk = vulkan_sdk()
-        defs = QI.cmake_defs("vulkan")
+        defs = SI.cmake_defs("vulkan", pnpm=pnpm)
         vcvars = find_vcvars() if WIN else None
         if sdk is not None:                          # the SDK's loader (lib/VulkanLoader): CMake does not look there
             loader = sdk / "lib" / "VulkanLoader" / "lib"
@@ -4038,60 +4068,74 @@ def build_image_engine(backend: str, gpu: dict) -> tuple[Path, list[str]]:
             if not ctypes.util.find_library("vulkan"):
                 lib_dirs = [str(loader)]             # no system Vulkan loader to run with: the SDK's
     else:
-        defs = QI.cmake_defs("cpu")
+        defs = SI.cmake_defs("cpu", pnpm=pnpm)
         vcvars = find_vcvars() if WIN else None
-    say(f"  Compiling the image generator (stable-diffusion.cpp {QI.SD_CPP_COMMIT[:7]}, {backend}; 5-20 minutes, "
-        "once) ...")
-    bdir = ROOT / f"build-image-{backend}"
-    cmake_build(src, bdir, "sd-cli", defs, vcvars, f"build-image-{backend}.bat" if WIN else "")
-    built = bdir / "bin" / QI.SD_EXE
+    say(f"  Compiling the image generator (stable-diffusion.cpp {SI.SD_CPP_RELEASE} sd-server and its Web UI, "
+        f"{backend}; 10-30 minutes, once) ...")
+    bdir = ROOT / f"build-sdserver-{backend}"
+    cmake_build(src, bdir, "sd-server", defs, vcvars, f"build-sdserver-{backend}.bat" if WIN else "")
+    built, html = bdir / "bin" / SI.SD_EXE, src / SI.WEBUI_DIST
     if not built.exists():
         fail(f"the image generator's build finished without {built}", f"delete the folder {bdir.name} and run again")
+    if not html.is_file():
+        fail("the image page (stable-diffusion.cpp's Web UI) was not built: sd-server has no page to show",
+             f"the build log above says why (pnpm downloads the page's packages from the npm registry); delete the "
+             f"folder {bdir.name} and run again")
     shutil.copy2(built, exe)
+    shutil.copy2(html, webui)
+    old = IMAGE_ENGINE / ("sd-cli.exe" if WIN else "sd-cli")  # the Qwen-Image version's program
+    old.unlink(missing_ok=True)
     stamp.write_text(json.dumps({**want, "lib_dirs": lib_dirs}, indent=1))
-    ok(f"image generator compiled: {exe}")
-    return exe, lib_dirs
+    ok(f"image generator compiled: {exe} (Web UI: {webui.name})")
+    return exe, webui, lib_dirs
 
 
 def image_backend_choice(a, gpu: dict | None, hip: bool) -> tuple[str, str, float]:
     """--images: (backend, quant, the GPU memory in GB the quant was picked for).  An explicit --image-quant above the
     recommendation is kept, with a warning (recommend, never force)."""
-    QI = _qimage()
+    SI = _sdimage()
     vendor = "amd" if hip else ((gpu or {}).get("vendor") or "nvidia")
-    backend = a.image_backend or QI.pick_backend({**gpu, "vendor": vendor} if gpu else None, WIN)
+    backend = a.image_backend or SI.pick_backend({**gpu, "vendor": vendor} if gpu else None, WIN)
     gb = float((gpu or {}).get("vram_gb") or 0.0) if backend != "cpu" else 0.0
-    rec = QI.pick_quant(gb) if backend != "cpu" else "Q4_K_M"
+    rec = SI.pick_quant(gb) if backend != "cpu" else "Q4_0"
     quant = a.image_quant or rec
-    if QI.QUANTS.index(quant) > QI.QUANTS.index(rec):
+    if SI.QUANTS.index(quant) > SI.QUANTS.index(rec):
         warn(f"image model {quant}: setup recommends {rec} for {gb:.0f} GB of GPU memory; kept as you chose "
-             "(stable-diffusion.cpp then keeps part of it in RAM, which is slower)")
+             "(stable-diffusion.cpp then works in smaller pieces, which is slower)")
     return backend, quant, gb
 
 
+def download_image_model(models_dir: Path, quant: str) -> None:
+    """The three files of FLUX.2 klein 4B at `quant` into models/images' category folders, each checked."""
+    SI = _sdimage()
+    SI.make_model_root(models_dir)
+    for name in SI.files_for(quant):
+        dst = SI.local_path(models_dir, name)
+        download(SI.file_url(name, hf_endpoint()), dst, f"image model: {dst.name}")
+        verify_sha256(dst, SI.FILES[name][2], SI.FILES[name][3])
+
+
 def setup_images(a, gpu: dict, hip: bool, models_dir: Path) -> dict | None:
-    """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
-    section (serve/images.py); None for --images no, or when not wanted after all."""
+    """--images flux2-klein: sd-server with its Web UI for this GPU and FLUX.2 klein 4B's three files -> the run
+    config's "images" section (serve/images.py); None for --images no, or when not wanted after all."""
     if not a.images or a.images == "no":
         return None
-    QI = _qimage()
+    SI = _sdimage()
     backend, quant, _ = image_backend_choice(a, gpu, hip)
-    say(f"  Image generation: Qwen-Image-2.1-Turbo {quant} on {backend} (8 steps, CFG 1; POST /v1/images/generations)")
-    say("  " + QI.LICENSE_NOTE)
-    need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
+    say(f"  Image generation: FLUX.2 klein 4B {quant} on {backend} (stable-diffusion.cpp's own server and Web UI, "
+        "in the web app's Images tab)")
+    say("  " + SI.LICENSE_NOTE)
+    need = sum(SI.FILES[k][2] for k in SI.files_for(quant)) / 1e9
     if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
         return None
     models_dir.mkdir(parents=True, exist_ok=True)
     if free_gb(models_dir) < need + 5:
         warn(f"less than {need + 5:.0f} GB free for the image model: the download may run out of disk space")
-    exe, lib_dirs = build_image_engine(backend, gpu or {})
-    for name in (quant, "vae", "llm"):
-        repo, path, size, sha = QI.FILES[name]
-        dst = QI.local_path(models_dir, name)
-        download(QI.file_url(name, hf_endpoint()), dst, f"image model: {Path(path).name}")
-        verify_sha256(dst, size, sha)
-    cfg = QI.image_config(backend, quant, exe, models_dir, uma=QI.is_apu(gpu), lib_dirs=lib_dirs,
-                          policy=a.image_gpu_policy or "auto", native=getattr(a, "image_native", None) == "on")
-    ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
+    exe, webui, lib_dirs = build_image_engine(backend, gpu or {})
+    download_image_model(models_dir, quant)
+    cfg = SI.image_config(backend, quant, exe, models_dir, webui=webui, uma=SI.is_apu(gpu), lib_dirs=lib_dirs,
+                          policy=a.image_gpu_policy or "auto")
+    ok(f"image generation: FLUX.2 klein 4B {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
     return cfg
 
 
@@ -7771,14 +7815,13 @@ def main() -> int:
                     help="the most image tokens a picture becomes (default 1024 with the encoder on the GPU, 300 on "
                          "the CPU): more reads small text and charts better, and takes longer to encode; remembered "
                          "for this model")
-    # image generation (Qwen-Image): in preview, not offered in setup or --help; the options still work (docs/IMAGES.md)
-    ap.add_argument("--images", choices=["qwen-image", "no"],
+    # image generation (FLUX.2 klein 4B in stable-diffusion.cpp's own server and Web UI): in preview, not offered in
+    # setup or --help; the options still work (docs/IMAGES.md)
+    ap.add_argument("--images", choices=["flux2-klein", "no"],
                     help=argparse.SUPPRESS)
-    ap.add_argument("--image-quant", choices=["Q4_K_M", "Q6_K", "Q8_0"],
+    ap.add_argument("--image-quant", choices=["Q4_0", "Q8_0"],
                     help=argparse.SUPPRESS)
     ap.add_argument("--image-backend", choices=["cuda", "hip", "vulkan", "cpu"],
-                    help=argparse.SUPPRESS)
-    ap.add_argument("--image-native", choices=["on", "off"],
                     help=argparse.SUPPRESS)
     ap.add_argument("--image-gpu-policy", choices=["auto", "keep", "shrink", "unload"],
                     help=argparse.SUPPRESS)
@@ -8957,7 +9000,7 @@ def main() -> int:
     if vision != "none":
         say("  Images:           send them in the chat page, in chat.py (/image <path>) or over the API")
     if cfg.get("images"):
-        say(f"  Image generation: POST http://127.0.0.1:{port}/v1/images/generations (OpenAI's images API)")
+        say(f"  Image generation: the Images tab, http://127.0.0.1:{port}/#images (stable-diffusion.cpp's Web UI)")
     if a.parallel is None:                             # #465: the opt-in, said once (nothing changes)
         for line in parallel_note(None, [g.get("vram_gb", 0.0) for g in chosen], MODELS[model]["arena_gb"], ctx, kv,
                                   "--kv-resident" in cfg["args"]):

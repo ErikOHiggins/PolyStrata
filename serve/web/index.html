@@ -78,24 +78,13 @@
   </section>
 
   <!-- ============================ Images ============================ -->
+  <!-- stable-diffusion.cpp's own Web UI (sdcpp-webui), served at sd/ and talking to sd-server through this server -->
   <section class="view view--images" id="view-images" role="tabpanel" aria-labelledby="tab-btn-images" hidden>
-    <div class="about">
-      <form class="st-card img-form" id="img-form">
-        <span class="card-title" id="img-title">Make an image</span>
-        <textarea class="st-input img-prompt" id="img-prompt" rows="3" placeholder="Describe the image&hellip;" aria-label="Prompt"></textarea>
-        <div class="img-row">
-          <label class="st-field">Size
-            <select class="st-input" id="img-size">
-              <option>1024x1024</option><option>1536x1024</option><option>1024x1536</option>
-              <option>768x768</option><option>512x512</option></select></label>
-          <label class="st-field">Seed
-            <input class="st-input" id="img-seed" type="number" min="0" placeholder="random"></label>
-          <button type="submit" class="st-btn st-btn--primary" id="img-go">Generate</button>
-        </div>
-        <span class="composer-hint" id="img-hint">One image at a time; a chat request waits for it (and the other way round).</span>
-      </form>
-      <div class="img-results" id="img-results"></div>
+    <div class="sd-bar">
+      <span class="composer-hint" id="sd-hint">stable-diffusion.cpp's Web UI. One image job at a time on the GPU: a chat request waits for it (and the other way round).</span>
+      <a class="st-btn st-btn--secondary sd-open" id="sd-open" href="sd/" target="_blank" rel="noopener">Open in its own tab</a>
     </div>
+    <iframe class="sd-frame" id="sd-frame" title="Image generation (stable-diffusion.cpp)"></iframe>
   </section>
 
   <!-- ============================ Monitor ============================ -->

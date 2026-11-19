@@ -198,14 +198,10 @@ main { flex: 1; min-height: 0; display: flex; }
 /* the header's model list (more than one model installed) */
 .model-select{height:30px;max-width:280px;padding:0 var(--st-s-2);border-radius:var(--st-r-md);border:1px solid var(--st-line);background:var(--st-surface-2);color:var(--st-ink);font:inherit;font-size:var(--st-fs-sm)}
 .model-select:disabled{opacity:.6}
-/* Images tab (POST /v1/images/generations) */
-.img-form{display:flex;flex-direction:column;gap:12px}
-.img-prompt{height:auto;padding:10px 14px;resize:vertical}
-.img-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
-.img-results{display:flex;flex-direction:column;gap:12px}
-.img-results figure{margin:0}
-.img-results img{max-width:100%;border-radius:var(--st-r-lg);display:block}
-.img-results figcaption{font-size:var(--st-fs-sm, 13px);color:var(--st-ink-2, inherit);margin-top:4px}
+/* Images tab: stable-diffusion.cpp's Web UI in a frame (sd/) */
+.sd-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--st-s-3);padding:var(--st-s-2) var(--st-s-4);border-bottom:1px solid var(--st-line)}
+.sd-open{height:30px;padding:0 var(--st-s-3);font-size:var(--st-fs-sm);text-decoration:none;white-space:nowrap}
+.sd-frame{flex:1;width:100%;border:0;min-height:0}
 
 /* Swipes and Regeneration */
 .swipe-count { font-size: 11px; opacity: 0.7; padding: 0 4px; align-self: center; }

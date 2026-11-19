@@ -63,6 +63,13 @@ build-vision-cuda12.bat
 /third_party/*.zip
 /third_party/metal-cpp/
 
+# image generation (setup.py --images flux2-klein): sd-server, its Web UI, their sources and build tools
+/engine-image/
+/build-sdserver-*.bat
+/third_party/stable-diffusion.cpp/
+/third_party/pnpm/
+/third_party/vulkan-sdk/
+
 # IDEs
 .vscode/
 .idea/
