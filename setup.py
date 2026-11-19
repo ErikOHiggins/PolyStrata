@@ -60,6 +60,11 @@ WIN = os.name == "nt"
 # https://huggingface.co/api/models/<repo> when this was pinned), so a checkout installs the same files on any
 # day.  A revision the repository no longer has falls back to its current files, with a message (download()).
 HF_REVISIONS = {
+    "unsloth/Laguna-S-2.1-GGUF": "750f92f90cf54159c4d7a610cb7b3e74498e75c6",                       # 2026-07-27
+    "poolside/Laguna-S-2.1-GGUF": "19036076775e9ba6758595f78af99cb976ef8ff0",                      # 2026-08-06
+    "poolside/Laguna-XS-2.1-GGUF": "1a37c0a5fb8c7a18e6106decb6be6327d1b63fa6",                     # 2026-07-18
+    "Accio-Lab/occamy-1.0-APEX-GGUF": "7c731908b05f5cbd19002b23d421aa102c0dd0de",                  # 2026-10-02
+    "Accio-Lab/occamy-1.0-GGUF": "15027de49a5f8bbb5a131ed3fcfc1b54a543089d",                       # 2026-10-19
     "unsloth/gemma-4-26B-A4B-it-GGUF": "c099eb48e663fd284577b04978a94ffccb261841",                     # 2026-10-05
     "unsloth/gemma-4-26B-A4B-it-qat-GGUF": "7b92b5b28818151e8669af2e45e88d6086f490dd",                 # 2026-10-26
 }
@@ -185,9 +190,95 @@ MODELS = {}             # the Qwen engine's sizes are gone (phase 1b); every fam
 # 204800 (200K) sits between 128K and 256K: it is inside the trained 262144, so it needs no rope scaling and
 # costs ~2.8 GB of 8-bit KV with IQ3_S (vs ~3.6 GB at 256K) - a middle step for PCs that cannot hold 256K.
 CONTEXTS = [8192, 32768, 65536, 131072, 204800, 262144, 393216, 524288]
-# The model families: the same architecture, weights in the same three GSQ-RCO sizes, different files.
 # The model families Puddle offers: each runs on strata-poly and has sizes of its own ("models").
 FAMILIES = {
+    # Laguna-S 2.1 (poolside): 48 layers, 12 of them full attention (8 KV heads of 128), 36 sliding (a 512-token
+    # window), 256 experts of which 10 are used.  Its KV is q8_0 (setup writes --kv q8_0), as it runs every day on
+    # 2x RTX 5060 Ti 16 GB + 128 GB of RAM (echo), 262K context.  row_bytes: the q8_0 KV of the 12 full layers per
+    # token (24,576 values).  vram_beside_gb: from that run's log (21.7 GiB of UD-Q3_K_XL's experts in VRAM at load on
+    # 2x 15.48 GiB, less setup's 2.0 GiB for the second card) plus the q8_0 KV of 32K; the other sizes have the same
+    # dense weights within 0.1 GB.  ram_gb: setup's estimate beside a 16 GB card (poly_ram_need).
+    "laguna-s": {"title": "Laguna S 2.1", "by": "poolside; quantized by Unsloth",
+                 "about": "a 54 GB file, ~51 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti 16 GB at 262K; "
+                          "two larger sizes too",
+                 "hf": hf("unsloth/Laguna-S-2.1-GGUF"), "file": "{q}/Laguna-S-2.1-{q}-0000{i}-of-00003.gguf",
+                 "shards": 3, "tag": "laguna-s21-", "name": "laguna-s-2.1", "engine": "poly", "experimental": True,
+                 "ran_on_gb": 16, "kv": "q8_0", "row_bytes": 26112,
+                 "license": "OpenMDW-1.1 (poolside's): https://huggingface.co/poolside/Laguna-S-2.1",
+                 "models": {"UD-Q3_K_XL": {"about": "IQ3_XXS gate/up and IQ4_XS down experts (Unsloth Dynamic); the one "
+                                                     "run every day",
+                                           "download_gb": 54.1, "ram_gb": 51, "arena_gb": 49.8, "vram_beside_gb": 8.0},
+                            "UD-Q4_K_XL": {"about": "Q4_K gate/up and Q5_K down experts (Unsloth Dynamic): higher "
+                                                     "quality; not run yet",
+                                           "download_gb": 73.4, "ram_gb": 71, "arena_gb": 69.0, "vram_beside_gb": 8.1},
+                            # poolside's own file: 8 of its 47 expert layers are BF16, which the VRAM expert cache
+                            # does not hold (native_mmvq has no BF16), so they run on the CPU; and a 1M-token rope
+                            # (factor 128 over 8,192) where Unsloth's files have 262,144 (factor 32)
+                            "Q4_K_M": {"about": "poolside's own file: Q4_K experts, 8 layers of them BF16 (those run on "
+                                                 "the CPU), a 1M-token rope; not run yet",
+                                       "hf": hf("poolside/Laguna-S-2.1-GGUF"), "file": "laguna-s-2.1-Q4_K_M.gguf",
+                                       "shards": 1, "download_gb": 96.0, "ram_gb": 93, "arena_gb": 91.7,
+                                       "vram_beside_gb": 8.1}},
+                 "sha256": {"Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf":
+                          (3683648, "39de6a5ff3b9813b923e1bf8684d8ff6dc786d6337f75fa245f21d1e6f2c586b"),
+                          "Laguna-S-2.1-UD-Q3_K_XL-00002-of-00003.gguf":
+                          (49699878368, "0e8bc5a30c755c5faac6e6cdef3cc8c8c2425bc7468e31ecb282bbbbf6558c19"),
+                          "Laguna-S-2.1-UD-Q3_K_XL-00003-of-00003.gguf":
+                          (4390258592, "25c8d2c8e9e1c6c059b1b7dfbeaa02e29caeadc85974c4971dea5e7878665d2d"),
+                          "Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf":
+                          (3683648, "0cfaf46917260d253773e5e2fab64329fa5c9c60fdf0db0f59f31205b5f5dd32"),
+                          "Laguna-S-2.1-UD-Q4_K_XL-00002-of-00003.gguf":
+                          (49971821312, "2296102462b02edca70163121ac62bacf7a82078c0eafc91625c8822850769bf"),
+                          "Laguna-S-2.1-UD-Q4_K_XL-00003-of-00003.gguf":
+                          (23419667040, "9150e2338f7690af29685b6a2ca621a8fda7ecf9724678266c4b04b7c6dd0ef3"),
+                          "laguna-s-2.1-Q4_K_M.gguf":
+                          (96031829760, "a8b55c75714ea73fd90ec85de5defdc0b8d88ca0ad2108343cdd8fc22f7583e4")}},
+    # Laguna-XS 2.1 (poolside): 40 layers, 10 of them full attention, 256 experts of which 8 are used; q8_0 KV as
+    # Laguna-S (row_bytes: 20,480 values a token).  Run on the same PC at 262K, every expert in VRAM (17.7 GiB on
+    # the two cards).  vram_beside_gb: Laguna-S's less the 2.8 GiB of dense weights XS does not have (an estimate).
+    "laguna-xs": {"title": "Laguna XS 2.1", "by": "poolside",
+                  "about": "the small Laguna: a 20 GB file, ~17 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti "
+                           "16 GB at 262K",
+                  "hf": hf("poolside/Laguna-XS-2.1-GGUF"), "file": "Laguna-XS-2.1-{q}.gguf", "shards": 1,
+                  "tag": "laguna-xs21-", "name": "laguna-xs-2.1", "engine": "poly", "experimental": True,
+                  "ran_on_gb": 16, "kv": "q8_0", "row_bytes": 21760,
+                  "license": "OpenMDW-1.1 (poolside's): https://huggingface.co/poolside/Laguna-XS-2.1",
+                  "models": {"Q4_K_M": {"about": "poolside's own file: Q4_K gate/up, Q4_K and Q6_K down experts",
+                                        "download_gb": 20.3, "ram_gb": 17, "arena_gb": 19.0,
+                                        "vram_beside_gb": 5.0}},
+                  "sha256": {"Laguna-XS-2.1-Q4_K_M.gguf":
+                          (20274300032, "1ac7079101fca5a6df8c5a7523a3c30ea7d1c0e4b1258090e7d6d4039287f6cb")}},
+    # Occamy 1.0 (Accio-Lab): qwen35moe, Qwen3.6-35B-A3B's architecture (40 layers, 10 of them full attention, 256
+    # experts of which 8 are used), and it reads pictures (its image encoder is in another repository).  The APEX
+    # sizes have the dense weights of Ornith 1.5's APEX sizes (1.6 and 2.1 GB), so vram_beside_gb, row_bytes and the
+    # encoder's VRAM are upstream's measurements of those (Ornith 1.5, the same architecture).  APEX-Quality runs on
+    # the same PC on both cards with the encoder on the GPU, 262K, fp16 KV (the engine's default, which setup keeps).
+    "occamy": {"title": "Occamy 1.0 35B-A3B", "by": "Accio-Lab; APEX quantization",
+               "about": "Qwen3.6-35B-A3B's architecture, reads pictures; a 23 GB file, ~18 GB of RAM beside a 16 GB "
+                        "card; runs on 2x RTX 5060 Ti 16 GB with images",
+               "hf": hf("Accio-Lab/occamy-1.0-APEX-GGUF"), "file": "occamy-1.0-{q}.gguf", "shards": 1,
+               "tag": "occamy-", "name": "occamy-1.0-35b-a3b", "engine": "poly", "vision": True, "experimental": True,
+               "ran_on_gb": 16, "row_bytes": 26624,
+               "mmproj_hf": hf("Accio-Lab/occamy-1.0-GGUF"), "mmproj": "mmproj-occamy-1.0-F16.gguf",
+               "vision_gb": 0.9, "vision_vram_gb": 1.6,
+               "license": "Apache 2.0: https://huggingface.co/Accio-Lab/occamy-1.0-GGUF",
+               "models": {"APEX-Quality": {"about": "IQ4_XS, Q5_K and Q6_K experts (APEX); the one run every day",
+                                           "download_gb": 22.8, "ram_gb": 18, "arena_gb": 20.7,
+                                           "vram_beside_gb": 4.4},
+                          "APEX-I-Compact": {"about": "Q3_K and Q4_K experts (APEX): the least RAM; not run yet",
+                                             "download_gb": 16.5, "ram_gb": 12, "arena_gb": 14.9,
+                                             "vram_beside_gb": 4.2},
+                          "APEX-Balanced": {"about": "Q5_K and Q6_K experts (APEX): higher quality; not run yet",
+                                            "download_gb": 25.3, "ram_gb": 21, "arena_gb": 23.2,
+                                            "vram_beside_gb": 4.4}},
+               "sha256": {"occamy-1.0-APEX-Quality.gguf":
+                          (22819401472, "abce3a18934ab9e6fa80547d1a2edc44acfe6feda7a15e4d46d1b28e6bd78793"),
+                          "occamy-1.0-APEX-I-Compact.gguf":
+                          (16538851360, "361f5759d5604f0f03d787addc36e816c4094159b2f9e2d34bc889feb05d77b3"),
+                          "occamy-1.0-APEX-Balanced.gguf":
+                          (25335983872, "40f65edbdbb2e79e6af482d390680295c1a2caeea4e68e419eb5cbfe61084922"),
+                          "mmproj-occamy-1.0-F16.gguf":
+                          (899282944, "8f827a1e495f23e987686a7f55c26064270502a5b6ee954a828f1aec0b2fd400")}},
     "gemma4": {"title": "Gemma 4 26B-A4B", "by": "Google; quantized by Unsloth",
                "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller and a "
                         "larger size too",
@@ -236,7 +327,7 @@ FAMILIES = {
                           "mmproj-F16.gguf":
                           (1193058784, "418a6d8723067cd712235facbbc5cba6c8fbbd413fc1292d2aace5a027d5a42f")}},
 }
-# EXPERIMENTAL, off by default (setup asks): a control vector shipped with the repository, see its README
+# the image encoder's defaults: the most image tokens a picture becomes, and the VRAM kept free beside it
 VISION = {"gpu": {"max_tokens": 1024, "reserve_mib": 700},
           "cpu": {"max_tokens": 300, "reserve_mib": 700}}
 VEXE = "strata-vision.exe" if WIN else "strata-vision"
@@ -1346,8 +1437,7 @@ def verify_sha256(s: Path, size: int, sha: str, own: bool = False) -> None:
 
 # general.architecture of each strata-poly family's GGUFs, the name Engine::open() (src/poly/engine.cpp) picks its
 # code by; the families not listed are qwen35moe
-POLY_GGUF_ARCHS = {"glm": ("glm5-next", "glm5next"), "deepseek": ("deepseek4",), "lfm25": ("lfm2moe",),
-                   "gemma4": ("gemma4",), "flint": ("flint",), "kolibri": ("kolibri1",), "clover": ("clover_moe",)}
+POLY_GGUF_ARCHS = {"laguna-s": ("laguna",), "laguna-xs": ("laguna",), "gemma4": ("gemma4",)}
 
 
 def gguf_arch(s: Path) -> str:
@@ -1428,10 +1518,6 @@ def unsloth_budget(model, ram, gpu=None, asked=None) -> bool:
     (GiB, ram_gb()).  Else every expert is kept in RAM, as for ISTA's files."""
     return asked is not None or bool((gpu or {}).get("uma")) or \
         ram < MODELS[model]["arena_gb"] / 1.073741824 + UNSLOTH_RESIDENT_BESIDE_GB
-
-
-                                        # encoder's ~1.1-1.4 GB is ~850 expert slots lost, 3-5% of decode and prompt on P100 / A4000
-                                        # 16 GB (Linux, IQ3_S / IQ3_XXS), and 35-60% on an RTX 4080 SUPER under Windows as reported)
 
 
 def check_shards(shards):
@@ -4068,6 +4154,8 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
         args += ["--draft-model", str(draft)]
     if conv:
         args += ["--conversation-cache-mib", str(conv)]
+    if fam.get("kv"):                                  # the family's KV format (Laguna: q8_0, as it runs)
+        args += ["--kv", fam["kv"]]
     if a.vram_reserve_mib is not None:
         args += ["--vram-reserve-mib", str(a.vram_reserve_mib)]
         ok(f"VRAM kept free for other programs: {a.vram_reserve_mib} MiB (--vram-reserve-mib; the expert cache takes "

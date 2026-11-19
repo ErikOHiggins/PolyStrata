@@ -144,6 +144,288 @@
    "tokenizer": "<T>/data/packs/gemma4-ud-q3_k_m/tokenizer"
   }
  },
+ "128GB-1x24GB laguna-s Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-Q4_K_M/laguna-s-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-q4_k_m.log",
+   "model_name": "laguna-s-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-q4_k_m/tokenizer"
+  }
+ },
+ "128GB-1x24GB laguna-s UD-Q3_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "128GB-1x24GB laguna-s UD-Q4_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q4_K_XL/UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q4_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q4_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q4_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q4_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q4_k_xl/tokenizer"
+  }
+ },
+ "128GB-1x24GB laguna-s recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "128GB-1x24GB laguna-xs Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "128GB-1x24GB laguna-xs recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "128GB-1x24GB occamy APEX-Balanced": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Balanced/occamy-1.0-APEX-Balanced.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-balanced/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Balanced",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-balanced.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-balanced",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-balanced/tokenizer"
+  }
+ },
+ "128GB-1x24GB occamy APEX-I-Compact": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-I-Compact/occamy-1.0-APEX-I-Compact.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-i-compact/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-I-Compact",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-i-compact.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-i-compact",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-i-compact/tokenizer"
+  }
+ },
+ "128GB-1x24GB occamy APEX-Quality": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
+ "128GB-1x24GB occamy recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
  "32GB-2x24GB gemma4 QAT-UD-Q4_K_XL": {
   "code": 0,
   "config": {
@@ -307,6 +589,324 @@
    "model_name": "gemma-4-26b-a4b-ud-q3_k_m",
    "port": 8080,
    "tokenizer": "<T>/data/packs/gemma4-ud-q3_k_m/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-s Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-Q4_K_M/laguna-s-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-q4_k_m/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-q4_k_m.log",
+   "model_name": "laguna-s-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-q4_k_m/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-s UD-Q3_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-s UD-Q4_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q4_K_XL/UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q4_k_xl/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q4_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q4_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q4_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q4_k_xl/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-s recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-xs Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "32GB-2x24GB laguna-xs recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "32GB-2x24GB occamy APEX-Balanced": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Balanced/occamy-1.0-APEX-Balanced.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-balanced/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Balanced",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-balanced.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-balanced",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-balanced/tokenizer"
+  }
+ },
+ "32GB-2x24GB occamy APEX-I-Compact": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-I-Compact/occamy-1.0-APEX-I-Compact.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-i-compact/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-I-Compact",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-i-compact.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-i-compact",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-i-compact/tokenizer"
+  }
+ },
+ "32GB-2x24GB occamy APEX-Quality": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
+ "32GB-2x24GB occamy recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
   }
  },
  "47GB-2x16GB gemma4 QAT-UD-Q4_K_XL": {
@@ -474,6 +1074,324 @@
    "tokenizer": "<T>/data/packs/gemma4-ud-q3_k_m/tokenizer"
   }
  },
+ "47GB-2x16GB laguna-s Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-Q4_K_M/laguna-s-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-q4_k_m/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-q4_k_m.log",
+   "model_name": "laguna-s-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-q4_k_m/tokenizer"
+  }
+ },
+ "47GB-2x16GB laguna-s UD-Q3_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "47GB-2x16GB laguna-s UD-Q4_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q4_K_XL/UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q4_k_xl/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q4_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q4_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q4_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q4_k_xl/tokenizer"
+  }
+ },
+ "47GB-2x16GB laguna-s recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "47GB-2x16GB laguna-xs Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "47GB-2x16GB laguna-xs recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "47GB-2x16GB occamy APEX-Balanced": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Balanced/occamy-1.0-APEX-Balanced.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-balanced/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Balanced",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-balanced.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-balanced",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-balanced/tokenizer"
+  }
+ },
+ "47GB-2x16GB occamy APEX-I-Compact": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-I-Compact/occamy-1.0-APEX-I-Compact.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-i-compact/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-I-Compact",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-i-compact.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-i-compact",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-i-compact/tokenizer"
+  }
+ },
+ "47GB-2x16GB occamy APEX-Quality": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
+ "47GB-2x16GB occamy recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": [
+    0,
+    1
+   ],
+   "gpus_asked": true,
+   "layer_split": "auto",
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
  "64GB-1x32GB gemma4 QAT-UD-Q4_K_XL": {
   "code": 0,
   "config": {
@@ -619,6 +1537,286 @@
    "tokenizer": "<T>/data/packs/gemma4-ud-q3_k_m/tokenizer"
   }
  },
+ "64GB-1x32GB laguna-s Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-Q4_K_M/laguna-s-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-q4_k_m/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-q4_k_m.log",
+   "model_name": "laguna-s-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-q4_k_m/tokenizer"
+  }
+ },
+ "64GB-1x32GB laguna-s UD-Q3_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "64GB-1x32GB laguna-s UD-Q4_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q4_K_XL/UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q4_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q4_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q4_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q4_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q4_k_xl/tokenizer"
+  }
+ },
+ "64GB-1x32GB laguna-s recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "64GB-1x32GB laguna-xs Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "64GB-1x32GB laguna-xs recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "64GB-1x32GB occamy APEX-Balanced": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Balanced/occamy-1.0-APEX-Balanced.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-balanced/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Balanced",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-balanced.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-balanced",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-balanced/tokenizer"
+  }
+ },
+ "64GB-1x32GB occamy APEX-I-Compact": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-I-Compact/occamy-1.0-APEX-I-Compact.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-i-compact/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-I-Compact",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-i-compact.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-i-compact",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-i-compact/tokenizer"
+  }
+ },
+ "64GB-1x32GB occamy APEX-Quality": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
+ "64GB-1x32GB occamy recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
  "96GB-1x16GB gemma4 QAT-UD-Q4_K_XL": {
   "code": 0,
   "config": {
@@ -762,6 +1960,286 @@
    "model_name": "gemma-4-26b-a4b-ud-q3_k_m",
    "port": 8080,
    "tokenizer": "<T>/data/packs/gemma4-ud-q3_k_m/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-s Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-Q4_K_M/laguna-s-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-q4_k_m/expert-profile.txt",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-q4_k_m.log",
+   "model_name": "laguna-s-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-q4_k_m/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-s UD-Q3_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-s UD-Q4_K_XL": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q4_K_XL/UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q4_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q4_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q4_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q4_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q4_k_xl/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-s recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-s21-ud-q3_k_xl/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna S 2.1 UD-Q3_K_XL",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-s21-ud-q3_k_xl.log",
+   "model_name": "laguna-s-2.1-ud-q3_k_xl",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-s21-ud-q3_k_xl/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-xs Q4_K_M": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "96GB-1x16GB laguna-xs recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/laguna-xs21-Q4_K_M/Laguna-XS-2.1-Q4_K_M.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/laguna-xs21-q4_k_m/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto",
+    "--kv",
+    "q8_0"
+   ],
+   "cwd": "<T>",
+   "display_name": "Laguna XS 2.1 Q4_K_M",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-laguna-xs21-q4_k_m.log",
+   "model_name": "laguna-xs-2.1-q4_k_m",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/laguna-xs21-q4_k_m/tokenizer"
+  }
+ },
+ "96GB-1x16GB occamy APEX-Balanced": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Balanced/occamy-1.0-APEX-Balanced.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-balanced/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Balanced",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-balanced.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-balanced",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-balanced/tokenizer"
+  }
+ },
+ "96GB-1x16GB occamy APEX-I-Compact": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-I-Compact/occamy-1.0-APEX-I-Compact.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-i-compact/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-I-Compact",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-i-compact.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-i-compact",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-i-compact/tokenizer"
+  }
+ },
+ "96GB-1x16GB occamy APEX-Quality": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
+  }
+ },
+ "96GB-1x16GB occamy recommended": {
+  "code": 0,
+  "config": {
+   "args": [
+    "--model",
+    "<T>/models/occamy-APEX-Quality/occamy-1.0-APEX-Quality.gguf",
+    "--max-context",
+    "32768",
+    "--expert-profile",
+    "<T>/data/packs/occamy-apex-quality/expert-profile.txt",
+    "--conversation-cache-mib",
+    "auto"
+   ],
+   "cwd": "<T>",
+   "display_name": "Occamy 1.0 35B-A3B APEX-Quality",
+   "exe": "<T>/engine-poly/<strata-poly>",
+   "gpu": 0,
+   "gpus_asked": true,
+   "lib_dirs": [
+    "/cuda/lib64"
+   ],
+   "log": "<T>/strata-occamy-apex-quality.log",
+   "model_name": "occamy-1.0-35b-a3b-apex-quality",
+   "port": 8080,
+   "tokenizer": "<T>/data/packs/occamy-apex-quality/tokenizer"
   }
  }
 }

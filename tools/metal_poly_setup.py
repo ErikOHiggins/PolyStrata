@@ -7,8 +7,8 @@ from pathlib import Path
 
 from tools.gguf_reader import GGUFFile
 
-# the families with a Qwen35MoE GGUF (q8_0 KV); 1c adds Occamy
-Q8_FAMILIES = frozenset()
+# the families with a Qwen35MoE GGUF (q8_0 KV on a Mac by default)
+Q8_FAMILIES = frozenset({"occamy"})
 
 
 def add_arguments(parser):

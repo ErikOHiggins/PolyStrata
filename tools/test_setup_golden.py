@@ -3,8 +3,8 @@ stay exactly what they were.  setup.main() with --yes (and with Enter for every 
 run config, byte for byte, as the recorded baseline (tools/test_setup_golden.json).  Every outside effect is mocked
 (tools/poly_setup_harness.py): no GPU, no downloads, nothing written outside a temp folder.
 
-The baseline was recorded again for Puddle's families (phase 1b-1, 2026-11-19: the Qwen engine's families are gone);
-record it again only when a default changes on purpose.
+The baseline was recorded again for Puddle's families (phase 1b-1, 2026-11-19: the Qwen engine's families are gone;
+phase 1c: Laguna-S, Laguna-XS and Occamy added); record it again only when a default changes on purpose.
 
     python -m unittest tools.test_setup_golden
     python tools/test_setup_golden.py --write      (only to record a new baseline on purpose)
@@ -37,7 +37,7 @@ PROFILES = {
     "128GB-1x24GB": (127.8, [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89")]),
 }
 # (family, model): None = the recommended size
-MODELS = [("gemma4", None), *(("gemma4", m) for m in setup.FAMILIES["gemma4"]["models"])]
+MODELS = [x for f in setup.FAMILIES for x in [(f, None), *((f, m) for m in setup.family_models(f))]]
 
 
 def normalize(v, t: Path):
@@ -105,7 +105,7 @@ class Golden(unittest.TestCase):
     def test_the_baseline_covers_every_kind_of_pc(self):
         self.assertEqual(sorted(self.golden), sorted(f"{p} {f} {m or 'recommended'}" for p in PROFILES for f, m in MODELS))
         written = [k for k, v in self.golden.items() if v["code"] == 0]
-        self.assertGreaterEqual(len(written), 20)
+        self.assertGreaterEqual(len(written), 50)
         for prof in PROFILES:                                        # every PC gets the recommended size
             self.assertEqual(self.golden[f"{prof} gemma4 recommended"]["code"], 0, prof)
 
@@ -118,9 +118,14 @@ class Golden(unittest.TestCase):
                 self.assertEqual(asked, [])
 
     def test_enter_for_every_question(self):
+        """Enter takes every recommended answer.  A size named with --model that setup expects to run badly is the
+        one difference: --yes with the flag is consent, Enter at "Go on anyway?" (default n) is not."""
         for key, ram, found, family, model in self.cases():
             with self.subTest(key):
                 code, out, cfg, asked = install(ram, found, argv_for(family, model), answers="")
+                if code != 0 and model is not None and any("Go on anyway?" in q for q in asked):
+                    self.assertIn("as you chose", install(ram, found, argv_for(family, model))[1])
+                    continue
                 self.assertEqual(code, 0, out[-3000:])
                 self.assertEqual(cfg, self.golden[key]["config"], out[-3000:])
 
