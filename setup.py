@@ -6797,9 +6797,9 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
 
 # ------------------------------------------------------------------------------------------------ main
 def mac_setup(argv) -> int:
-    """A Mac (Apple Silicon): the Metal engine, built from source on the Mac by metal/setup_mac.py (its own steps:
-    the Mac check, the pack by unified memory, the engine build, the Metal defaults). Nothing of the CUDA / HIP paths
-    is used or changed."""
+    """A Mac (Apple Silicon): strata-poly for Metal, built from source on the Mac by metal/setup_mac.py (its own
+    steps: the Mac check, the model, the engine build, the Metal defaults). Nothing of the CUDA / HIP paths is used or
+    changed."""
     return subprocess.call([sys.executable, str(ROOT / "metal" / "setup_mac.py"), *argv])
 
 
@@ -7347,7 +7347,7 @@ def resolve_custom_gguf(path_str: str) -> tuple[str, str, list[Path]]:
 
 
 def main() -> int:
-    if sys.platform == "darwin":                       # a Mac: metal/setup_mac.py (the Metal engine)
+    if sys.platform == "darwin":                       # a Mac: metal/setup_mac.py (strata-poly on Metal)
         return mac_setup(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--family", choices=list(FAMILIES),

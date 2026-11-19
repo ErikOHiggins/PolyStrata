@@ -35,7 +35,7 @@ def header(draft=True):
 
 class Options(unittest.TestCase):
     def test_defaults_enable_optimization_and_balanced_memory(self):
-        a = args('--family', 'tiel')
+        a = args('--family', 'gemma4')
         self.assertFalse(P.requested(a))
         command = ['--model', 'existing.gguf']
         P.apply_options(command, a, {})
@@ -44,38 +44,38 @@ class Options(unittest.TestCase):
     def test_explicit_flags_and_scoped_preservation(self):
         old = {'args': ['--metal-optimize', '--metal-memory', 'balanced', '--kv', 'q8_0', '--custom', 'x']}
         command = []
-        P.apply_options(command, args('--family', 'tiel'), old)
+        P.apply_options(command, args('--family', 'gemma4'), old)
         self.assertEqual(command, old['args'][:-2])
         command = []
-        P.apply_options(command, args('--family', 'tiel', '--metal-memory', 'legacy', '--poly-kv', 'fp16'), old)
+        P.apply_options(command, args('--family', 'gemma4', '--metal-memory', 'legacy', '--poly-kv', 'fp16'), old)
         self.assertEqual(command, ['--metal-optimize', '--metal-memory', 'legacy', '--kv', 'fp16'])
         command = []
-        P.apply_options(command, args('--family', 'tiel', '--metal-optimize'), {})
+        P.apply_options(command, args('--family', 'gemma4', '--metal-optimize'), {})
         self.assertEqual(command, ['--metal-optimize', '--metal-memory', 'balanced'])
 
     def test_saved_opt_outs_and_explicit_overrides(self):
         old = {'args': ['--no-metal-optimize', '--metal-memory', 'legacy', '--kv', 'fp16']}
         command = []
-        P.apply_options(command, args('--family', 'tiel'), old)
+        P.apply_options(command, args('--family', 'gemma4'), old)
         self.assertEqual(command, old['args'])
         command = []
-        P.apply_options(command, args('--family', 'tiel', '--metal-optimize', '--metal-memory', 'balanced',
+        P.apply_options(command, args('--family', 'gemma4', '--metal-optimize', '--metal-memory', 'balanced',
                                       '--poly-kv', 'q8_0'), old)
         self.assertEqual(command, ['--metal-optimize', '--metal-memory', 'balanced', '--kv', 'q8_0'])
         command = []
-        P.apply_options(command, args('--family', 'tiel', '--no-metal-optimize'), {'args': ['--metal-optimize']})
+        P.apply_options(command, args('--family', 'gemma4', '--no-metal-optimize'), {'args': ['--metal-optimize']})
         self.assertEqual(command, ['--no-metal-optimize', '--metal-memory', 'balanced'])
         for argv, enabled in ((['--metal-optimize', '--no-metal-optimize'], False),
                               (['--no-metal-optimize', '--metal-optimize'], True)):
-            self.assertEqual(args('--family', 'tiel', *argv).metal_optimize, enabled)
+            self.assertEqual(args('--family', 'gemma4', *argv).metal_optimize, enabled)
             command = []
-            P.apply_options(command, args('--family', 'tiel'), {'args': argv})
+            P.apply_options(command, args('--family', 'gemma4'), {'args': argv})
             self.assertEqual(command[0], '--metal-optimize' if enabled else '--no-metal-optimize')
 
     def test_non_poly_and_unsupported_q8_rejected_before_setup(self):
-        for argv in (['--family', 'qwen', '--metal-optimize'],
+        for argv in (['--family', 'qwen', '--metal-optimize'],           # no such family (the Qwen engine's is gone)
                      ['--family', 'qwen', '--no-metal-optimize'],
-                     ['--family', 'lfm25', '--poly-kv', 'q8_0'],
+                     ['--family', 'gemma4', '--poly-kv', 'q8_0'],
                      ['--metal-memory', 'balanced']):
             with self.subTest(argv=argv), mock.patch.object(M.S, 'data_folder', side_effect=AssertionError('side effect')):
                 with self.assertRaises(SystemExit) as ex:
@@ -83,7 +83,7 @@ class Options(unittest.TestCase):
                 self.assertEqual(ex.exception.code, 2)
         for family in P.Q8_FAMILIES:
             P.validate(args('--family', family, '--poly-kv', 'q8_0'), M.MAC_POLY_FAMILIES)
-        P.validate(args('--family', 'lfm25', '--poly-kv', 'fp16'), M.MAC_POLY_FAMILIES)
+        P.validate(args('--family', 'gemma4', '--poly-kv', 'fp16'), M.MAC_POLY_FAMILIES)
 
     def test_broken_existing_config_is_ignored(self):
         with tempfile.TemporaryDirectory() as d:
@@ -135,7 +135,8 @@ class Options(unittest.TestCase):
             self.assertIn('--metal-optimize', command)
             self.assertEqual(P.flag_value(command, '--metal-memory'), 'balanced')
             self.assertIn(P.flag_value(command, '--kv'), ('fp16', 'q8_0'))
-        self.assertTrue(any(P.flag_value(command, '--kv') == 'q8_0' for command in captured))
+        if P.Q8_FAMILIES & set(M.MAC_POLY_FAMILIES):                # Occamy (1c)
+            self.assertTrue(any(P.flag_value(command, '--kv') == 'q8_0' for command in captured))
 
 
 class Estimates(unittest.TestCase):
@@ -153,7 +154,7 @@ class Estimates(unittest.TestCase):
         self.assertNotIn('kv_format', unknown)
         self.assertIsNone(P.estimate([], 8192, kv='auto')['kv_initial_bytes'])
 
-    def test_tiel_256k_includes_draft_and_balanced_initial(self):
+    def test_qwen35moe_256k_includes_draft_and_balanced_initial(self):
         legacy = P.estimate([header()], 256000)
         self.assertEqual(legacy['kv_max_bytes'], 5767168000)
         self.assertEqual(legacy['kv_initial_bytes'], legacy['kv_max_bytes'])
