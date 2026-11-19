@@ -1,0 +1,82 @@
+## pool_q4km_head.gguf: v3 tensors=814 kv=59
+general.architecture = 'laguna'
+general.type = 'model'
+general.sampling.top_k = 20
+general.sampling.top_p = 1.0
+general.sampling.min_p = 0.0
+general.sampling.temp = 1.0
+general.name = 'Laguna S 2.1'
+general.finetune = 'hf'
+general.size_label = '256x4.5B'
+laguna.block_count = 48
+laguna.context_length = 1048576
+laguna.embedding_length = 3072
+laguna.feed_forward_length = 12288
+laguna.attention.head_count = [48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72, 48, 72, 72, 72]
+laguna.attention.head_count_kv = 8
+laguna.rope.scaling.type = 'yarn'
+laguna.rope.scaling.factor = 128.0
+laguna.rope.scaling.original_context_length = 8192
+laguna.rope.scaling.yarn_attn_factor = 1.4852030277252197
+laguna.rope.scaling.yarn_beta_fast = 32.0
+laguna.rope.scaling.yarn_beta_slow = 1.0
+laguna.rope.freq_base = 500000.0
+laguna.rope.freq_base_swa = 10000.0
+laguna.attention.layer_norm_rms_epsilon = 9.999999974752427e-07
+laguna.expert_count = 256
+laguna.expert_used_count = 10
+laguna.attention.key_length = 128
+laguna.attention.value_length = 128
+laguna.vocab_size = 100352
+laguna.attention.sliding_window = 512
+laguna.expert_feed_forward_length = 1024
+laguna.expert_shared_feed_forward_length = 1024
+laguna.expert_weights_norm = True
+laguna.expert_weights_scale = 2.5
+laguna.expert_gating_func = 2
+laguna.leading_dense_block_count = 1
+laguna.rope.dimension_count = 64
+laguna.rope.dimension_count_swa = 128
+tokenizer.ggml.model = 'gpt2'
+tokenizer.ggml.pre = 'laguna'
+tokenizer.ggml.tokens [arr] len=100352 first=['〈|UNK|〉', '〈|CODE_START|〉', '〈|EOS|〉', '〈|CODE_END|〉', '〈|META_START|〉']
+tokenizer.ggml.token_type [arr] len=100352 first=[3, 3, 3, 3, 3]
+tokenizer.ggml.merges [arr] len=100026 first=['i n', 'Ġ t', 'Ġ Ġ', 'e r', 'Ġ a']
+tokenizer.ggml.bos_token_id = 2
+tokenizer.ggml.eos_token_id = 2
+tokenizer.ggml.unknown_token_id = 0
+tokenizer.ggml.seperator_token_id = 8
+tokenizer.ggml.padding_token_id = 9
+tokenizer.ggml.mask_token_id = 12
+tokenizer.ggml.add_bos_token = True
+tokenizer.ggml.add_sep_token = True
+tokenizer.ggml.eot_token_id = 24
+general.quantization_version = 2
+general.file_type = 7
+quantize.imatrix.file = '/models/gguf_work/laguna-imatrix.gguf'
+quantize.imatrix.dataset = '/models/gguf_work/blender_corpus.txt'
+quantize.imatrix.entries_count = 572
+quantize.imatrix.chunks_count = 600
+output.weight [3072, 100352] Q8_0
+output_norm.weight [3072] F32
+token_embd.weight [3072, 100352] Q8_0
+blk.N.attn_gate.weight: layers 0..47 (n=48) [3072, 48] Q8_0 x12; [3072, 72] Q8_0 x36
+blk.N.attn_k.weight: layers 0..47 (n=48) [3072, 1024] Q8_0 x48
+blk.N.attn_k_norm.weight: layers 0..47 (n=48) [128] F32 x48
+blk.N.attn_norm.weight: layers 0..47 (n=48) [3072] F32 x48
+blk.N.attn_output.weight: layers 0..47 (n=48) [6144, 3072] Q8_0 x12; [9216, 3072] Q8_0 x36
+blk.N.attn_q.weight: layers 0..47 (n=48) [3072, 6144] Q8_0 x12; [3072, 9216] Q8_0 x36
+blk.N.attn_q_norm.weight: layers 0..47 (n=48) [128] F32 x48
+blk.N.attn_v.weight: layers 0..47 (n=48) [3072, 1024] Q8_0 x48
+blk.N.ffn_down.weight: layers 0..0 (n=1) [12288, 3072] Q8_0 x1
+blk.N.ffn_gate.weight: layers 0..0 (n=1) [3072, 12288] Q8_0 x1
+blk.N.ffn_norm.weight: layers 0..47 (n=48) [3072] F32 x48
+blk.N.ffn_up.weight: layers 0..0 (n=1) [3072, 12288] Q8_0 x1
+blk.N.exp_probs_b.bias: layers 1..47 (n=47) [256] F32 x47
+blk.N.ffn_down_exps.weight: layers 1..47 (n=47) [1024, 3072, 256] Q4_K x39; [1024, 3072, 256] BF16 x8
+blk.N.ffn_down_shexp.weight: layers 1..47 (n=47) [1024, 3072] Q8_0 x47
+blk.N.ffn_gate_exps.weight: layers 1..47 (n=47) [3072, 1024, 256] Q4_K x39; [3072, 1024, 256] BF16 x8
+blk.N.ffn_gate_inp.weight: layers 1..47 (n=47) [3072, 256] F32 x47
+blk.N.ffn_gate_shexp.weight: layers 1..47 (n=47) [3072, 1024] Q8_0 x47
+blk.N.ffn_up_exps.weight: layers 1..47 (n=47) [3072, 1024, 256] Q4_K x39; [3072, 1024, 256] BF16 x8
+blk.N.ffn_up_shexp.weight: layers 1..47 (n=47) [3072, 1024] Q8_0 x47

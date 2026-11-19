@@ -1,0 +1,80 @@
+## C:\Users\esmith\AppData\Local\Temp\xs_q4km_head.gguf: v3 tensors=678 kv=56
+general.architecture = 'laguna'
+general.type = 'model'
+general.sampling.top_p = 1.0
+general.sampling.min_p = 0.0
+general.sampling.temp = 1.0
+general.name = '2afce91e7cdb129f891d65a18f54d4a63f8e3215'
+general.finetune = '2afce91e7cdb129f891d65a18f54d4a63f8e3215'
+general.size_label = '256x2.2B'
+general.license = 'openmdw-1.1'
+general.tags = ['laguna-xs-2.1', 'vllm', 'text-generation']
+laguna.block_count = 40
+laguna.context_length = 262144
+laguna.embedding_length = 2048
+laguna.feed_forward_length = 8192
+laguna.attention.head_count = [48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64, 48, 64, 64, 64]
+laguna.attention.head_count_kv = 8
+laguna.rope.scaling.type = 'yarn'
+laguna.rope.scaling.factor = 32.0
+laguna.rope.scaling.original_context_length = 8192
+laguna.rope.scaling.yarn_attn_factor = 1.0
+laguna.rope.scaling.yarn_beta_fast = 64.0
+laguna.rope.scaling.yarn_beta_slow = 1.0
+laguna.rope.freq_base = 500000.0
+laguna.rope.freq_base_swa = 10000.0
+laguna.attention.layer_norm_rms_epsilon = 9.999999974752427e-07
+laguna.expert_count = 256
+laguna.expert_used_count = 8
+laguna.attention.key_length = 128
+laguna.attention.value_length = 128
+laguna.vocab_size = 100352
+laguna.attention.sliding_window = 512
+laguna.expert_feed_forward_length = 512
+laguna.expert_shared_feed_forward_length = 512
+laguna.expert_weights_norm = True
+laguna.expert_weights_scale = 2.5
+laguna.expert_gating_func = 2
+laguna.leading_dense_block_count = 1
+laguna.rope.dimension_count = 64
+laguna.rope.dimension_count_swa = 128
+tokenizer.ggml.model = 'gpt2'
+tokenizer.ggml.pre = 'laguna'
+tokenizer.ggml.tokens [arr] len=100352 first=['〈|UNK|〉', '〈|CODE_START|〉', '〈|EOS|〉', '〈|CODE_END|〉', '〈|META_START|〉']
+tokenizer.ggml.token_type [arr] len=100352 first=[3, 3, 3, 3, 3]
+tokenizer.ggml.merges [arr] len=100026 first=['i n', 'Ġ t', 'Ġ Ġ', 'e r', 'Ġ a']
+tokenizer.ggml.bos_token_id = 2
+tokenizer.ggml.eos_token_id = 2
+tokenizer.ggml.unknown_token_id = 0
+tokenizer.ggml.seperator_token_id = 8
+tokenizer.ggml.padding_token_id = 9
+tokenizer.ggml.mask_token_id = 12
+tokenizer.ggml.add_bos_token = True
+tokenizer.ggml.add_sep_token = True
+tokenizer.ggml.eot_token_id = 24
+general.quantization_version = 2
+general.file_type = 15
+tokenizer.chat_template [str] len=3788 start='{#- Iteration on laguna_glm_thinking_v8/chat_template.jinja -#}\n{#- No formatting instructions -#}\n{{- "〈|EOS|〉" -}}\n{%- set enable_thinking = enable_thinking | default(false) -%}\n{%- set add_generati'
+output.weight [2048, 100352] Q6_K
+output_norm.weight [2048] F32
+token_embd.weight [2048, 100352] Q4_K
+blk.N.attn_gate.weight: layers 0..39 (n=40) [2048, 48] Q4_K x10; [2048, 64] Q4_K x30
+blk.N.attn_k.weight: layers 0..39 (n=40) [2048, 1024] Q4_K x40
+blk.N.attn_k_norm.weight: layers 0..39 (n=40) [128] F32 x40
+blk.N.attn_norm.weight: layers 0..39 (n=40) [2048] F32 x40
+blk.N.attn_output.weight: layers 0..39 (n=40) [6144, 2048] Q4_K x10; [8192, 2048] Q4_K x30
+blk.N.attn_q.weight: layers 0..39 (n=40) [2048, 6144] Q4_K x10; [2048, 8192] Q4_K x30
+blk.N.attn_q_norm.weight: layers 0..39 (n=40) [128] F32 x40
+blk.N.attn_v.weight: layers 0..39 (n=40) [2048, 1024] Q6_K x20; [2048, 1024] Q4_K x20
+blk.N.ffn_down.weight: layers 0..0 (n=1) [8192, 2048] Q6_K x1
+blk.N.ffn_gate.weight: layers 0..0 (n=1) [2048, 8192] Q4_K x1
+blk.N.ffn_norm.weight: layers 0..39 (n=40) [2048] F32 x40
+blk.N.ffn_up.weight: layers 0..0 (n=1) [2048, 8192] Q4_K x1
+blk.N.exp_probs_b.bias: layers 1..39 (n=39) [256] F32 x39
+blk.N.ffn_down_exps.weight: layers 1..39 (n=39) [512, 2048, 256] Q6_K x19; [512, 2048, 256] Q4_K x20
+blk.N.ffn_down_shexp.weight: layers 1..39 (n=39) [512, 2048] Q6_K x19; [512, 2048] Q4_K x20
+blk.N.ffn_gate_exps.weight: layers 1..39 (n=39) [2048, 512, 256] Q4_K x39
+blk.N.ffn_gate_inp.weight: layers 1..39 (n=39) [2048, 256] F32 x39
+blk.N.ffn_gate_shexp.weight: layers 1..39 (n=39) [2048, 512] Q4_K x39
+blk.N.ffn_up_exps.weight: layers 1..39 (n=39) [2048, 512, 256] Q4_K x39
+blk.N.ffn_up_shexp.weight: layers 1..39 (n=39) [2048, 512] Q4_K x39
