@@ -70,8 +70,8 @@ rem All of it in one block: cmd reads a .bat file while it runs it, and the git 
     )
   ) else (
     echo  This copy of PolyStrata was not made with git, so it cannot fetch new files itself. Download the newest one:
-    echo    https://github.com/VecSzn/PolyStrata/archive/refs/heads/main.zip
-    echo  unzip it anywhere and run START-HERE.bat ^(or UPDATE.bat^) in it: it finds the model files in PolyStrata-data
+    echo    https://github.com/ErikOHiggins/Puddle/archive/refs/heads/main.zip
+    echo  unzip it anywhere and run START-HERE.bat ^(or UPDATE.bat^) in it: it finds the model files in Puddle-data
     echo  and sets itself up the same way - nothing big is downloaded again.
     echo  Checking this copy's engine and settings meanwhile ...
   )

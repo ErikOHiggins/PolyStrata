@@ -4901,10 +4901,14 @@ def build_engine(gpu, vision, yes, llama, toolkit=None, portable=False) -> Path:
 
 # ------------------------------------------------------------------------------------------------ the data folder
 # The model files - the GGUFs, the prepared packs and the MTP layer, 70-120 GB - live in a data folder NEXT TO the
-# PolyStrata folder (`PolyStrata-data`), not inside it: updating PolyStrata by unzipping a new copy used to give a new, empty
-# folder and a full download again.  Where it is, and which PolyStrata folders this user ran, is kept in a small
-# per-user file, so every PolyStrata folder on the PC finds the same files.
+# Puddle folder (`Puddle-data`), not inside it: updating Puddle by unzipping a new copy used to give a new, empty
+# folder and a full download again.  Where it is, and which Puddle folders this user ran, is kept in a small
+# per-user file of Puddle's own (not PolyStrata's), so every Puddle folder on the PC finds the same files.  Another
+# program may share the data folder (a PolyStrata install pointed at it through a symlink): Puddle reads the files
+# there and never moves files out of a PolyStrata folder or rewrites its configs.
 DATA_ITEMS = ("models", "packs", "mtp")
+DATA_FOLDER_NAME = "Puddle-data"
+INSTALL_PREFIX = "puddle"                  # the folders other_installs() looks at: Puddle's, never PolyStrata's
 
 
 LOW_RAM_HEADROOM_GB = 10   # RAM beside the experts: the OS, the engine's other buffers, the server
@@ -5150,9 +5154,11 @@ def ram_ctx(model, ram, low_ram=False) -> int:
 
 
 def settings_path() -> Path:
+    """Puddle's own per-user settings (the data folder, the Puddle folders this user ran, calibrations): not
+    PolyStrata's %APPDATA%\\PolyStrata / ~/.config/polystrata, so a PolyStrata install on the same PC is left alone."""
     if WIN:
-        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "PolyStrata" / "settings.json"
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "polystrata" / "settings.json"
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "Puddle" / "settings.json"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "puddle" / "settings.json"
 
 
 def load_settings() -> dict:
@@ -5181,15 +5187,16 @@ def has_data(folder: Path) -> bool:
 
 
 def other_installs(settings: dict) -> list:
-    """PolyStrata folders besides this one that may hold model files: the ones this user ran before, and PolyStrata* folders
-    next to this one (a zip unpacked again lands in e.g. `PolyStrata-main (1)\\PolyStrata-main`)."""
+    """Puddle folders besides this one that may hold model files: the ones this user ran before, and Puddle* folders
+    next to this one (a zip unpacked again lands in e.g. `Puddle-main (1)\\Puddle-main`).  PolyStrata folders are not
+    among them: Puddle never moves their files or rewrites their configs."""
     cands = [Path(p) for p in settings.get("installs", [])]
     for base in dict.fromkeys((ROOT.parent, ROOT.parent.parent)):
         try:
             for d in base.iterdir():
-                if d.is_dir() and d.name.lower().startswith("polystrata"):
+                if d.is_dir() and d.name.lower().startswith(INSTALL_PREFIX):
                     cands.append(d)
-                    cands += [c for c in d.iterdir() if c.is_dir() and c.name.lower().startswith("polystrata")]
+                    cands += [c for c in d.iterdir() if c.is_dir() and c.name.lower().startswith(INSTALL_PREFIX)]
         except OSError:
             pass
     found = []
@@ -5208,6 +5215,19 @@ def same_drive(a: Path, b: Path) -> bool:
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
         return False
+
+
+def same_folder(a, b) -> bool:
+    """`a` and `b` are one folder: the same path, or two names of it (a symlink such as PolyStrata-data -> Puddle-data,
+    a junction, other letter case on Windows).  A folder that does not exist is compared by its resolved path."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        pass
+    try:
+        return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
+    except OSError:
+        return os.path.normcase(str(a)) == os.path.normcase(str(b))
 
 
 def move_into(src: Path, dst: Path) -> None:
@@ -5261,29 +5281,33 @@ def repoint_config(cfg_file: Path, old: Path, new: Path) -> None:
 
 def data_folder(requested: str | None) -> tuple:
     """(the data folder, folders on other drives that still hold model files).  Moves the model files of this folder
-    and of earlier PolyStrata folders on the same drive into the data folder, and points their configs there."""
+    and of earlier Puddle folders on the same drive into the data folder, and points their configs there.  A source
+    that is the data folder under another name (a symlink to it) is the data folder: nothing moves onto itself."""
     settings = load_settings()
     dest = Path(requested).expanduser().resolve() if requested else \
-        Path(settings["data_dir"]) if settings.get("data_dir") else ROOT.parent / "PolyStrata-data"
+        Path(settings["data_dir"]) if settings.get("data_dir") else ROOT.parent / DATA_FOLDER_NAME
     try:
         dest.mkdir(parents=True, exist_ok=True)
-    except OSError as e:                                # e.g. no write access next to the PolyStrata folder
+    except OSError as e:                                # e.g. no write access next to the Puddle folder
         warn(f"cannot use {dest} for the model files ({e}): keeping them in {ROOT}")
         dest = ROOT
     elsewhere = []
-    # #198: the data folder remembered before (a --data-dir to a new place) is a source too, and so is a PolyStrata-data
+    # #198: the data folder remembered before (a --data-dir to a new place) is a source too, and so is a Puddle-data
     # folder nested in any of them (an install that kept its models one level down)
     sources = [ROOT, *other_installs(settings)]
-    if settings.get("data_dir") and Path(settings["data_dir"]) != dest:
+    if settings.get("data_dir") and not same_folder(settings["data_dir"], dest):
         sources.append(Path(settings["data_dir"]))
-    sources += [f / "PolyStrata-data" for f in list(sources) if (f / "PolyStrata-data") != dest]
+    sources += [f / DATA_FOLDER_NAME for f in list(sources) if not same_folder(f / DATA_FOLDER_NAME, dest)]
     seen = set()
     for folder in sources:
-        key = os.path.normcase(str(folder))
+        try:
+            key = os.path.normcase(str(folder.resolve()))   # two names of one folder are one source
+        except OSError:
+            key = os.path.normcase(str(folder))
         if key in seen:
             continue
         seen.add(key)
-        if folder == dest or not has_data(folder):
+        if same_folder(folder, dest) or not has_data(folder):
             continue
         if not same_drive(folder, dest):
             elsewhere.append(folder)                    # another drive: used where it is (no 70 GB copy)
@@ -5307,7 +5331,7 @@ def data_folder(requested: str | None) -> tuple:
             elsewhere.append(folder)                    # in use, or a copy the data folder already has
             warn(f"some model files are still in {folder} (in use, or already in {dest})")
         else:
-            ok(f"model files from {folder} moved to {dest} (a new copy of PolyStrata finds them there)")
+            ok(f"model files from {folder} moved to {dest} (a new copy of Puddle finds them there)")
     installs = [str(ROOT)] + [p for p in settings.get("installs", []) if p != str(ROOT) and Path(p).is_dir()]
     save_settings({**settings, "data_dir": str(dest), "installs": installs[:20]})
     return dest, elsewhere
@@ -5462,7 +5486,7 @@ def model_config_files(folder: Path) -> list:
 
 
 def previous_config(elsewhere_first: list, settings: dict):
-    """The most recently used model config of another PolyStrata folder on this PC, for a folder that has none yet.  One
+    """The most recently used model config of another Puddle folder on this PC, for a folder that has none yet.  One
     that does not parse (an empty or cut-off file, #459) is skipped with a warning: the newest readable one is used,
     and with none this copy is set up as a fresh install."""
     cands = []
@@ -7804,8 +7828,8 @@ def main() -> int:
                          "that uses the API; remembered for this model, also in run-<model>.bat/.sh)")
     ap.add_argument("--browser", dest="browser", action="store_true",
                     help="open the chat page again when the model is ready (the default; undoes --no-browser)")
-    ap.add_argument("--data-dir", help="where the model files go (~70-120 GB): default PolyStrata-data next to this folder, "
-                                       "remembered for every PolyStrata folder on this PC")
+    ap.add_argument("--data-dir", help="where the model files go (~70-120 GB): default Puddle-data next to this folder, "
+                                       "remembered for every Puddle folder on this PC")
     ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
     ap.add_argument("--gguf-dir", help="use GGUF files you already have (a folder with every shard: "
                                        "<name>-00001-of-0000N.gguf ... -0000N-of-0000N.gguf)")
