@@ -28,34 +28,6 @@ def quiet(fn, *args, **kw):
         return fn(*args, **kw), out.getvalue()
 
 
-class PrebuiltVision(unittest.TestCase):
-    """#331: the 0.1.30/0.1.31 zip's encoder has no sm_75 code: an RTX 20 card gets the CPU encoder, not a compile."""
-    META = {"version": "0.1.31", "archs": [75, 86, 89, 120], "ptx": True, "vision_archs": [86, 89, 120]}
-
-    def test_a_card_the_encoder_has_no_code_for_gets_the_cpu_encoder(self):
-        got, out = quiet(setup.prebuilt_vision, self.META, {"arch": 75}, "gpu")
-        self.assertEqual(got, "cpu")
-        self.assertIn("runs on the CPU instead", out)
-
-    def test_covered_cards_keep_the_gpu_encoder(self):
-        for arch in (86, 89, 120):
-            self.assertEqual(quiet(setup.prebuilt_vision, self.META, {"arch": arch}, "gpu")[0], "gpu")
-        # a newer card than the newest encoder code: only with PTX in the zip
-        self.assertEqual(quiet(setup.prebuilt_vision, {**self.META, "vision_archs": [86, 89]}, {"arch": 120}, "gpu")[0],
-                         "gpu")
-        self.assertEqual(quiet(setup.prebuilt_vision, {**self.META, "vision_archs": [86, 89], "ptx": False},
-                               {"arch": 120}, "gpu")[0], "cpu")
-        # 0.1.32's zip: the encoder built with 75-real too
-        self.assertEqual(quiet(setup.prebuilt_vision, {**self.META, "vision_archs": [75, 86, 89, 120]},
-                               {"arch": 75}, "gpu")[0], "gpu")
-
-    def test_other_choices_are_left_alone(self):
-        for v in ("cpu", "none"):
-            self.assertEqual(quiet(setup.prebuilt_vision, self.META, {"arch": 75}, v), (v, ""))
-        # an older BUILD.json without vision_archs: the engine's archs
-        self.assertEqual(quiet(setup.prebuilt_vision, {"archs": [75, 86]}, {"arch": 75}, "gpu")[0], "gpu")
-
-
 class GgufDirShards(unittest.TestCase):
     """#305: --gguf-dir reads the shard count from the -of-N part of the name instead of assuming two.  A family of
     three shards per size, named as Unsloth's Laguna-S files are (a stand-in until that family is offered)."""
@@ -145,10 +117,6 @@ class ExperimentalSm60(unittest.TestCase):
             for arch in ("52", "72"):
                 self.assertIsNotNone(setup.gpu_problem(self.card(arch)), arch)
 
-    def test_the_build_flag(self):
-        self.assertEqual(setup.engine_defs([61]), ["-DSTRATA_EXPERIMENTAL_SM60=ON"])
-        self.assertEqual(setup.engine_defs([70, 86]), ["-DSTRATA_EXPERIMENTAL_SM60=ON"])
-        self.assertEqual(setup.engine_defs([75, 86, 120]), [])
 
     def test_find_nvcc_below(self):
         with tempfile.TemporaryDirectory() as d:
@@ -227,63 +195,6 @@ class ExperimentalSm60(unittest.TestCase):
                 self.tools(archs, lambda below: (None, None) if below else ("nvcc13", (13, 0)))
 
 
-class HipVision(unittest.TestCase):
-    """#304: --vision cpu with --backend hip builds the CPU image encoder beside the HIP engine."""
-
-    @mock.patch.object(setup, "WIN", False)            # Linux: compiled here (Windows has no AMD image encoder yet)
-    def test_the_choice(self):
-        self.assertEqual(quiet(setup.hip_vision, "cpu"), ("cpu", ""))
-        for asked in (None, "no", "none"):
-            self.assertEqual(quiet(setup.hip_vision, asked), ("none", ""))
-        for asked in ("yes", "gpu"):
-            got, out = quiet(setup.hip_vision, asked)
-            self.assertEqual(got, "none")
-            self.assertIn("--vision cpu", out)
-
-    def build(self, meta, vision, vexe=False):
-        """build_engine_hip with an engine that is already built: only the encoder can be missing."""
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            eng = root / "engine"
-            eng.mkdir()
-            (eng / setup.EXE).write_bytes(b"engine")
-            if vexe:
-                (eng / setup.VEXE).write_bytes(b"vision")
-            src, vsrc = "S", "V"
-            (eng / "BUILD.json").write_text(json.dumps({"backend": "hip", "archs": ["gfx1201"], "src": src, **meta}))
-            built = []
-
-            def cmake_build(src_dir, bdir, target, defs, vcvars, bat):
-                built.append((target, defs))
-                (bdir / "bin").mkdir(parents=True)
-                (bdir / "bin" / setup.VEXE).write_bytes(b"vision")
-
-            with mock.patch.object(setup, "ROOT", root), mock.patch.object(setup, "cmake_build", cmake_build), \
-                    mock.patch.object(setup, "WIN", False), \
-                    mock.patch.object(setup, "cpu_floor", lambda avx2: ""), \
-                    mock.patch.object(setup, "rocm_root", lambda archs: (root / "rocm", [str(root / "rocm" / "lib")])), \
-                    mock.patch.object(setup, "cpu_info", lambda: ("Test CPU", True, False)), \
-                    mock.patch.object(setup, "source_hash", lambda paths: vsrc if paths == setup.VISION_SOURCES else src):
-                quiet(setup.build_engine_hip, {"arch": "gfx1201"}, "llama", vision)
-            return built, json.loads((eng / "BUILD.json").read_text()), (eng / setup.VEXE).exists()
-
-    def test_the_cpu_encoder_is_built_once(self):
-        built, meta, have = self.build({}, "cpu")
-        self.assertEqual([t for t, _ in built], ["strata-vision"])
-        self.assertIn("-DSTRATA_VISION_CUDA=OFF", built[0][1])
-        self.assertIn("-DSTRATA_PORTABLE=OFF", built[0][1])            # built for this PC (#411: portable is the default)
-        self.assertEqual((meta["vision"], meta["vision_src"], have), ("cpu", "V", True))
-        built, meta, _ = self.build({"vision": "cpu", "vision_src": "V"}, "cpu", vexe=True)
-        self.assertEqual(built, [])                                    # built and unchanged: nothing to do
-        built, meta, _ = self.build({"vision": "cpu", "vision_src": "old"}, "cpu", vexe=True)
-        self.assertEqual([t for t, _ in built], ["strata-vision"])     # its source changed: again
-
-    def test_without_images_nothing_changes(self):
-        built, meta, have = self.build({}, "none")
-        self.assertEqual((built, have), ([], False))
-        self.assertNotIn("vision_src", meta)
-
-
 class VramReserve(unittest.TestCase):
     """#493: --vram-reserve-mib N - VRAM the engine leaves free for other programs - goes into the config only when
     given (the default config unchanged), at setup and on a start.  Gemma 4 through tools/poly_setup_harness.py."""
@@ -336,68 +247,21 @@ class VramReserve(unittest.TestCase):
 
     def test_given_on_a_start(self):
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "strata.exe"
+            exe = Path(d) / setup.POLY_EXE
             exe.write_bytes(b"")
             p = Path(d) / "strata-q2_0.json"
             p.write_text(json.dumps({"exe": str(exe), "args": ["--kv", "int8"], "gpu": 0, "gpus_asked": True}))
             call = mock.Mock(return_value=0)
             with mock.patch.object(setup, "gpus", lambda: self.found), \
-                    mock.patch.object(setup, "is_wsl", lambda: False), \
-                    mock.patch.object(setup, "ensure_engine_for", lambda cards, path, cfg, yes: cfg), \
+                    mock.patch.object(setup, "update_poly_engine", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_tail_skip", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_kv_whole", lambda *a, **k: None), \
                     mock.patch.object(setup.subprocess, "call", call):
                 for n in ("2048", "1024"):
                     _, out = quiet(setup.start, p, None, None, False, True, None, {"vram_reserve_mib": int(n)})
                     self.assertEqual(json.loads(p.read_text())["args"], ["--kv", "int8", "--vram-reserve-mib", n])
         self.assertIn("1024 MiB of VRAM kept free", out)
         self.assertTrue(call.called)
-
-
-class DesktopReserveTip(unittest.TestCase):
-    """#560 #516: an AMD card on a Linux desktop gets a recommended reserve (3072 MiB) - a tip, the config is not
-    changed."""
-
-    def test_desktop_detection(self):
-        with mock.patch.object(setup.sys, "platform", "linux"):
-            self.assertTrue(setup.linux_desktop({"WAYLAND_DISPLAY": "wayland-0"}))
-            self.assertTrue(setup.linux_desktop({"DISPLAY": ":0"}))
-            self.assertFalse(setup.linux_desktop({}))                 # a headless box / ssh
-        with mock.patch.object(setup.sys, "platform", "win32"):
-            self.assertFalse(setup.linux_desktop({"DISPLAY": ":0"}))  # Windows counts the desktop itself (#497)
-
-    def test_the_tip(self):
-        tip = " ".join(setup.desktop_reserve_note())
-        self.assertIn("--vram-reserve-mib 3072", tip)
-        self.assertIn("desktop", tip)
-
-
-class CudaVision(unittest.TestCase):
-    """#411: the image encoder setup compiles beside the CUDA engine is built for this PC, not portable."""
-
-    def test_the_encoder_is_built_native(self):
-        for vision in ("gpu", "cpu"):
-            with self.subTest(vision), tempfile.TemporaryDirectory() as d:
-                root = Path(d)
-                eng = root / "engine"
-                eng.mkdir()
-                (eng / setup.EXE).write_bytes(b"engine")                 # the engine is built: only the encoder
-                (eng / "BUILD.json").write_text(json.dumps({"source": "local", "archs": [86], "src": "S"}))
-                built = []
-
-                def cmake_build(src_dir, bdir, target, defs, vcvars, bat):
-                    built.append((target, defs))
-                    (bdir / "bin").mkdir(parents=True)
-                    (bdir / "bin" / setup.VEXE).write_bytes(b"vision")
-
-                with mock.patch.object(setup, "ROOT", root), mock.patch.object(setup, "cmake_build", cmake_build), \
-                        mock.patch.object(setup, "get_llama_cpp", return_value=Path("llama")), \
-                        mock.patch.object(setup, "source_hash", lambda p: "V" if p == setup.VISION_SOURCES else "S"), \
-                        mock.patch.object(setup, "install_build_tools", lambda gpu, yes: (str(root / "nvcc"), None)), \
-                        mock.patch.object(setup, "cpu_info", lambda: ("Test CPU", True, False)), \
-                        mock.patch.object(setup, "source_version", lambda: "test"):
-                    quiet(setup.build_engine, {"arch": "86"}, vision, True, "llama")
-                self.assertEqual([t for t, _ in built], ["strata-vision"])
-                self.assertIn("-DSTRATA_PORTABLE=OFF", built[0][1])
-                self.assertIn(f"-DSTRATA_VISION_CUDA={'ON' if vision == 'gpu' else 'OFF'}", built[0][1])
 
 
 class HostCompilers(unittest.TestCase):
@@ -420,74 +284,6 @@ class HostCompilers(unittest.TestCase):
     def test_unset_adds_nothing(self):
         with mock.patch.dict(os.environ, {"CC": "", "CXX": "", "CUDAHOSTCXX": ""}):
             self.assertEqual(setup.host_compiler_defs(True), [])
-
-    def test_the_defs_reach_cmake(self):
-        """The engine's and the CUDA encoder's configure both take them."""
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            eng = root / "engine"
-            eng.mkdir()
-            (eng / "BUILD.json").write_text(json.dumps({"source": "local", "archs": [86], "src": "old"}))
-            built = []
-
-            def cmake_build(src_dir, bdir, target, defs, vcvars, bat):
-                built.append((target, defs))
-                (bdir / "bin").mkdir(parents=True, exist_ok=True)
-                (bdir / "bin" / setup.VEXE).write_bytes(b"vision")
-                (bdir / setup.EXE).write_bytes(b"engine")
-
-            env = {"CC": "gcc-14", "CXX": "g++-14", "CUDAHOSTCXX": ""}
-            with mock.patch.dict(os.environ, env), mock.patch.object(setup, "ROOT", root), \
-                    mock.patch.object(setup, "cmake_build", cmake_build), \
-                    mock.patch.object(setup, "source_hash", lambda p: "V" if p == setup.VISION_SOURCES else "new"), \
-                    mock.patch.object(setup, "install_build_tools", lambda gpu, yes: (str(root / "nvcc"), None)), \
-                    mock.patch.object(setup, "source_version", lambda: "test"):
-                quiet(setup.build_engine, {"arch": "86"}, "gpu", True, "llama")
-        for target, defs in built:
-            self.assertIn("-DCMAKE_CXX_COMPILER=g++-14", defs, target)
-            self.assertIn("-DCMAKE_CUDA_HOST_COMPILER=g++-14", defs, target)
-
-
-class EnsureEnginePortable(unittest.TestCase):
-    """--max-compatibility: ensure_engine_for() keeps portable=True from BUILD.json when it rebuilds for a new card."""
-
-    def test_rebuild_for_new_card_preserves_portable_flag(self):
-        cases = [
-            ({"archs": [86], "portable": True}, True),
-            ({"archs": [86], "portable": False}, False),
-            ({"archs": [86]}, False),
-        ]
-        for meta_in, want_portable in cases:
-            with self.subTest(meta=meta_in), tempfile.TemporaryDirectory() as d:
-                root = Path(d)
-                eng = root / "engine"
-                eng.mkdir()
-                (eng / "BUILD.json").write_text(json.dumps(meta_in))
-                cfg_path = root / "strata-test.json"
-                cfg = {"exe": str(eng / setup.EXE), "lib_dirs": ["<orig>"]}
-                cards = [
-                    {"index": 0, "name": "RTX 3090", "arch": "86"},
-                    {"index": 1, "name": "RTX 4090", "arch": "89"},
-                ]
-                built = []
-
-                def fake_build(gpu, vision, yes, llama, toolkit=None, portable=False):
-                    built.append({"gpu": gpu, "portable": portable, "toolkit": toolkit})
-                    (eng / "BUILD.json").write_text(json.dumps({**meta_in, "archs": gpu["archs"],
-                                                                "cuda_dirs": ["<new>"]}))
-                    return eng
-
-                with mock.patch.object(setup, "ROOT", root), \
-                        mock.patch.object(setup, "engine_runs_on", lambda g, tk=13: int(g["arch"]) == 86), \
-                        mock.patch.object(setup, "gpu_info", lambda i=0: {"index": i, "name": "RTX 3090", "arch": "86"}), \
-                        mock.patch.object(setup, "get_llama_cpp", lambda: root / "llama.cpp"), \
-                        mock.patch.object(setup, "write_config", lambda p, c: None), \
-                        mock.patch.object(setup, "build_engine", fake_build):
-                    quiet(setup.ensure_engine_for, cards, cfg_path, cfg, True)
-
-                self.assertEqual(len(built), 1)
-                self.assertEqual(built[0]["gpu"]["archs"], [86, 89])
-                self.assertEqual(built[0]["portable"], want_portable)
 
 
 if __name__ == "__main__":

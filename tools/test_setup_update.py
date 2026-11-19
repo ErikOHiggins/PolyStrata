@@ -51,7 +51,28 @@ class Update(unittest.TestCase):
         whole.assert_called_once()
         start.assert_not_called()
         call.assert_not_called()
-        self.assertIn("PolyStrata is updated", out)
+        self.assertIn("Puddle is updated", out)
+
+    def test_a_config_of_the_qwen_engine_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "strata-iq3_s.json"
+            p.write_text(json.dumps({"exe": str(Path(d) / "engine" / "strata"), "args": ["--native", "m.gguf"]}),
+                         encoding="utf-8")
+            before = p.read_text(encoding="utf-8")
+            rc, pip, eng, (tail, whole), start, call, out = self.run_update([p])
+            self.assertEqual(p.read_text(encoding="utf-8"), before)
+        self.assertEqual(rc, 0)
+        for m in (eng, tail, whole, start, call):
+            m.assert_not_called()
+        self.assertIn("strata-iq3_s.json: for an engine Puddle does not have (strata); left as it is", out)
+
+    def test_start_refuses_a_config_of_the_qwen_engine(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "strata-iq3_s.json"
+            p.write_text(json.dumps({"exe": str(Path(d) / "strata"), "args": []}), encoding="utf-8")
+            with mock.patch.object(setup, "update_poly_engine", side_effect=AssertionError("engine")),                     mock.patch("subprocess.call", side_effect=AssertionError("started")),                     contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
+                setup.start(p, None, open_browser=False, yes=True)
+        self.assertIn("for an engine Puddle does not have", out.getvalue())
 
     def test_nothing_installed(self):
         rc, pip, eng, (tail, whole), start, call, out = self.run_update([])
@@ -74,7 +95,7 @@ class Update(unittest.TestCase):
         self.assertIn("skipped strata-cut.json (not valid JSON)", out)
         eng.assert_called_once()                                    # the real model is still refreshed
         self.assertIn("Gemma 4 UD-Q3_K_M: up to date", out)
-        self.assertIn("PolyStrata is updated", out)
+        self.assertIn("Puddle is updated", out)
 
     def test_installed_configs_lists_only_model_configs(self):
         with tempfile.TemporaryDirectory() as d:
@@ -115,15 +136,16 @@ class SettingsLine(unittest.TestCase):
 
     def test_a_start_prints_it(self):
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "strata.exe"
+            exe = Path(d) / setup.POLY_EXE
             exe.write_bytes(b"")
             p = Path(d) / "strata-iq3_s.json"
             args = [x for x in self.CFG["args"] if x != "m.gguf"]           # no model file here
             p.write_text(json.dumps({**self.CFG, "exe": str(exe), "gpu": 0, "args": args}), encoding="utf-8")
             out = io.StringIO()
             with mock.patch.object(setup, "gpus", lambda: []), \
-                    mock.patch.object(setup, "refresh_draft_vocab"), \
-                    mock.patch.object(setup, "is_wsl", lambda: False), \
+                    mock.patch.object(setup, "update_poly_engine", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_tail_skip", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_kv_whole", lambda *a, **k: None), \
                     mock.patch.object(setup.subprocess, "call", return_value=0), \
                     contextlib.redirect_stdout(out):
                 setup.start(p, None, open_browser=False, yes=True)

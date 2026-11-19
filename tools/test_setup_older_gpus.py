@@ -48,15 +48,9 @@ class Choice(unittest.TestCase):
         self.assertEqual(setup.cuda_choice([70], "auto")[0], 12)
         self.assertEqual(setup.cuda_choice([86], "auto"), (13, None))
 
-    def test_engine_folders_and_configs(self):
-        with mock.patch.object(setup, "ROOT", Path("/s")):
-            self.assertEqual(setup.engine_dir(), Path("/s/engine"))
-            self.assertEqual(setup.engine_dir(12), Path("/s/engine-cuda12"))
-        self.assertEqual(setup.config_toolkit({"exe": "/s/engine/strata.exe"}), 13)
-        self.assertEqual(setup.config_toolkit({"exe": "/s/engine-cuda12/strata.exe"}), 12)
-        self.assertEqual(setup.config_toolkit({"exe": "x", "cuda": 12}), 12)
-        self.assertEqual(setup.engine_defs([86], 12), ["-DSTRATA_EXPERIMENTAL_SM60=ON"])
-        self.assertEqual(setup.engine_defs([86]), [])
+    def test_configs(self):
+        self.assertEqual(setup.config_toolkit({"exe": "/s/engine-poly/strata-poly"}), 13)
+        self.assertEqual(setup.config_toolkit({"exe": "/s/engine-poly/strata-poly", "cuda": 12}), 12)
 
 
 class OptIn(unittest.TestCase):
@@ -119,11 +113,6 @@ class Libraries(unittest.TestCase):
                         self.assertEqual(got12, ["cublas/lib", "cuda_runtime/lib"])
                         self.assertEqual(got13, ["cu13/lib"])
 
-    def test_wheels_pinned_to_12(self):
-        self.assertTrue(all("-cu12==12." in w for w in setup.CUDA12_WHEELS))
-        self.assertEqual(setup.CUDA12_ASSET, "strata-windows-x64-cuda12.zip" if setup.WIN else
-                         "strata-linux-x64-cuda12.zip")
-
 
 class BuildTools(unittest.TestCase):
     """The compile path: a CUDA 12 engine looks for a 12.x toolkit (STRATA_NVCC picks one), sm_120 needs 12.8+."""
@@ -145,26 +134,13 @@ class BuildTools(unittest.TestCase):
                                   lambda below: ("nvcc12", (12, 9)) if below else ("nvcc13", (13, 0)))
         self.assertEqual((got[0], seen), ("nvcc12", [(13, 0)]))
 
-    def test_sm120_in_a_cuda12_engine_warns_and_needs_12_8(self):
+    def test_sm120_in_a_cuda12_engine_needs_12_8(self):
         got, _, text = self.tools({"arch": "70", "archs": [70, 120]},
                                   lambda below: ("nvcc12", (12, 9)) if below else ("nvcc13", (13, 0)))
         self.assertEqual(got[0], "nvcc12")
-        self.assertIn("#220", text)
+        self.assertNotIn("#220", text)                      # the Qwen engine's prompt-path warning is gone with it
         with self.assertRaises(SystemExit):
             self.tools({"arch": "70", "archs": [70, 120]}, lambda below: ("nvcc12", (12, 6)) if below else (None, None))
-
-
-def fake_prebuilt(calls):
-    """get_prebuilt that installs an engine in the folder of the toolkit it is asked for (and says which)."""
-    def get(url_base, gpu, vision, updating=False, toolkit=13):
-        calls.append(toolkit)
-        eng = setup.engine_dir(toolkit)
-        eng.mkdir(exist_ok=True)
-        (eng / "BUILD.json").write_text(json.dumps({"version": "0.1.39", "source": "release", "archs": [86], "ptx": True,
-                                                    "cuda": "12.9" if toolkit == 12 else "13.0", "vision": "gpu"}))
-        (eng / setup.EXE).write_bytes(b"")
-        return eng
-    return get
 
 
 class Install(unittest.TestCase):
@@ -226,67 +202,6 @@ class Install(unittest.TestCase):
     def test_cuda13_forced_on_a_v100_is_said(self):
         code, out, cfg = self.run_setup(95.0, [V100], ["--cuda", "13"])
         self.assertIn("will not run on that card", out)
-
-
-class Start(unittest.TestCase):
-    """At a start: a Pascal / Volta card added to a CUDA 13 model moves that model to the CUDA 12 engine; updates
-    look at both engine folders."""
-
-    def test_an_old_card_added_moves_the_model(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            cfg_path = root / "strata-iq3_xxs.json"
-            cfg = {"exe": str(root / "engine" / setup.EXE), "args": [], "lib_dirs": ["<cu13>"]}
-            calls = []
-            with mock.patch.object(setup, "ROOT", root), \
-                    mock.patch.object(setup, "get_prebuilt", fake_prebuilt(calls)), \
-                    mock.patch.object(setup, "pip_cuda_libs", lambda tk=13: None), \
-                    mock.patch.object(setup, "cuda_lib_dirs", lambda tk=13: [f"<cu{tk}>"]), \
-                    mock.patch.object(setup, "gpu_info", lambda i=None: None):
-                got, text = quiet(setup.ensure_engine_for, [card(0, "RTX 3090", 24.0, "86"), {**V100, "index": 1}],
-                                  cfg_path, dict(cfg), True)
-            self.assertEqual(calls, [12])
-            self.assertEqual(Path(got["exe"]).parent.name, "engine-cuda12")
-            self.assertEqual((got["cuda"], got["lib_dirs"]), (12, ["<cu12>"]))
-            self.assertIn("moves to the experimental CUDA 12 engine", text)
-            self.assertEqual(json.loads(cfg_path.read_text())["cuda"], 12)
-
-    def test_a_card_added_keeps_a_max_compatibility_engine_portable(self):
-        # PR 58: an engine built with --max-compatibility is compiled for the new card as the release build again
-        with tempfile.TemporaryDirectory() as d:
-            eng = Path(d) / "engine"
-            eng.mkdir()
-            (eng / "BUILD.json").write_text(json.dumps({"archs": [86], "portable": True, "vision": "none"}))
-            built = []
-            with mock.patch.object(setup, "engine_dir", lambda tk=13: eng), \
-                    mock.patch.object(setup, "engine_runs_on", lambda g, tk=13: g["arch"] == "86"), \
-                    mock.patch.object(setup, "gpu_info", lambda i=None: card(0, "RTX 3090", 24.0, "86")), \
-                    mock.patch.object(setup, "get_llama_cpp", lambda vision=False: Path("llama")), \
-                    mock.patch.object(setup, "build_engine", lambda *a, **k: built.append(k)), \
-                    mock.patch.object(setup, "write_config", lambda p, c: None):
-                quiet(setup.ensure_engine_for, [card(0, "RTX 3090", 24.0, "86"), card(1, "RTX 4090", 24.0, "89")],
-                      Path(d) / "strata-x.json", {"args": []}, True)
-            self.assertEqual(len(built), 1)
-            self.assertTrue(built[0].get("portable"))
-
-    def test_update_looks_at_both_engines(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            seen = []
-            real = setup.update_installed_engine
-
-            def spy(url_base, toolkit=None):
-                if toolkit is None:
-                    return real(url_base, toolkit)
-                seen.append(toolkit)
-            with mock.patch.object(setup, "ROOT", root), mock.patch.object(setup, "update_installed_engine", spy):
-                spy("u")
-                self.assertEqual(seen, [13])
-                (root / "engine-cuda12").mkdir()
-                (root / "engine-cuda12" / "BUILD.json").write_text("{}")
-                seen.clear()
-                spy("u")
-                self.assertEqual(seen, [13, 12])
 
 
 if __name__ == "__main__":

@@ -117,16 +117,8 @@ class CarryOver(unittest.TestCase):
             self.assertEqual(json.loads(p.read_text(encoding="utf-8")), {"exe": "e", "args": []})
             self.assertEqual((Path(d) / "strata-x.json.bak").read_text(encoding="utf-8"), "{cut off")
 
-    def test_display_tip_and_typed_ahead_flush(self):
-        # #779: the tip only when nvidia-smi says the card drives a display; #841: typed-ahead keys are dropped on a tty
-        with unittest.mock.patch.object(setup, "out", lambda cmd: "Enabled\n"):
-            self.assertTrue(setup.gpu_drives_display({"index": 0}))
-        with unittest.mock.patch.object(setup, "out", lambda cmd: "Disabled\n"), unittest.mock.patch.object(setup, "out") as o:
-            o.return_value = "Disabled\n"
-            self.assertFalse(setup.gpu_drives_display({"index": 1}))
-            self.assertIn("1", o.call_args[0][0])
-        with unittest.mock.patch.object(setup, "out", lambda cmd: ""):
-            self.assertFalse(setup.gpu_drives_display({"index": 0}))
+    def test_typed_ahead_flush(self):
+        # #841: typed-ahead keys are dropped on a tty
         with unittest.mock.patch.object(setup.sys, "stdin") as stdin:
             stdin.isatty.return_value = False
             setup.flush_typed_ahead()                      # a pipe: nothing touched
@@ -203,7 +195,7 @@ class NoBrowser(unittest.TestCase):
 
     def start_cmd(self, cfg, keep=None):
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "strata.exe"
+            exe = Path(d) / setup.POLY_EXE
             exe.write_bytes(b"")
             p = Path(d) / "strata-q2_0.json"
             p.write_text(json.dumps({"exe": str(exe), "args": ["--kv", "int8"], "gpu": 0, "gpus_asked": True, **cfg}))
@@ -211,8 +203,9 @@ class NoBrowser(unittest.TestCase):
             found = [{"index": 0, "name": "NVIDIA GeForce RTX 5090", "vram_gb": 31.84, "arch": "120",
                       "driver": "580.97"}]
             with unittest.mock.patch.object(setup, "gpus", lambda: found), \
-                    unittest.mock.patch.object(setup, "is_wsl", lambda: False), \
-                    unittest.mock.patch.object(setup, "ensure_engine_for", lambda cards, path, c, yes: c), \
+                    unittest.mock.patch.object(setup, "update_poly_engine", lambda *a, **k: None), \
+                    unittest.mock.patch.object(setup, "poly_tail_skip", lambda *a, **k: None), \
+                    unittest.mock.patch.object(setup, "poly_kv_whole", lambda *a, **k: None), \
                     unittest.mock.patch.object(setup.subprocess, "call", call):
                 _, out = quiet(setup.start, p, None, None, True, True, None, keep)
             return call.call_args[0][0], out, json.loads(p.read_text())

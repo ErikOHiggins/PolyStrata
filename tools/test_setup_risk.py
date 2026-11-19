@@ -74,11 +74,6 @@ class ConfirmRisk(unittest.TestCase):
             self.assertIn("[n]", asked[0])
             self.assertIsNone(self.go(explicit, False, stdin="y")[0])
 
-    def test_paging_with_an_explicit_model(self):
-        code, out, asked = run(setup.confirm_paging, "IQ3_XXS", 54, "auto", True, True)
-        self.assertIsNone(code, out)
-        self.assertIn("installing IQ3_XXS with 54 GB of RAM, as you chose (--model)", out)
-
 
 class BrokenEarlierConfig(unittest.TestCase):
     """#459: a new copy of PolyStrata set up like an earlier install skips an earlier config that does not parse (an
@@ -128,77 +123,27 @@ class BrokenEarlierConfig(unittest.TestCase):
 
 
 class StartOnSeveralGpus(unittest.TestCase):
-    """A resident low-RAM config started on several GPUs reads the experts through the file cache (#364 #384)."""
-
-    def setUp(self):
-        # the behaviour before RESIDENT_SPLIT_ENGINE (an engine from before 0.1.40); the tests of the newer engine
-        # patch MIN_ENGINE themselves, and the default (MIN_ENGINE = 0.1.40) is covered by test_setup_golden
-        p = mock.patch.object(setup, "MIN_ENGINE", (0, 1, 39))
-        p.start()
-        self.addCleanup(p.stop)
-
-    def test_split_mmap(self):
-        cfg = {"args": ["--pack", "p", "--resident-experts", "--kv", "int8"]}
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertTrue(setup.split_mmap(cfg))
-            self.assertFalse(setup.split_mmap(cfg))
-            self.assertFalse(setup.split_mmap({"args": ["--mmap-experts"]}))
-        self.assertEqual(cfg["args"], ["--pack", "p", "--mmap-experts", "--kv", "int8"])
-        self.assertIn("no layer split yet", out.getvalue())
-
-    def offer(self, args, stdin):
-        found = PROFILES["32GB-2x24GB"][1]
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "strata-q2_0.json"
-            cfg = {"args": list(args)}
-            with mock.patch.object(setup, "gpus", lambda: found), \
-                    mock.patch.object(setup, "engine_runs_on", lambda g: True):
-                code, out, asked = run(setup.offer_together, p, cfg, stdin is None, stdin=stdin)
-            return code, out, asked, json.loads(p.read_text())
-
-    def test_offer_together_recommends_one_gpu_for_a_resident_config(self):
-        code, out, asked, cfg = self.offer(["--resident-experts"], None)       # --yes: the recommendation
-        self.assertIsNone(code, out)
-        self.assertNotIn("gpu", cfg)
-        self.assertEqual(cfg["args"], ["--resident-experts"])
-        code, out, asked, cfg = self.offer(["--resident-experts"], "y")
-        self.assertIn("[n]", asked[0])
-        self.assertEqual(cfg["gpu"], [0, 1])
-        self.assertEqual(cfg["args"], ["--mmap-experts"])   # #1447: no helper cache, no --remote-expert-opt
-        code, out, asked, cfg = self.offer(["--mmap-experts"], None)           # other configs: as before
-        self.assertEqual(cfg["gpu"], [0, 1])
-
-    def test_resident_split_engine_keeps_a_resident_config(self):
-        """#642: from RESIDENT_SPLIT_ENGINE a resident config is offered both cards as any other, and stays resident."""
-        with mock.patch.object(setup, "MIN_ENGINE", setup.RESIDENT_SPLIT_ENGINE):
-            cfg = {"args": ["--pack", "p", "--resident-experts", "--kv", "int8"]}
-            self.assertFalse(setup.split_mmap(cfg))
-            self.assertEqual(cfg["args"], ["--pack", "p", "--resident-experts", "--kv", "int8"])
-            code, out, asked, cfg = self.offer(["--resident-experts"], None)   # --yes: the recommendation
-            self.assertIsNone(code, out)
-            self.assertEqual(cfg["gpu"], [0, 1])
-            self.assertEqual(cfg["args"], ["--resident-experts"])
-            self.assertNotIn("OS file cache", out)
+    """--gpus on a start: saved in the config, nothing else changed."""
 
     def test_start_with_gpus(self):
         found = PROFILES["32GB-2x24GB"][1]
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "strata.exe"
+            exe = Path(d) / setup.POLY_EXE
             exe.write_bytes(b"")
-            p = Path(d) / "strata-q2_0.json"
-            p.write_text(json.dumps({"exe": str(exe), "args": ["--resident-experts"], "gpu": 0, "gpus_asked": True}))
+            p = Path(d) / "strata-gemma4-ud-q3_k_m.json"
+            p.write_text(json.dumps({"exe": str(exe), "args": ["--max-context", "32768"], "gpu": 0, "gpus_asked": True}))
             call = mock.Mock(return_value=0)
             with mock.patch.object(setup, "gpus", lambda: found), \
-                    mock.patch.object(setup, "ensure_engine_for", lambda cards, path, cfg, yes: cfg), \
-                    mock.patch.object(setup, "is_wsl", lambda: False), \
+                    mock.patch.object(setup, "update_poly_engine", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_tail_skip", lambda *a, **k: None), \
+                    mock.patch.object(setup, "poly_kv_whole", lambda *a, **k: None), \
                     mock.patch.object(setup.subprocess, "call", call):
                 code, out, _ = run(setup.start, p, None, [0, 1], False, True)
             cfg = json.loads(p.read_text())
         self.assertIsNone(code, out)
         self.assertEqual(cfg["gpu"], [0, 1])
-        self.assertEqual(cfg["args"], ["--mmap-experts"])   # #1447: no helper cache, no --remote-expert-opt
-        self.assertIn("no layer split yet", out)
+        self.assertEqual(cfg["layer_split"], "auto")
+        self.assertEqual(cfg["args"], ["--max-context", "32768"])   # nothing added on a start
         self.assertTrue(call.called)
 
 
@@ -249,17 +194,6 @@ class SplitShortCard(unittest.TestCase):
                                                         "--gpus", "0,1"])
         self.assertEqual(code, 0, out)
         self.assertEqual(cfg["gpu"], [0, 1])
-
-    def test_offer_together_defaults_to_one(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "strata-q2_0.json"
-            with mock.patch.object(setup, "gpus", lambda: self.FOUND), \
-                    mock.patch.object(setup, "engine_runs_on", lambda g: True):
-                code, out, asked = run(setup.offer_together, p, {"args": ["--mmap-experts"]}, True)
-            cfg = json.loads(p.read_text())
-        self.assertIsNone(code, out)
-        self.assertNotIn("gpu", cfg)
-        self.assertIn("#448", out)
 
 
 if __name__ == "__main__":

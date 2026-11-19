@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import setup  # noqa: E402
 
-REPO = "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
-PATH = "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf"
+REPO = "unsloth/gemma-4-26B-A4B-it-GGUF"
+PATH = "MTP/mtp-gemma-4-26B-A4B-it-Q8_0.gguf"
 HF_URL = setup.hf(REPO) + PATH
 
 
