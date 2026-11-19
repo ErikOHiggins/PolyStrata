@@ -188,7 +188,7 @@ class CustomGgufTests(unittest.TestCase):
         """Verdict kind 'family' → derive size from GGUF_QUANT match or filename token."""
         with tempfile.TemporaryDirectory() as tmp:
             # Find a family that is not in the fingerprints table so verdict returns "family".
-            # Use qwen36 from FAMILIES; file name must end in one of its model sizes.
+            # Use gemma4 from FAMILIES; file name must end in one of its model sizes.
             p = Path(tmp) / "model-UD-Q3_K_M.gguf"
             _write_gguf(p)
 
@@ -197,13 +197,13 @@ class CustomGgufTests(unittest.TestCase):
             stub = self._make_stub(fp_dict=fp_dict, kind="family")
 
             # Patch PREVIEW_ARCHS to map our arch to a family title in FAMILIES
-            stub.PREVIEW_ARCHS = {"some_preview_arch": setup.FAMILIES["qwen36"]["title"]}
+            stub.PREVIEW_ARCHS = {"some_preview_arch": setup.FAMILIES["gemma4"]["title"]}
 
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.dict(sys.modules, {"strata_inspect": stub}))
                 family, model, shards = setup.resolve_custom_gguf(str(p))
 
-        # FAMILIES["qwen36"] has title "Qwen 3.6" (verify) and models dict with sizes
+        # FAMILIES["gemma4"]: its title and its sizes
         self.assertTrue(family in setup.FAMILIES)
         self.assertIn(model, setup.FAMILIES[family]["models"])
         self.assertEqual(shards, [p])
@@ -217,16 +217,18 @@ class CustomGgufTests(unittest.TestCase):
             _write_gguf(s1)
             _write_gguf(s2)
 
-            fp_dict = {"arch": "ornith_arch", "tensors": 0, "bytes": 0,
+            fp_dict = {"arch": "apex_arch", "tensors": 0, "bytes": 0,
                        "expert_bytes": {}, "experts_bpw": None, "bpw": None, "roles": {}}
             stub = self._make_stub(fp_dict=fp_dict, kind="family")
-            stub.PREVIEW_ARCHS = {"ornith_arch": setup.FAMILIES["ornith"]["title"]}
+            stub.PREVIEW_ARCHS = {"apex_arch": "An APEX family"}
+            apex = {"title": "An APEX family", "models": {"APEX-I-MINI": {}, "APEX-I-COMPACT": {}}}
 
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.dict(sys.modules, {"strata_inspect": stub}))
+                stack.enter_context(mock.patch.dict(setup.FAMILIES, {"apex": apex}))
                 family, model, shards = setup.resolve_custom_gguf(str(d))
 
-        self.assertEqual(family, "ornith")
+        self.assertEqual(family, "apex")
         self.assertEqual(model, "APEX-I-COMPACT")
         self.assertEqual(len(shards), 2)
 
@@ -245,8 +247,9 @@ class CustomGgufTests(unittest.TestCase):
             stub = self._make_stub(fp_dict=first_entry, kind="known")
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.dict(sys.modules, {"strata_inspect": stub}))
-                # --family swift conflicts with resolved "qwen" → fail before GPU detection
-                argv = ["setup.py", "--custom-gguf", str(p), "--family", "swift", "--model", "IQ3_S"]
+                # --family gemma4 conflicts with the table's first entry → fail before GPU detection
+                self.assertNotEqual(first_key.split("/")[0], "gemma4")
+                argv = ["setup.py", "--custom-gguf", str(p), "--family", "gemma4", "--model", "UD-Q3_K_M"]
                 stack.enter_context(mock.patch.object(sys, "argv", argv))
                 try:
                     setup.main()

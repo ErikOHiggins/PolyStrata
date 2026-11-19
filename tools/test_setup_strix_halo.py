@@ -461,49 +461,6 @@ class WindowsZip(unittest.TestCase):
         self.assertTrue({"gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030"} <= set(m.group(1).split(";")))
 
 
-class Recommendation(unittest.TestCase):
-    def halo(self, carve=2.0):
-        return {"arch": "gfx1151", "uma": True, "dedicated_gb": carve, "shared_gb": 100.0, "vram_gb": carve + 100.0}
-
-    def test_ud_iq4_xs_with_enough_memory(self):
-        self.assertEqual((setup.STRIX_HALO_FAMILY, setup.STRIX_HALO_MODEL), ("unsloth", "UD-IQ4_XS"))
-        self.assertIn(setup.STRIX_HALO_MODEL, setup.MODELS)
-        self.assertIn(setup.STRIX_HALO_FAMILY, setup.FAMILIES)
-        self.assertTrue(setup.strix_halo_recommends(self.halo(), AURORA_RAM_GB))
-        self.assertTrue(setup.strix_halo_recommends(self.halo(), 128.0))
-        self.assertTrue(setup.strix_halo_recommends(self.halo(32.0), 60.0))             # 32 GB carve-out + 60 GB RAM
-        self.assertFalse(setup.strix_halo_recommends(self.halo(), 62.0))                # a 64 GB box: no recommendation
-        self.assertFalse(setup.strix_halo_recommends(self.halo(), 30.0))
-        self.assertFalse(setup.strix_halo_recommends({"arch": "gfx1100", "vram_gb": 24.0}, 256.0))
-        self.assertFalse(setup.strix_halo_recommends({"arch": "gfx1150", "vram_gb": 0.5}, 256.0))
-
-    def test_the_recommended_model_is_a_regular_choice_on_amd(self):
-        m = setup.MODELS[setup.STRIX_HALO_MODEL]
-        self.assertFalse(m.get("nvidia_only"))
-        self.assertFalse(m.get("experimental"))
-
-    def test_notes_are_recommendations(self):
-        win = setup.WIN
-        try:
-            setup.WIN = False
-            g = {**self.halo(), "shared_gb": 60.0, "vram_gb": 62.0}
-            notes = setup.strix_halo_notes(g, AURORA_RAM_GB)
-            joined = "\n".join(notes)
-            self.assertIn("docs/STRIX_HALO.md", joined)
-            self.assertIn("UD-IQ4_XS", joined)
-            self.assertTrue(any(n.startswith("!") and "ttm.pages_limit" in n for n in notes))   # a small GTT: a warning
-            self.assertIn("changes no host setting", joined)
-            big = {**self.halo(), "shared_gb": 112.0, "vram_gb": 114.0}
-            self.assertFalse(any(n.startswith("!") for n in setup.strix_halo_notes(big, AURORA_RAM_GB)))
-        finally:
-            setup.WIN = win
-
-    def test_hipblaslt_table_for_gfx1151(self):
-        t = setup.hipblaslt_table("gfx1151", [], 100401)
-        self.assertIsNotNone(t)
-        self.assertEqual(t.name, "gfx1151-hipblaslt-100401.txt")
-
-
 class LowRamUsesTheCarveOutOnly(unittest.TestCase):
     def test_apu_memory_is_not_double_counted(self):
         halo = {"arch": "gfx1151", "uma": True, "dedicated_gb": 2.0, "shared_gb": 112.0, "vram_gb": 114.0, "index": 0}

@@ -49,7 +49,7 @@ class Parallel(unittest.TestCase):
         self.assertEqual(len(S.parallel_note(3, 24, q2, 32768, "int8", False)), 1)   # as recommended: no warning
 
     def test_poly_notes(self):
-        d = S.family_models("qwen36")["UD-Q3_K_M"]
+        d = S.family_models("gemma4")["UD-Q3_K_M"]
         # 8 GB: most experts on the CPU, so requests at once gain less
         self.assertIn("gain less", S.poly_parallel_note(None, d, 8.0)[0])
         self.assertTrue(any("gain less" in x for x in S.poly_parallel_note(3, d, 8.0)))

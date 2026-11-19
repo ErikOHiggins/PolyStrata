@@ -82,9 +82,9 @@ class HuggingFacePins(unittest.TestCase):
             self.assertIn("experts.bin", t["files"] and [x.split("/")[-1] for x in t["files"]])
 
     def test_unpinned(self):
-        url = setup.FAMILIES["swift"]["hf"] + "x.gguf"
+        url = setup.FAMILIES["gemma4"]["hf"] + "x.gguf"
         self.assertEqual(setup.hf_unpinned(url),
-                         "https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF/resolve/main/x.gguf")
+                         "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/x.gguf")
         self.assertEqual(setup.hf_unpinned("https://example.com/a/b"), "https://example.com/a/b")
 
     def test_a_gone_revision_downloads_the_current_file(self):
@@ -100,7 +100,7 @@ class HuggingFacePins(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(setup.urllib.request, "urlopen", urlopen), \
                 mock.patch.dict(setup.os.environ, {"STRATA_SOURCE": "huggingface"}):
             dst = Path(d) / "m.gguf"
-            _, out = quiet(setup.download, setup.FAMILIES["qwen"]["mmproj_hf"] + "m.gguf", dst)
+            _, out = quiet(setup.download, setup.FAMILIES["gemma4"]["mmproj_hf"] + "m.gguf", dst)
             self.assertEqual(dst.read_bytes(), b"model bytes")
         self.assertIn("not at the pinned revision any more", out)
         self.assertEqual([m for m, _ in seen], ["HEAD", "HEAD", "GET"])
@@ -171,17 +171,19 @@ class HuggingFacePins(unittest.TestCase):
             importlib.reload(mtp_fetch)
         self.assertTrue(mtp_fetch.REPO.startswith("https://huggingface.co/"))
 
+
+class Step5(unittest.TestCase):
+    """#495: where setup expects the model file, and how to give it a file downloaded by hand."""
+    from tools.poly_setup_harness import PolyMain
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
+
     def test_step5_names_the_folder(self):
-        # #495: where setup expects the model files, and how to give it files downloaded by hand
-        from test_setup_golden import PROFILES, install
-        ram, found = PROFILES["96GB-1x16GB"]
         with mock.patch.dict(setup.os.environ, {"HF_ENDPOINT": "https://hf-mirror.com"}):
-            code, out, cfg, _ = install(ram, found, ["--family", "qwen", "--model", "IQ3_XXS", "--no-start"])
-        self.assertEqual(code, 0)
+            code, out, cfg = self.main(family="gemma4", model="UD-Q3_K_M", ram=32.0, vram=8.0)
+        self.assertEqual(code, 0, out)
         text = out.replace("\\", "/")
-        self.assertRegex(text, r"The model files go in .*/models/IQ3_XXS")
-        self.assertIn("put them here with their original names (Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf",
-                      text)
+        self.assertRegex(text, r"The model file goes in .*/models")
+        self.assertIn("put it there with its original name (gemma-4-26B-A4B-it-UD-Q3_K_M.gguf)", text)
         self.assertIn("--gguf-dir", text)
         self.assertIn("Downloading from https://hf-mirror.com (HF_ENDPOINT)", text)
 

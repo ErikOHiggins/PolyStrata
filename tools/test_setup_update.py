@@ -1,5 +1,5 @@
 """Tests for `setup.py --update` (#475, UPDATE.bat / update.sh): it refreshes what a start would - the Python packages,
-the engine, each model's config and draft subset - and never starts the model.  Every outside effect is mocked: no
+the strata-poly engine (compiled again when its source changed) and each model's config - and never starts the model.  Every outside effect is mocked: no
 GPU, no downloads, nothing written outside a temp folder.
 
     python -m unittest tools.test_setup_update
@@ -22,50 +22,41 @@ import setup  # noqa: E402
 
 class Update(unittest.TestCase):
     def config(self, d: Path, **extra) -> Path:
-        rt = d / "mtp" / "rt"
-        rt.mkdir(parents=True)
-        p = d / "strata-iq3_s.json"
-        p.write_text(json.dumps({"model_name": "Qwen IQ3_S", "exe": str(d / "engine" / setup.EXE),
-                                 "args": ["--native", "x", "--mtp", str(rt)], **extra}), encoding="utf-8")
+        p = d / "strata-gemma4-ud-q3_k_m.json"
+        p.write_text(json.dumps({"model_name": "Gemma 4 UD-Q3_K_M", "exe": str(d / "engine-poly" / setup.POLY_EXE),
+                                 "args": ["--model", "m.gguf"], **extra}), encoding="utf-8")
         return p
 
     def run_update(self, have, argv=()):
-        a = mock.Mock(**{"build": False, "prebuilt": "URL", **dict(argv)})
+        a = mock.Mock(**dict(argv))
         out = io.StringIO()
         with mock.patch.object(setup, "pip_install") as pip, \
-                mock.patch.object(setup, "update_installed_engine") as eng, \
-                mock.patch.object(setup, "refresh_draft_vocab") as dv, \
+                mock.patch.object(setup, "update_poly_engine") as eng, \
+                mock.patch.object(setup, "poly_tail_skip") as tail, \
+                mock.patch.object(setup, "poly_kv_whole") as whole, \
                 mock.patch.object(setup, "start") as start, \
                 mock.patch("subprocess.call") as call, \
                 contextlib.redirect_stdout(out):
             rc = setup.update_install(have, a)
-        return rc, pip, eng, dv, start, call, out.getvalue()
+        return rc, pip, eng, (tail, whole), start, call, out.getvalue()
 
     def test_refreshes_without_starting(self):
         with tempfile.TemporaryDirectory() as d:
-            p = self.config(Path(d), draft_vocab="en")
-            rc, pip, eng, dv, start, call, out = self.run_update([p])
+            p = self.config(Path(d))
+            rc, pip, eng, (tail, whole), start, call, out = self.run_update([p])
         self.assertEqual(rc, 0)
         pip.assert_called_once()
-        eng.assert_called_once_with("URL")
-        dv.assert_called_once()
-        self.assertEqual(dv.call_args[0][1], "en")                 # the model's own subset is kept
+        eng.assert_called_once()                                    # the model's engine, compiled again if stale
+        tail.assert_called_once()
+        whole.assert_called_once()
         start.assert_not_called()
         call.assert_not_called()
         self.assertIn("PolyStrata is updated", out)
 
-    def test_build_keeps_the_compiled_engine_path(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = self.config(Path(d))
-            rc, pip, eng, dv, *_ = self.run_update([p], {"build": True})
-        self.assertEqual(rc, 0)
-        eng.assert_not_called()
-        self.assertEqual(dv.call_args[0][1], "cjk")
-
     def test_nothing_installed(self):
-        rc, pip, eng, dv, start, call, out = self.run_update([])
+        rc, pip, eng, (tail, whole), start, call, out = self.run_update([])
         self.assertEqual(rc, 0)
-        for m in (pip, eng, dv, start, call):
+        for m in (pip, eng, tail, whole, start, call):
             m.assert_not_called()
         self.assertIn("START-HERE.bat", out)
 
@@ -77,12 +68,12 @@ class Update(unittest.TestCase):
             other.write_text(json.dumps({"note": "mine"}), encoding="utf-8")
             broken = Path(d) / "strata-cut.json"
             broken.write_text("{\"args\": [", encoding="utf-8")
-            rc, pip, eng, dv, start, call, out = self.run_update([other, broken, p])
+            rc, pip, eng, _, start, call, out = self.run_update([other, broken, p])
         self.assertEqual(rc, 0, out)
         self.assertIn('skipped strata-notes.json (no "exe" or "args"): it is not a PolyStrata model config', out)
         self.assertIn("skipped strata-cut.json (not valid JSON)", out)
-        dv.assert_called_once()                                     # the real model is still refreshed
-        self.assertIn("Qwen IQ3_S: up to date", out)
+        eng.assert_called_once()                                    # the real model is still refreshed
+        self.assertIn("Gemma 4 UD-Q3_K_M: up to date", out)
         self.assertIn("PolyStrata is updated", out)
 
     def test_installed_configs_lists_only_model_configs(self):
@@ -142,7 +133,13 @@ class SettingsLine(unittest.TestCase):
 
 
 class TailSkip(unittest.TestCase):
-    """A Qwen3.6 config from before its family got "tail_skip" gets --tail-skip on update, once the engine knows it."""
+    """A config from before its family got "tail_skip" gets --tail-skip on update, once the engine knows it.  (Qwen3.6
+    had it; a stand-in family keeps the rule tested.)"""
+
+    def setUp(self):
+        fams = mock.patch.dict(setup.FAMILIES, {"tsk": {"name": "a-model", "title": "A model", "tail_skip": 6}})
+        fams.start()
+        self.addCleanup(fams.stop)
 
     def upgraded(self, name, version, args=()):
         with tempfile.TemporaryDirectory() as d:
@@ -156,17 +153,16 @@ class TailSkip(unittest.TestCase):
                 setup.poly_tail_skip(cfg, p)
             return json.loads(p.read_text(encoding="utf-8"))["args"]
 
-    def test_qwen36_gets_it(self):
-        self.assertEqual(self.upgraded("qwen3.6-35b-a3b-ud-q2_k_xl", "0.1.42")[-2:], ["--tail-skip", "6"])
+    def test_its_family_gets_it(self):
+        self.assertEqual(self.upgraded("a-model-ud-q2_k_xl", "0.1.42")[-2:], ["--tail-skip", "6"])
 
     def test_an_older_engine_or_another_family_does_not(self):
-        for name, version in (("qwen3.6-35b-a3b-ud-q3_k_m", "0.1.41"), ("ornith-1.5-35b-a3b-apex-i-compact", "0.1.42"),
-                              ("gemma-4-26b-a4b-ud-q3_k_m", "0.1.42")):
+        for name, version in (("a-model-ud-q3_k_m", "0.1.41"), ("gemma-4-26b-a4b-ud-q3_k_m", "0.1.42")):
             with self.subTest(name=name, version=version):
                 self.assertNotIn("--tail-skip", self.upgraded(name, version))
 
     def test_a_value_the_user_set_stays(self):
-        args = self.upgraded("qwen3.6-35b-a3b-ud-q3_k_m", "0.1.42", ["--tail-skip", "0"])
+        args = self.upgraded("a-model-ud-q3_k_m", "0.1.42", ["--tail-skip", "0"])
         self.assertEqual(args.count("--tail-skip"), 1)
         self.assertEqual(args[-1], "0")
 

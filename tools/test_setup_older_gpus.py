@@ -1,6 +1,6 @@
-"""Older NVIDIA GPUs (experimental): Pascal / Volta run a second engine built with CUDA 12 (engine-cuda12/), chosen per
-model config by its oldest card; --cuda 12|13 overrides it.  A PC whose cards the ready-made CUDA 13 engine runs on
-gets exactly what it got before.  No GPU, no downloads.
+"""Older NVIDIA GPUs (experimental): Pascal / Volta get strata-poly compiled with CUDA 12, chosen per model config by
+its oldest card; --cuda 12|13 overrides it.  A PC whose cards CUDA 13 runs on gets exactly what it got before.  No
+GPU, no downloads.
 
     python -m unittest tools.test_setup_older_gpus
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import setup  # noqa: E402
 from test_setup_choices import quiet  # noqa: E402
-from test_setup_golden import PROFILES, install, argv_for  # noqa: E402
+from tools.poly_setup_harness import PolyMain  # noqa: E402
 
 
 def card(i, name, vram, arch, driver="580.97"):
@@ -168,75 +168,63 @@ def fake_prebuilt(calls):
 
 
 class Install(unittest.TestCase):
-    """setup.main() on mocked PCs (tools/test_setup_golden.py's harness)."""
+    """setup.main() on mocked PCs (tools/poly_setup_harness.py): the toolkit strata-poly is compiled with."""
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
-    def run_setup(self, ram, found, argv, env=None):
-        calls, libs = [], []
-        extra = [mock.patch.object(setup, "get_prebuilt", fake_prebuilt(calls)),
-                 mock.patch.object(setup, "pip_cuda_libs", lambda tk=13: libs.append(tk)),
-                 mock.patch.object(setup, "OLD_GPUS", None),
-                 mock.patch.dict(os.environ, {"STRATA_EXPERIMENTAL_SM60": "", "STRATA_CUDA": "", **(env or {})})]
-        code, out, cfg, asked = install(ram, found, argv, extra=extra)
-        return code, out, cfg, calls, libs
+    def run_setup(self, ram, found, argv=(), env=None):
+        self.toolkit = None
+        code, out, cfg = self.main(list(argv), family="gemma4", model="UD-Q3_K_M", ram=ram, cards=found, env=env)
+        return code, out, cfg
 
-    def test_a_v100_alone_gets_the_cuda12_engine(self):
-        code, out, cfg, calls, libs = self.run_setup(95.0, [V100], argv_for("qwen", "IQ3_XXS"))
+    def test_a_v100_alone_gets_cuda12(self):
+        code, out, cfg = self.run_setup(95.0, [V100])
         self.assertEqual(code, 0, out[-3000:])
-        self.assertEqual((calls, libs), ([12], [12]))
-        self.assertEqual(cfg["cuda"], 12)
-        self.assertEqual(cfg["exe"], "<T>/engine-cuda12/<EXE>")
+        self.assertEqual((self.toolkit, cfg["cuda"]), (12, 12))
         self.assertIn("sm_70 is older than CUDA 13 supports", out)
         self.assertIn("experimental", out)
 
     def test_a_p40_with_an_older_driver(self):
-        code, out, cfg, calls, _ = self.run_setup(95.0, [P40], argv_for("qwen", "IQ3_XXS"))
+        code, out, cfg = self.run_setup(95.0, [P40])
         self.assertEqual(code, 0, out[-3000:])                 # driver 535: enough for CUDA 12
-        self.assertEqual(calls, [12])
+        self.assertEqual(self.toolkit, 12)
 
     def test_a_newer_card_beside_a_v100_is_unchanged(self):
         """The RTX 3090 is recommended as before; the V100 is listed with how to choose it."""
         rtx = card(0, "NVIDIA GeForce RTX 3090", 24.0, "86")
-        found = [rtx, {**V100, "index": 1}]
-        code, out, cfg, calls, libs = self.run_setup(95.0, found, argv_for("qwen", "IQ3_XXS"))
-        code0, _, cfg0, _ = install(95.0, [rtx], argv_for("qwen", "IQ3_XXS"))
+        code, out, cfg = self.run_setup(95.0, [rtx, {**V100, "index": 1}])
         self.assertEqual(code, 0, out[-3000:])
-        self.assertEqual((calls, libs), ([13], [13]))
+        self.assertEqual(self.toolkit, 13)
         self.assertNotIn("cuda", cfg)
-        self.assertEqual(cfg["exe"], "<T>/engine/<EXE>")
         self.assertIn("choose it with --gpu 1", out)
-        skip = ("gpu", "gpus_asked", "lib_dirs")       # one card vs two; the fake engine's library folders
-        self.assertEqual({k: v for k, v in cfg.items() if k not in skip}, {k: v for k, v in cfg0.items() if k not in skip})
 
     def test_naming_the_v100_beside_a_newer_card(self):
         found = [card(0, "NVIDIA GeForce RTX 3090", 24.0, "86"), {**V100, "index": 1}]
-        code, out, cfg, calls, _ = self.run_setup(95.0, found, argv_for("qwen", "IQ3_XXS") + ["--gpu", "1"])
+        code, out, cfg = self.run_setup(95.0, found, ["--gpu", "1"])
         self.assertEqual(code, 0, out[-3000:])
-        self.assertEqual(calls, [12])
-        self.assertEqual((cfg["cuda"], cfg["gpu"]), (12, 1))
+        self.assertEqual((self.toolkit, cfg["cuda"], cfg["gpu"]), (12, 12, 1))
         self.assertIn("you chose GPU 1", out)
 
     def test_cuda12_asked_for_on_a_newer_card(self):
-        ram, found = PROFILES["128GB-1x24GB"]
+        found = [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89")]
         for argv, env in ((["--cuda", "12"], None), ([], {"STRATA_CUDA": "12"})):
             with self.subTest(argv=argv, env=env):
-                code, out, cfg, calls, _ = self.run_setup(ram, found, argv_for("qwen", "IQ3_XXS") + argv, env)
+                code, out, cfg = self.run_setup(128.0, found, argv, env)
                 self.assertEqual(code, 0, out[-3000:])
-                self.assertEqual((calls, cfg["cuda"]), ([12], 12))
+                self.assertEqual((self.toolkit, cfg["cuda"]), (12, 12))
                 self.assertIn("--cuda 12 (as you chose", out)
 
     def test_an_old_driver_is_told_about_cuda12(self):
-        code, out, _, _, _ = self.run_setup(127.8, [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89", "550.54")],
-                                            argv_for("qwen", "IQ3_XXS"))
+        old = [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89", "550.54")]
+        code, out, _ = self.run_setup(127.8, old)
         self.assertEqual(code, 1)
         self.assertIn("580 or newer is needed", out)
         self.assertIn("--cuda 12", out)
-        code, out, cfg, calls, _ = self.run_setup(127.8, [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89", "550.54")],
-                                                  argv_for("qwen", "IQ3_XXS") + ["--cuda", "12"])
+        code, out, cfg = self.run_setup(127.8, old, ["--cuda", "12"])
         self.assertEqual(code, 0, out[-3000:])
-        self.assertEqual(calls, [12])
+        self.assertEqual(self.toolkit, 12)
 
     def test_cuda13_forced_on_a_v100_is_said(self):
-        code, out, cfg, calls, _ = self.run_setup(95.0, [V100], argv_for("qwen", "IQ3_XXS") + ["--cuda", "13"])
+        code, out, cfg = self.run_setup(95.0, [V100], ["--cuda", "13"])
         self.assertIn("will not run on that card", out)
 
 

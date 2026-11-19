@@ -433,277 +433,8 @@ UNSLOTH_MIN_RAM_GB = 48         # the RAM-budget mode below which setup says an 
 # costs ~2.8 GB of 8-bit KV with IQ3_S (vs ~3.6 GB at 256K) - a middle step for PCs that cannot hold 256K.
 CONTEXTS = [8192, 32768, 65536, 131072, 204800, 262144, 393216, 524288]
 # The model families: the same architecture, weights in the same three GSQ-RCO sizes, different files.
+# The model families Puddle offers: each runs on strata-poly and has sizes of its own ("models").
 FAMILIES = {
-    "qwen": {"title": "Qwen3.8-Flash-Next", "by": "Qwen; GSQ-RCO quants by ISTA-DASLab",
-             "about": "the original model",
-             "hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF") + "{q}/",
-             "file": "Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf", "tag": "",
-             "mmproj_hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"),
-             "mmproj": "mmproj-Qwen3.8-Flash-Next-BF16.gguf", "name": "qwen3.8-flash-next"},
-    "swift": {"title": "Swift 1.5", "by": "UkisAI's fine-tune of Qwen3.8-Flash-Next",
-              "about": "thinks much shorter (-63% thinking tokens, 1.8x sooner answers by its authors' numbers)",
-              "hf": hf("ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"),
-              "file": "Swift-Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf", "tag": "swift-",
-              "mmproj_hf": hf("ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"),
-              "mmproj": "mmproj-Swift-Qwen3.8-Flash-Next-BF16.gguf", "name": "swift-1.5",
-              "license": "Swift Open License 1.0: https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"},
-    # ISTA-DASLab's expert-pruned release: half of each layer's experts removed, chosen for code, agentic tool use and
-    # vision; its shard 2 (the n-gram table) and vision encoder are the original's files, shared with it
-    "coder": {"title": "Qwen3.8-Flash-Next Coder", "by": "ISTA-DASLab's coding version",
-              "about": "half the experts (code, tools, images kept): needs ~32 GB of RAM, faster; weaker outside coding",
-              "hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF") + "{q}/",
-              "file": "Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf", "tag": "coder-",
-              "mmproj_hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF"),
-              "mmproj": "mmproj-Qwen3.8-Flash-Next-BF16.gguf", "name": "qwen3.8-flash-next-coder",
-              "profile": "expert-profile-coder.bin"},
-    # Unsloth's UD-IQ4_XS (three shards, #621), UD-Q4_K_XL (four), UD-Q5_K_XL, UD-Q6_K_XL and Q8_0 (six) of the original
-    # model (docs/QUANTS.md): regular choices since f-quants; the shard count and "vision" are per model (MODELS)
-    "unsloth": {"title": "Qwen3.8-Flash-Next (Unsloth)", "by": "Unsloth's 4- to 8-bit quantizations",
-                "about": "UD-IQ4_XS, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL or Q8_0 (94 to 188 GB downloads): every expert in "
-                         "RAM from ~80 GB (UD-IQ4_XS) to ~136 GB (Q8_0) of RAM, else part of them read from the SSD",
-                "hf": hf("unsloth/Qwen3.8-Flash-Next-GGUF") + "{q}/",
-                "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf", "shards": 4, "tag": "unsloth-",
-                "mmproj_hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"),
-                "mmproj": "mmproj-Qwen3.8-Flash-Next-BF16.gguf", "name": "qwen3.8-flash-next-unsloth",
-                "vision": True, "pack_args": ["--compat-bf16"],
-                "sha256": {**UNSLOTH_SHARDS, **UNSLOTH_IQ4_XS_SHARDS, **UNSLOTH_BIG_SHARDS}},
-    # MODEL-UPDATE Phase 4: the original model with NVFP4 experts, as ready-made packs (NVFP4_REPOS): the files come
-    # as the engine reads them (no GGUF to pack), each size has its own repository ("repo" in MODELS)
-    "nvfp4": {"title": "Qwen3.8-Flash-Next (NVFP4)", "by": "NVFP4 packs by sergqwer (strata-nvfp4)",
-              "about": "4-bit NVFP4 experts, NVIDIA cards; a 128 GB download, ~80 GB of RAM to keep every expert in RAM",
-              "tag": "nvfp4-", "name": "qwen3.8-flash-next-nvfp4", "ready": True,
-              "mmproj_hf": hf("ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"), "mmproj": "mmproj-Qwen3.8-Flash-Next-BF16.gguf",
-              "mmproj_sha256": (907543008, "b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0")},
-    # GLM 5.3 Flash: another architecture (llama.cpp's glm5-next), run by strata-poly from its one GGUF - no pack,
-    # no image encoder.  "engine": its setup is poly_setup, not main()'s steps (docs/GLM.md).  "draft": the model's
-    # draft block in the data folder, one for every size whose file has none (tools/glm_draft_fetch.py)
-    "glm": {"title": "GLM 5.3 Flash", "by": "files from neuralll, Unsloth and patrickbdevaney",
-            "about": "another model, with its own engine: Linux, one NVIDIA card (run on 32 GB), 64-128 GB of RAM",
-            "hf": hf("neuralll/GLM-5.3-Flash-GSQ-RCO-3.0bit-Q4Kattn-GGUF"),
-            "file": "GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf", "shards": 1, "tag": "glm-",
-            "name": "glm-5.3-flash", "engine": "poly", "vision": False, "experimental": True,
-            "profile": "expert-profile-glm.txt",
-            "draft": "mtp/glm-5.3-flash/draft-block.gguf", "draft_gb": 2.8,
-            "sha256": {"GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf":
-                       (113585695168, "5f03b74ffe7513479795ca60a0fd8c40cbb3101769672b2c91b3df01138d9f6d"),
-                       "GLM-5.3-Flash-REAP50-Q3_K_M.gguf":
-                       (78776759712, "5a865918aea87a362ff8ae419581a0447929bfd68534a44d1125b394c272762d"),
-                       "GLM-5.3-Flash-UD-IQ2_XXS-00001-of-00004.gguf":
-                       (9429888, "d9605eec5aa2c14fc9ccff1ba3341a1e9a1476b08714d41cd43d0e10a4db3f7a"),
-                       "GLM-5.3-Flash-UD-IQ2_XXS-00002-of-00004.gguf":
-                       (49896298080, "d51a3d9ca05022d53e71753df75ee64ed5fd4e47655650ae023e9717b3ec158d"),
-                       "GLM-5.3-Flash-UD-IQ2_XXS-00003-of-00004.gguf":
-                       (49248507840, "89180f13784dc1128586b98adf1ca876279881a20bc4f01747703ce352563372"),
-                       "GLM-5.3-Flash-UD-IQ2_XXS-00004-of-00004.gguf":
-                       (2690716000, "9e0ef47daa1fdffce3cf2ac1594ce4634d176ad018be6e692729757f38d5fbf6")}},
-    # DeepSeek V4 Flash (llama.cpp's deepseek4) on strata-poly, from Unsloth's split GGUF; no draft block in it.  Like
-    # GLM's sizes, "ram_gb" is poly_ram_need() for a 32 GB card and "vram_beside_gb" was measured there at 32K: it has
-    # run on an RTX 5090 with 120 GB of RAM only.  "row_bytes": its caches keep compressed rows, 6,880 bytes a token.
-    "deepseek": {"title": "DeepSeek V4 Flash", "by": "DeepSeek; quantized by Unsloth",
-                 "about": "another model on GLM's engine: Linux, one NVIDIA card (run on 32 GB), ~72 GB of RAM beside "
-                          "it; a 91 GB download, no images",
-                 "hf": hf("unsloth/DeepSeek-V4-Flash-0731-GGUF"),
-                 "file": "DeepSeek-V4-Flash-0731-{q}-0000{i}-of-00003.gguf", "shards": 3, "tag": "dsv4-", "name": "deepseek-v4-flash", "engine": "poly", "vision": False,
-                 "experimental": True, "row_bytes": 6880,
-                 "models": {"UD-IQ2_XXS": {"about": "2-bit i-quant experts (Unsloth Dynamic), 3-bit and MXFP4 where "
-                                                    "they write", "download_gb": 90.9, "ram_gb": 72, "arena_gb": 83.9,
-                                           "vram_beside_gb": 11.5,
-                                           "hf": hf("unsloth/DeepSeek-V4-Flash-0731-GGUF") + "UD-IQ2_XXS/"}},
-                 "sha256": {"DeepSeek-V4-Flash-0731-UD-IQ2_XXS-00001-of-00003.gguf":
-                            (5257664, "c58c9d62eac7b62e9578b52613f425e48313d7212ab8d1d76caed8ea8de26595"),
-                            "DeepSeek-V4-Flash-0731-UD-IQ2_XXS-00002-of-00003.gguf":
-                            (49890588800, "65a113df6d4469f16db6882b6919e153c464c3c78c833f5e1b41a33803cdbd52"),
-                            "DeepSeek-V4-Flash-0731-UD-IQ2_XXS-00003-of-00003.gguf":
-                            (40964890464, "a69102ddfaf4a84426e11fdb66716654f4260dc3a1de3ade9fd50e006b8691d3")}},
-    # The models strata-poly also runs, each from one GGUF (docs/BACKENDS.md): "engine": "poly" gives them
-    # poly_setup's steps.  "models": the family's own sizes, as MODELS has them for the others: Unsloth calls a
-    # quantization the same for every model, so two families' sizes share a name.  A size's "arena_gb" (its routed
-    # experts) is from its file, "vram_beside_gb" was measured on an RTX 5090 at 32K, and "row_bytes" is the VRAM a
-    # context token takes, measured from 8K to 131K there.  "ram_gb" is poly_ram_need() for an 8 GB card.  They ship
-    # no expert profile: the engine starts one.  "draft_model": a file of the size's repository that guesses ahead
-    # for it, a model of its own; it is downloaded beside the model's and its VRAM is in "vram_beside_gb".
-    # "mmproj": the repository's image encoder, downloaded beside the model's file when images are wanted;
-    # "vision_vram_gb" is what it holds on the GPU once it has warmed up at 1,024 image tokens (measured there too).
-    # A family's first size is the one setup takes on a PC with the RAM for it, the second the one it takes with
-    # less, and the third is by name (poly_default()).  "windows": installed by setup and run there, on one PC.
-    # "ran_on_gb": the smallest card it has run on, 32 GB without the key.  "tail_skip": the engine's --tail-skip,
-    # for the family whose answers it moves no more than the Strata project's default moves its own (docs/BACKENDS.md).
-    # "laptop_tps": tokens/s written after a prompt that fills each context on the 8 GB laptop, where the family's
-    # differ from the others'.
-    # "batch_gb": the VRAM the engine's prompt batch takes for a second 1,024 tokens, measured on the RTX 5090; a card
-    # that holds every expert beside it reads with 2,048 (poly_batch()).  "batch_from_gb": the family reads with 2,048
-    # on any card from this much VRAM (GiB) on, where the 8 GB laptop read faster that way and wrote no slower.
-    # LFM2.5 (llama.cpp's lfm2moe): no draft block and no image encoder.  QAD-Q4_0 is Liquid AI's own file, trained
-    # for that quantization; the other sizes are Unsloth's.
-    "lfm25": {"title": "LFM2.5-24B-A2B", "by": "Liquid AI; quantized by Unsloth and Liquid AI",
-              "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 15 GB file, ~20 GB of RAM "
-                       "beside an 8 GB card; four other sizes too, no images",
-              "hf": hf("unsloth/LFM2.5-24B-A2B-GGUF"), "file": "LFM2.5-24B-A2B-{q}.gguf", "shards": 1,
-              "tag": "lfm25-", "name": "lfm2.5-24b-a2b", "engine": "poly", "vision": False, "experimental": True,
-              "windows": True, "ran_on_gb": 8, "row_bytes": 20480, "batch_gb": 0.4, "batch_from_gb": 7.5,
-              "laptop_tps": {32768: "69-74", 65536: "54-55", 131072: "35-37"},
-              "models": {"UD-Q4_K_XL": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                        "download_gb": 14.9, "ram_gb": 20, "arena_gb": 14.0, "vram_beside_gb": 4.1},
-                         "UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the least RAM",
-                                        "download_gb": 10.9, "ram_gb": 16, "arena_gb": 10.2, "vram_beside_gb": 3.9},
-                         "QAD-Q4_0": {"about": "Liquid AI's 4-bit file, trained for that quantization",
-                                      "download_gb": 13.6, "ram_gb": 18, "arena_gb": 12.9, "vram_beside_gb": 3.8,
-                                      "hf": hf("LiquidAI/LFM2.5-24B-A2B-GGUF")},
-                         "UD-Q6_K_XL": {"about": "6-bit experts, 8-bit where they write",
-                                        "download_gb": 21.9, "ram_gb": 27, "arena_gb": 20.9, "vram_beside_gb": 4.4},
-                         "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                  "download_gb": 25.5, "ram_gb": 31, "arena_gb": 24.4, "vram_beside_gb": 4.5}},
-              "sha256": {"LFM2.5-24B-A2B-UD-Q4_K_XL.gguf":
-                         (14876901632, "a235d23638cc5549cb1ff61da7522c8a7e97f056f27093462a1e56f35aba91d8"),
-                         "LFM2.5-24B-A2B-UD-Q3_K_XL.gguf":
-                         (10947100928, "d54834c785c7e265f1cb7375e47aa6f55a0b7cfab75816254c4d2e0c82fd5efc"),
-                         "LFM2.5-24B-A2B-QAD-Q4_0.gguf":
-                         (13578190880, "d1c03f73ecaf61017d70419eec9e5dc0b05d50ae26c23d522829b934fbabf8a5"),
-                         "LFM2.5-24B-A2B-UD-Q6_K_XL.gguf":
-                         (21861204224, "abcb7e21e006eb4c826a2b75fb91c0804db7b20f908a61beeebdbdd07c88f41d"),
-                         "LFM2.5-24B-A2B-Q8_0.gguf":
-                         (25493733344, "97cd912b01124793a69ddebc309abbbad7ebb38ac2fb9c2bc55dfc1ad9d1809e")}},
-    # Flint (llama.cpp's flint): no draft block and no image encoder.  Its window layers' caches are rings, so a context
-    # token is the full layers' rows only.  UD-Q4_K_XL is taken unasked only with 15 GB of RAM past its estimate,
-    # about 40 GB beside an 8 GB card: on the 32 GB laptop its file did not stay in RAM beside the desktop's programs,
-    # and a short chat was written at 20 to 29 tokens/s, UD-Q3_K_XL's at 61 to 63.  UD-Q6_K_XL did not fit on the
-    # 5090's disk: its VRAM beside the experts is Q8_0's, whose weights outside them are the same.
-    "flint": {"title": "Flint 40B-A2.5B", "by": "Recursive; quantized by Unsloth",
-              "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 25 GB file, ~29 GB of RAM "
-                       "beside an 8 GB card; three other sizes too, no images",
-              "hf": hf("unsloth/flint-GGUF"), "file": "flint-{q}.gguf", "shards": 1,
-              "tag": "flint-", "name": "flint-40b-a2.5b", "engine": "poly", "vision": False, "experimental": True,
-              "windows": True, "ran_on_gb": 8, "row_bytes": 28672, "batch_gb": 0.4, "batch_from_gb": 7.5,
-              "laptop_tps": {32768: "49", 65536: "37-38", 131072: "23-25"},   # UD-Q3_K_XL's, the 32 GB laptop's size
-              "models": {"UD-Q4_K_XL": {"about": "4- and 5-bit experts (Unsloth Dynamic)",
-                                        "download_gb": 25.1, "ram_gb": 29, "arena_gb": 23.1, "vram_beside_gb": 4.0,
-                                        "pick_extra_gb": 15},
-                         "UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the least RAM",
-                                        "download_gb": 18.5, "ram_gb": 22, "arena_gb": 16.5, "vram_beside_gb": 3.8},
-                         "UD-Q6_K_XL": {"about": "6-bit experts, 8-bit where they write",
-                                        "download_gb": 36.3, "ram_gb": 40, "arena_gb": 34.2, "vram_beside_gb": 4.3},
-                         "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                  "download_gb": 42.3, "ram_gb": 46, "arena_gb": 40.2, "vram_beside_gb": 4.3}},
-              "sha256": {"flint-UD-Q4_K_XL.gguf":
-                         (25054688704, "63c2ecc461ca545134b670c660e76fa20f47240f8d39b6510bfd21c4dd6e072f"),
-                         "flint-UD-Q3_K_XL.gguf":
-                         (18494977472, "91b8d85ab6ff7fb095d9a972f9afa6f3fa2b9acb642867a079f3e013ea3c350c"),
-                         "flint-UD-Q6_K_XL.gguf":
-                         (36319999424, "086231093581c67f8bf2964f8b49198889c4f0775b39857ba63b4c37041279c2"),
-                         "flint-Q8_0.gguf":
-                         (42301076928, "5df42b56859c7b5142228005d7d63c327ec9e34c99c72548016d805309a0d284")}},
-    # Kolibri 1 (llama.cpp's "kolibri1") on strata-poly: Aleph Alpha's mixture of experts, German and English, in
-    # Hob-forge's independent GGUF conversion (not made or endorsed by Aleph Alpha or the llama.cpp project), which
-    # needs the kolibri1 patch.  One and two 32 GB Tesla V100-SXM2 cards wrote 91 and 93 tokens/s and read a 32K
-    # prompt at 1,017 and 2,179 tokens/s (first token 32.7 and 15.3 s); a 12 GB RTX 3060 with 24 GB of RAM ran it on Windows.
-    # "vram_beside_gb" was measured on the V100 cards at a 32K context; "row_bytes": 10 of the 50 layers keep their
-    # whole past, 2,048 B a token each, and 40 are a 513-token window.  Only the single-file sizes are listed.
-    "kolibri": {"title": "Kolibri 1", "by": "Aleph Alpha; GGUF by Hob-forge",
-                "about": "on the strata-poly engine, with the kolibri1 patch: Linux or Windows, one or two NVIDIA cards "
-                         "(run on 32 GB, and on 12 GB under Windows); a 48 GB file, ~52 GB of RAM beside an 8 GB card; "
-                         "two other sizes too, no images",
-                "hf": hf("Hob-forge/Kolibri-1-GGUF"), "file": "Kolibri-1-{q}.gguf", "shards": 1,
-                 "tag": "kolibri1-", "name": "kolibri-1", "engine": "poly", "vision": False, "experimental": True,
-                 "windows": True, "ran_on_gb": 12, "row_bytes": 20480,
-                 # its template writes a call as a JSON object inside the <tool_call> wrapper; the server reads that
-                 # form with the recovery (the same path as a call written next to the template's form)
-                 "tool_call_recovery": True,
-                "models": {"Q4_K_M": {"about": "4-bit: Q4_K gate/up, Q6_K down on half the layers",
-                                      "download_gb": 47.5, "ram_gb": 52, "arena_gb": 45.7,
-                                      "vram_beside_gb": 4.1},
-                           "Q2_K": {"about": "2-bit, the fastest: the least RAM",
-                                    "download_gb": 28.6, "ram_gb": 33, "arena_gb": 26.9,
-                                    "vram_beside_gb": 4.1},
-                           "Q3_K_M": {"about": "3-bit: the least RAM that still reads well",
-                                      "download_gb": 37.5, "ram_gb": 42, "arena_gb": 35.8,
-                                      "vram_beside_gb": 4.1}},
-                "sha256": {"Kolibri-1-Q4_K_M.gguf":
-                           (47454113472, "c2ac1301424441ef210b6de50ce25e8ccf69f86494df53d6ba52ed558456062e"),
-                           "Kolibri-1-Q2_K.gguf":
-                           (28634017760, "de2fac5230621125f0309046175a17f8cc554ee2fc2a199c0e6528f2e4aadd79"),
-                           "Kolibri-1-Q3_K_M.gguf":
-                           (37523996640, "b797de9cebb5f8b6e12e32a57c76776c83c2c077e6804fa4835aa6ab5e9e79da")}},
-    "qwen36": {"title": "Qwen3.6-35B-A3B", "by": "Qwen; quantized by Unsloth",
-               "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 17 GB file, ~21 GB of RAM "
-                        "beside an 8 GB card; a smaller and a larger size too",
-               "hf": hf("unsloth/Qwen3.6-35B-A3B-MTP-GGUF"), "file": "Qwen3.6-35B-A3B-{q}.gguf", "shards": 1,
-               "tag": "qwen36-", "name": "qwen3.6-35b-a3b", "engine": "poly", "vision": True, "experimental": True,
-               "windows": True, "ran_on_gb": 8, "tail_skip": 6, "batch_gb": 0.5,
-               "row_bytes": 26624, "mmproj_hf": hf("unsloth/Qwen3.6-35B-A3B-MTP-GGUF"), "mmproj": "mmproj-F16.gguf",
-               "vision_gb": 0.9, "vision_vram_gb": 1.6,
-               "models": {"UD-Q3_K_M": {"about": "3-bit experts (Unsloth Dynamic), its draft block in the file",
-                                        "download_gb": 17.1, "ram_gb": 21, "arena_gb": 14.6,
-                                        "vram_beside_gb": 4.8, "draft": "own"},
-                          "UD-Q2_K_XL": {"about": "2- and 3-bit i-quant experts (Unsloth Dynamic): the least RAM",
-                                         "download_gb": 12.6, "ram_gb": 17, "arena_gb": 10.8,
-                                         "vram_beside_gb": 4.2, "draft": "own"},
-                          "UD-Q4_K_M": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                        "download_gb": 22.7, "ram_gb": 27, "arena_gb": 20.1,
-                                        "vram_beside_gb": 4.7, "draft": "own"}},
-               "sha256": {"Qwen3.6-35B-A3B-UD-Q3_K_M.gguf":
-                          (17104402720, "8966dd0cd8c543c4228490a2a8b0e0814fc4f1e6a8e199ceed4de6754ae7b8e1"),
-                          "Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf":
-                          (12574128416, "ed7cda7e38985b4fcff76475865135039641d2bfbac3c169df15ca770f37fb0c"),
-                          "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf":
-                          (22663387424, "0b21525e972670ed59e1812e170b27c26355381f0656ecc4e25617ece7dac58b"),
-                          "mmproj-F16.gguf":
-                          (899283584, "71f3cbc1f7cc0f30d09d41cfa924c0060827ebc33bf15ace7e86661e856f0160")}},
-    # Clover (llama.cpp's clover_moe, ggml-org/llama.cpp PR 31306): Qwen3.6-35B-A3B trained further by DiffuSpace to
-    # guess a block of tokens at once as well, and the engine takes that block as its guesses: the files have no draft
-    # block.  Text only.  maternion's two files carry no chat template, so the model's own comes from DiffuSpace's
-    # repository ("template"); IsValorum's APEX file has it.
-    "clover": {"title": "Clover-35B-A3B-Preview", "by": "DiffuSpace; quantized by maternion and IsValorum",
-               "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 17 GB file, ~20 GB of RAM "
-                        "beside an 8 GB card; a smaller and a larger size too, no images",
-               "hf": hf("maternion/Clover-35B-A3B-Preview-GGUF"), "file": "Diffuspace-Clover-35B-A3B-Preview-{q}.gguf",
-               "shards": 1, "tag": "clover-", "name": "clover-35b-a3b-preview", "engine": "poly", "vision": False,
-               "experimental": True, "windows": True, "ran_on_gb": 8, "row_bytes": 20480,
-               "template_hf": hf("Diffuspace/Clover-35B-A3B-Preview"),
-               "template": ("chat_template.jinja", 7912,
-                            "01094df7cd8905d1220ea8b31e4f1086dc9bedf0305d3c2fa6578b5fa33b6815"),
-               "models": {"Q3_K_M": {"about": "3-bit experts, 4- and 5-bit where they write",
-                                     "download_gb": 16.8, "ram_gb": 20, "arena_gb": 15.3, "vram_beside_gb": 3.4},
-                          "APEX-I-NANOPLUS": {"about": "2- and 3-bit experts (APEX): the least RAM",
-                                              "download_gb": 12.6, "ram_gb": 16, "arena_gb": 10.8,
-                                              "vram_beside_gb": 3.6,
-                                              "file": "Clover-35B-A3B-Preview.APEX-I-NanoPlus-V2.1.gguf",
-                                              "hf": hf("IsValorum/Clover-35B-A3B-Preview-APEX-I-NanoPlus-V2.1-GGUF")},
-                          "Q4_K_M": {"about": "4-bit experts, 6-bit where they write",
-                                     "download_gb": 21.2, "ram_gb": 25, "arena_gb": 19.5, "vram_beside_gb": 3.5}},
-               "sha256": {"Diffuspace-Clover-35B-A3B-Preview-Q3_K_M.gguf":
-                          (16767725024, "0111b1c86fe647064e2bb3606da63d80f991d8ff56cdb994134a1632439e15a2"),
-                          "Clover-35B-A3B-Preview.APEX-I-NanoPlus-V2.1.gguf":
-                          (12557370304, "30e7ee2268128b662dc0514067faae3abb0609a55f087b1ad0465ea71fe50fce"),
-                          "Diffuspace-Clover-35B-A3B-Preview-Q4_K_M.gguf":
-                          (21169718752, "fe113ac0eecfe5aba6103d23a52e71f593034e2aa326afe5af6c4be4d842f58f")}},
-    "ornith": {"title": "Ornith 1.5 35B-A3B", "by": "ornith-ai; APEX quantization by mudler",
-               "about": "Qwen3.6-35B-A3B's architecture, other weights; a 17 GB file, ~22 GB of RAM beside an 8 GB card; "
-                        "a smaller and a larger size too",
-               "hf": hf("mudler/Ornith-1.5-35B-A3B-APEX-MTP-GGUF"), "file": "Ornith-1.5-35B-A3B-{q}.gguf",
-               "shards": 1, "tag": "ornith-", "name": "ornith-1.5-35b-a3b", "engine": "poly", "vision": True,
-               "experimental": True, "windows": True, "ran_on_gb": 8, "row_bytes": 26624,
-               "mmproj_hf": hf("mudler/Ornith-1.5-35B-A3B-APEX-MTP-GGUF"), "mmproj": "mmproj.gguf", "vision_gb": 0.9,
-               "vision_vram_gb": 1.6,
-               "models": {"APEX-I-COMPACT": {"about": "3- and 4-bit K-quant experts (APEX), its draft block in the file",
-                                             "download_gb": 17.4, "ram_gb": 22, "arena_gb": 15.8,
-                                             "vram_beside_gb": 4.2,
-                                             "file": "Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf", "draft": "own"},
-                          "APEX-I-MINI": {"about": "2- and 3-bit experts (APEX): the least RAM",
-                                          "download_gb": 14.4, "ram_gb": 18, "arena_gb": 12.9,
-                                          "vram_beside_gb": 3.9,
-                                          "file": "Ornith-1.5-35B-A3B-APEX-MTP-I-Mini.gguf", "draft": "own"},
-                          "APEX-I-QUALITY": {"about": "4- to 6-bit experts (APEX)",
-                                             "download_gb": 23.7, "ram_gb": 28, "arena_gb": 21.6,
-                                             "vram_beside_gb": 4.4,
-                                             "file": "Ornith-1.5-35B-A3B-APEX-MTP-I-Quality.gguf", "draft": "own"}},
-               "sha256": {"Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf":
-                          (17437861408, "67e6cdff678e67180d3cd4eef55277277563319057de287b8855c4d1fbff4165"),
-                          "Ornith-1.5-35B-A3B-APEX-MTP-I-Mini.gguf":
-                          (14366220832, "09c342594abf0cb0cda9e899977956b61e37da79b5e5ffbe77874512dbe78148"),
-                          "Ornith-1.5-35B-A3B-APEX-MTP-I-Quality.gguf":
-                          (23718411808, "2cedb760ebafb9f4943b4eac92628306110fc04eeea45dae2e1396aad626e691"),
-                          "mmproj.gguf":
-                          (899283200, "e277123529451fbcff6d880ad5bd7ada999f9d5e6339ba3639d06c5cef4763b1")}},
     "gemma4": {"title": "Gemma 4 26B-A4B", "by": "Google; quantized by Unsloth",
                "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller and a "
                         "larger size too",
@@ -751,118 +482,6 @@ FAMILIES = {
                           (461766816, "6326fb9f5e487aa8dcdd313a091e3c67724cb2a666ec3b7d2895b5b26d93ed1b"),
                           "mmproj-F16.gguf":
                           (1193058784, "418a6d8723067cd712235facbbc5cba6c8fbbd413fc1292d2aace5a027d5a42f")}},
-    "tiel": {"title": "Tiel Coder 35B-A3B", "by": "peculiar-ragdoll, from ornith-ai's Ornith 1.5",
-             "about": "Ornith 1.5 quantized for coding, with the Sharp chat template; a 17 GB file, ~21 GB of RAM "
-                      "beside an 8 GB card; a smaller and a larger size too",
-             "hf": hf("peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP"), "file": "Tiel-Coder-35B-A3B-MTP-{q}.gguf",
-             "shards": 1, "tag": "tiel-", "name": "tiel-coder-35b-a3b", "engine": "poly", "vision": True,
-             "experimental": True, "windows": True, "ran_on_gb": 8, "row_bytes": 26624,
-             "mmproj_hf": hf("peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP"), "mmproj": "mmproj-BF16.gguf",
-             "vision_gb": 0.9, "vision_vram_gb": 1.6,
-             "models": {"UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write; its draft block in "
-                                                "the file",
-                                       "download_gb": 17.2, "ram_gb": 21, "arena_gb": 14.6,
-                                       "vram_beside_gb": 4.7, "draft": "own"},
-                        "UD-IQ3_XXS": {"about": "2-bit i-quant experts, 3-bit where they write: the least RAM",
-                                       "download_gb": 13.6, "ram_gb": 18, "arena_gb": 11.5,
-                                       "vram_beside_gb": 4.4, "draft": "own"},
-                        "UD-Q4_K_XL": {"about": "4-bit experts, 5- and 6-bit where they write",
-                                       "download_gb": 22.7, "ram_gb": 27, "arena_gb": 20.0,
-                                       "vram_beside_gb": 4.8, "draft": "own"}},
-             "sha256": {"Tiel-Coder-35B-A3B-MTP-UD-Q3_K_XL.gguf":
-                        (17234935648, "46b8fbeba6e888c9a101e49cc717baa9bb8dfa0d203ec7b3185288159543ec14"),
-                        "Tiel-Coder-35B-A3B-MTP-UD-IQ3_XXS.gguf":
-                        (13600579424, "a4d8ffc7f030466c67db289543871a8f9e6d5340241b300c09fbaf16642273ca"),
-                        "Tiel-Coder-35B-A3B-MTP-UD-Q4_K_XL.gguf":
-                        (22749880160, "54f46c4ce544c225122b0f066c2336f10404be7bc53b0cc94d1dbbc5e826bdc1"),
-                        "mmproj-BF16.gguf":
-                        (902822016, "d9ce31026d1cb1f3f8d5152e2e2a014d9d2b302b6c93a7dc07bb0a0487f52837")}},
-    # The same architecture as Qwen3.6, OpenBMB's weights: 40 layers of 256 experts, 8 to a token, and a picture
-    # encoder of its own: MiniCPM-V 4.6's under the newer name minicpmv4_7, which the pinned llama.cpp answers
-    # (#29416).  The files carry no draft block, so no size has "draft"; its answers are one token at a
-    # time.  "vram_beside_gb" and the smallest size's RAM were measured on an RX 7600 (8 GB) at 32K;
-    # "vision_vram_gb" is Qwen3.6's grown by the size of this mmproj, as the encoder ran on the CPU here.
-    "minicpmv": {"title": "MiniCPM-V 4.7 35B-A3B", "by": "OpenBMB",
-                 "about": "Qwen3.6-35B-A3B's architecture, OpenBMB's weights, and it reads pictures too; a 22 GB "
-                         "file, ~25 GB of RAM beside an 8 GB card; a smaller and a larger size too",
-                 "hf": hf("openbmb/MiniCPM-V-4.7-35B-A3B-gguf"), "file": "MiniCPM-V-4_7-35B-A3B-{q}.gguf",
-                 "shards": 1, "tag": "minicpmv-", "name": "minicpm-v-4.7-35b-a3b", "engine": "poly", "vision": True,
-                 "experimental": True, "windows": True, "ran_on_gb": 8, "row_bytes": 26624,
-                 "mmproj_hf": hf("openbmb/MiniCPM-V-4.7-35B-A3B-gguf"), "mmproj": "mmproj-model-f16.gguf",
-                 "vision_gb": 1.1, "vision_vram_gb": 2.0,
-                 "models": {"Q4_K_M": {"about": "4-bit experts (K-quant), 5- and 6-bit where they write",
-                                       "download_gb": 21.2, "ram_gb": 25, "arena_gb": 19.5, "vram_beside_gb": 3.4},
-                            "mix_q3gud_im": {"about": "3- and 4-bit experts (imatrix mix): the least RAM",
-                                             "download_gb": 15.5, "ram_gb": 19, "arena_gb": 13.8,
-                                             "vram_beside_gb": 3.4},
-                            "Q6_K": {"about": "6-bit experts (K-quant)",
-                                     "download_gb": 28.5, "ram_gb": 31, "arena_gb": 26.4, "vram_beside_gb": 3.4}},
-                 "sha256": {"MiniCPM-V-4_7-35B-A3B-Q4_K_M.gguf":
-                           (21166255040, "c729ae6c7bb16dd5b362cdb925c7fb09d744c95601f62b0f45ce51efb55bfe95"),
-                           "MiniCPM-V-4_7-35B-A3B-mix_q3gud_im.gguf":
-                           (15503944928, "6bfeefbfc723ab6fe557fcea28b31253e14128efe8d8d5774e3256a547b3a946"),
-                           "MiniCPM-V-4_7-35B-A3B-Q6_K.gguf":
-                           (28513556672, "159ce7d2fe4aab95233096ad007c23d86d99dd6c4a20d3f7c31e990d09aa71b7"),
-                           "mmproj-model-f16.gguf":
-                           (1119575840, "bff3b688e14c300eca273092c37c50a0ddfcc2054e079af1a0480edeed5d20f1")}},
-    "ornith122": {"title": "Ornith 1.5 122B", "by": "ornith-ai; quantized by Unsloth",
-                  "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 60 GB file, ~47 GB of RAM beside a 24 GB card; 5 sizes, images",
-                  "hf": hf("unsloth/Ornith-1.5-122B-GGUF"), "file": "Ornith-1.5-122B-{q}.gguf",
-                  "shards": 1, "tag": "ornith122-", "name": "ornith-1.5-122b", "engine": "poly",
-                  "vision": True, "experimental": True, "windows": True, "ran_on_gb": 16,
-                  "row_bytes": 26624, "mmproj_hf": hf("unsloth/Ornith-1.5-122B-GGUF"),
-                  "mmproj": "mmproj-F16.gguf", "vision_gb": 0.9, "vision_vram_gb": 1.6,
-                  "models": {"UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the daily choice",
-                                            "download_gb": 59.8, "ram_gb": 47, "arena_gb": 53.3,
-                                            "vram_beside_gb": 8.5, "shards": 3,
-                                            "file": "UD-Q3_K_XL/Ornith-1.5-122B-UD-Q3_K_XL-0000{i}-of-00003.gguf",
-                                            "draft": "own"},
-                             "UD-Q2_K_XL": {"about": "2-bit i-quant experts (Unsloth Dynamic): the least RAM",
-                                            "download_gb": 44.5, "ram_gb": 32, "arena_gb": 38.5,
-                                            "vram_beside_gb": 8.5, "shards": 1,
-                                            "file": "Ornith-1.5-122B-UD-Q2_K_XL.gguf",
-                                            "draft": "own"},
-                             "UD-IQ3_XXS": {"about": "2- and 3-bit i-quant experts: less RAM than UD-Q3_K_XL",
-                                            "download_gb": 49.5, "ram_gb": 37, "arena_gb": 43.2,
-                                            "vram_beside_gb": 8.5, "shards": 1,
-                                            "file": "Ornith-1.5-122B-UD-IQ3_XXS.gguf",
-                                            "draft": "own"},
-                             "UD-Q4_K_XL": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                            "download_gb": 79.7, "ram_gb": 66, "arena_gb": 73.0,
-                                            "vram_beside_gb": 8.5, "shards": 3,
-                                            "file": "UD-Q4_K_XL/Ornith-1.5-122B-UD-Q4_K_XL-0000{i}-of-00003.gguf",
-                                            "draft": "own"},
-                             "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                      "download_gb": 132.6, "ram_gb": 119, "arena_gb": 125.8,
-                                      "vram_beside_gb": 8.5, "shards": 4,
-                                      "file": "Q8_0/Ornith-1.5-122B-Q8_0-0000{i}-of-00004.gguf",
-                                      "draft": "own"}},
-                  "sha256": {"Ornith-1.5-122B-UD-Q3_K_XL-00001-of-00003.gguf":
-                             (10942929, "d8a23c487741fdac7026e10013fa8e320502cf01048a2333b2db8ba2a9f74fe5"),
-                             "Ornith-1.5-122B-UD-Q3_K_XL-00002-of-00003.gguf":
-                             (49791670080, "95f76e67ffc49e2b0b4a4dfe5c42269b4b275ecf9e3696f599f3eeac92180323"),
-                             "Ornith-1.5-122B-UD-Q3_K_XL-00003-of-00003.gguf":
-                             (9958641536, "1c4b52bbb1d45a21b5b7927429a5c80f264c688f2d14ed50ba0b6da0260d4028"),
-                             "Ornith-1.5-122B-UD-Q2_K_XL.gguf":
-                             (44533952768, "93fb32cfb1c31b34df426b4a41d961bdaffcddbbd217d850262136cf3689ba66"),
-                             "Ornith-1.5-122B-UD-IQ3_XXS.gguf":
-                             (49515667712, "027a9a480e8bcc6079fcf834e368467a169953561fb4b98dc9528d6185c8a438"),
-                             "Ornith-1.5-122B-UD-Q4_K_XL-00001-of-00003.gguf":
-                             (10942929, "7159d31a6a6ce5528500b490880383844c3c9b21fcdaad94e66c9e65233ff359"),
-                             "Ornith-1.5-122B-UD-Q4_K_XL-00002-of-00003.gguf":
-                             (49971099680, "e66952128394bb4c75554c7e10a12a8b63dd1c7f049d876a02885a946e30c1c3"),
-                             "Ornith-1.5-122B-UD-Q4_K_XL-00003-of-00003.gguf":
-                             (29731729056, "21325ec18a9e3210eeffada0fc327a25a79171918f1d04f8f0a06b61866ac9ba"),
-                             "Ornith-1.5-122B-Q8_0-00001-of-00004.gguf":
-                             (10942929, "e9dbc5401757506c6bbb04dba3bf65decc6435aaf0733f1e95cc58a9332166fc"),
-                             "Ornith-1.5-122B-Q8_0-00002-of-00004.gguf":
-                             (49855668288, "c1ea340f63c932895417f7c2e7c4967b4b56f3e5a3f981242d0482c662aae2b8"),
-                             "Ornith-1.5-122B-Q8_0-00003-of-00004.gguf":
-                             (49903347168, "644c26a3d8cab405186ef545e4071b433a23c2a359e45434c822d9c48884eb4c"),
-                             "Ornith-1.5-122B-Q8_0-00004-of-00004.gguf":
-                             (32785752352, "43bdc1b0cb764b5531d320816fb6004245256a414bfd55f1fdb69e3db42eaa57"),
-                             "mmproj-F16.gguf":
-                             (908724544, "39db176176a904b101f5173a4f03e785990f9279f94ab373c4fd629ae7011817")}},
 }
 MMPROJ = "mmproj-Qwen3.8-Flash-Next-BF16.gguf"
 # Qwen3.6-35B-A3B (GGUF architecture qwen35moe), Unsloth's GGUFs with the MTP block: a family with an engine path of its
@@ -879,30 +498,7 @@ QWEN36_FILES = {
 }
 # PolyStrata: FAMILIES has "qwen36" too (the strata-poly engine, smaller sizes for 8 GB cards), so this one is
 # "qwen36-strata", with a tag of its own: choices_from_config() tells the two families' configs apart by the tag.
-OWN_PATH_FAMILIES = {
-    "qwen36-strata": {"title": "Qwen3.6-35B-A3B", "by": "Qwen; GGUFs with the MTP layer by Unsloth", "arch": "qwen35moe",
-               "about": "on the Strata project's own engine (4- to 8-bit, 32 GB of RAM or more): 35B mixture of experts "
-                        "with 3B active (256 experts, top-8), a smaller cousin of Qwen3.8-Flash-Next with the same "
-                        "tokenizer",
-               "hf": hf("unsloth/Qwen3.6-35B-A3B-MTP-GGUF"), "file": "Qwen3.6-35B-A3B-{q}.gguf", "tag": "qwen36s-",
-               "mmproj_hf": hf("unsloth/Qwen3.6-35B-A3B-MTP-GGUF"), "mmproj": "mmproj-F16.gguf",
-               "name": "qwen3.6-35b-a3b", "license": "Apache 2.0: https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
-               # RAM: the engine keeps a copy of every expert in RAM when they do not all fit in VRAM (the hybrid mode),
-               # so the file's size plus room for the OS and the rest (measured: UD-Q4_K_XL on a 46 GB PC with a 12 GB
-               # card, 18.75 GiB of experts pinned)
-               "models": {"UD-Q4_K_XL": {"about": "4-bit (Unsloth Dynamic), the smallest", "ram_gb": 32},
-                          "UD-Q6_K_XL": {"about": "6-bit (Unsloth Dynamic), closer to the full model", "ram_gb": 44},
-                          "Q8_0": {"about": "8-bit, the closest to the full model", "ram_gb": 52}},
-               "sha256": QWEN36_FILES,
-               # the engine's KV cache per context token: 10 attention layers + the MTP block, 2 KV heads x 256, K and
-               # V in fp32 (strata-q36)
-               "kv_bytes_per_token": 11 * 2 * 256 * 2 * 4,
-               "mtp": 2,                     # drafts per step (greedy requests): measured best on the R9700
-               # pictures: Unsloth's mmproj (the same projector family as Flash-Next's: qwen3vl_merger) through
-               # strata-vision; a parallel slot's session: its KV cache (kv_bytes_per_token) and the recurrent state of
-               # the 30 GDN layers (state_gb)
-               "vision": True, "state_gb": 0.07}
-}
+OWN_PATH_FAMILIES = {}                           # none: the Qwen engine's own-path families are gone
 PREVIEW_FAMILIES = OWN_PATH_FAMILIES             # the earlier name (tools and tests that import it)
 # EXPERIMENTAL, off by default (setup asks): a control vector shipped with the repository, see its README
 ESP_VECTOR = ROOT / "data" / "experimental-speed-projection" / "Qwen3.8-Flash-Next-experimental-speed-projection.gguf"
@@ -5768,10 +5364,9 @@ def upgrade_config(cfg_path: Path, cfg: dict) -> dict:
 
 def update_install(have: list, a) -> int:
     """#475: `setup.py --update` (UPDATE.bat / update.sh, after their git pull): what a plain START-HERE.bat does to
-    an install before it starts the model, without starting it - the Python packages, the ready-made engine when this
-    setup needs a newer one (MIN_ENGINE; a compiled engine when its source changed), each installed model's config
-    upgrades and its draft subset.  No question is asked and the model files are not touched; a model still running
-    keeps its engine (update_installed_engine says to close it and run this again)."""
+    an install before it starts the model, without starting it - the Python packages, the engine compiled again when
+    its source changed, and each installed model's config upgrades.  No question is asked and the model files are not
+    touched."""
     have = [p for p in have if model_config(p)]        # #549: a strata-*.json that is no model config is skipped
     if not have:
         say("  No model is installed in this PolyStrata folder yet: run START-HERE.bat (Linux: ./setup.sh) to set it up -")
@@ -5779,17 +5374,12 @@ def update_install(have: list, a) -> int:
         return 0
     pip_install(requirement_lines() if REQUIREMENTS.exists() else PY_PACKAGES,
                 "numpy, jinja2, regex, pyyaml, tqdm, requests, cmake, ninja, pillow, psutil")
-    if not a.build:
-        update_installed_engine(a.prebuilt)
-    mtp_done: set = set()
     for cfg_path in have:
         cfg = upgrade_config(cfg_path, json.loads(cfg_path.read_text(encoding="utf-8-sig")))
         if poly_config(cfg):
             update_poly_engine(cfg, cfg_path=cfg_path)
             poly_tail_skip(cfg, cfg_path)
             poly_kv_whole(cfg, cfg_path)
-        if not own_path_config(cfg):
-            refresh_shared_draft_vocab(cfg, mtp_done)
         if cfg.get("backend") == "hip" and WIN:
             hip_runtime_beside_exe(Path(cfg["exe"]).parent)   # #468 #461
         ok(f"{cfg.get('model_name', cfg_path.stem)}: up to date")
@@ -6868,12 +6458,7 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
     unused = [flag for flag, given in (
         ("--vision", not sees and a.vision not in (None, "no", "none")),
         ("--vision-tokens", not sees and a.vision_tokens is not None),
-        ("--kv", a.kv), ("--kv-streaming", a.kv_streaming != "auto"), ("--rope-scaling", a.rope_scaling),
-        ("--rope-scale", a.rope_scale is not None), ("--low-ram", a.low_ram != "auto"),
-        ("--resident-budget-gib", a.resident_budget_gib is not None),
-        ("--draft-vocab", a.draft_vocab), ("--layer-split", a.layer_split and not multi), ("--calibrate", a.calibrate),
-        ("--experimental-speed-projection",
-         (a.experimental_speed_projection or "off").strip().lower() not in ("off", "no", "n", "0"))) if given]
+        ("--layer-split", a.layer_split and not multi)) if given]
     if unused:
         warn(f"not used with {title} (its engine has no such setting): " + ", ".join(unused))
 
@@ -7038,13 +6623,11 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
     step(4, "the strata-poly engine")
     llama = get_llama_cpp()
     ok(f"llama.cpp {LLAMA_CPP_COMMIT[:7]} (gguf-py, ggml)")
-    if not a.build and not hip and cuda_tk != 12:
-        get_poly_prebuilt(gpu)
-    # --max-compatibility: the release build; a run without --build keeps the choice the installed engine records
+    # always compiled here from Puddle's source (no ready-made engine: upstream's have no Laguna); --max-compatibility:
+    # the portable build, kept as the installed engine records it
     prev = ROOT / ENGINE_POLY_DIR / "BUILD.json"
     prev_meta = json.loads(prev.read_text(encoding="utf-8")) if prev.exists() else {}
-    portable = bool(WIN and (getattr(a, "max_compatibility", False) or
-                             (not a.build and prev_meta.get("portable"))))
+    portable = bool(WIN and (getattr(a, "max_compatibility", False) or prev_meta.get("portable")))
     eng = build_engine_poly_hip(gpu, llama, portable) if hip else \
         build_engine_poly(gpu, a.yes, llama, vision, cuda_tk, portable)
     lib_dirs = engine_lib_dirs(eng)
@@ -7767,28 +7350,10 @@ def main() -> int:
     if sys.platform == "darwin":                       # a Mac: metal/setup_mac.py (the Metal engine)
         return mac_setup(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES),
-                    help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, glm = GLM 5.3 Flash (docs/GLM.md), deepseek = "
-                         "DeepSeek V4 Flash, lfm25 = LFM2.5-24B-A2B, flint = Flint 40B-A2.5B, qwen36 = "
-                         "Qwen3.6-35B-A3B on strata-poly, clover = Clover-35B-A3B-Preview, ornith = "
-                         "Ornith 1.5, gemma4 = Gemma 4 26B-A4B, tiel = Tiel Coder 35B-A3B, minicpmv = MiniCPM-V 4.7 "
-                         "35B-A3B, ornith122 = Ornith 1.5 122B (docs/BACKENDS.md), qwen36-strata = Qwen3.6-35B-A3B on the Strata project's "
-                         "own engine (UD-Q4_K_XL and up, 32 GB of RAM or more; pictures with --vision, several "
-                         "requests at once with --parallel; docs/QWEN36.md)")
-    ap.add_argument("--model", choices=list(dict.fromkeys(
-        [*MODELS, *(m for f in FAMILIES.values() for m in f.get("models", {})),
-         *(m for f in PREVIEW_FAMILIES.values() for m in f["models"])])))
+    ap.add_argument("--family", choices=list(FAMILIES),
+                    help="gemma4 = Gemma 4 26B-A4B (docs/BACKENDS.md)")
+    ap.add_argument("--model", choices=list(dict.fromkeys(m for f in FAMILIES.values() for m in f["models"])))
     ap.add_argument("--context", type=int)
-    ap.add_argument("--rope-scaling", choices=["none", "linear", "yarn"],
-                    help="the RoPE extension for a context past the model's trained 262144: linear (position "
-                         "interpolation) or yarn - llama.cpp's types. Omitted with a scaled context, the setup "
-                         "picks yarn; 'none' is refused for such a context")
-    ap.add_argument("--rope-scale", type=float,
-                    help="the extension factor (default: the final context over the trained 262144, at least 1 - "
-                         "1.5 for 384K, 2 for 512K, 1 inside the trained range)")
-    ap.add_argument("--kv", choices=["int8", "q4_0", "k8v4"],
-                    help="KV cache precision above 8K context: int8 (default), q4_0 (half the memory, a little less "
-                         "precise) or k8v4 (hybrid: INT8 K + 4-bit V, 816 B/cell)")
     ap.add_argument("--vision", choices=["yes", "no", "none", "gpu", "cpu"],
                     help="let the model read images (yes = the encoder on the GPU)")
     ap.add_argument("--vision-tokens", type=int, metavar="N",
@@ -7806,9 +7371,6 @@ def main() -> int:
                     help=argparse.SUPPRESS)
     ap.add_argument("--image-gpu-policy", choices=["auto", "keep", "shrink", "unload"],
                     help=argparse.SUPPRESS)
-    ap.add_argument("--experimental-speed-projection", metavar="on|off|GGUF",
-                    help="EXPERIMENTAL, off by default: the control vector in data/experimental-speed-projection "
-                         "(or another GGUF) as a projection on layers 4-44; see docs/DETAILS.md")
     ap.add_argument("--port", type=int, help="the server's port (default: the one the install was set up with, 8080 for a new one)")
     ap.add_argument("--gpu", help="one GPU, numbered as nvidia-smi numbers them (AMD: as setup lists them) (default: asked when several can be "
                                   "used; with --setup it is saved, when starting it is for that start only)")
@@ -7837,15 +7399,12 @@ def main() -> int:
     ap.add_argument("--setup", action="store_true", help="install another model or change settings")
     ap.add_argument("--no-start", action="store_true", help="install only, do not start the model")
     ap.add_argument("--update", action="store_true",
-                    help="update the installed engine, Python packages and model settings as a start would, without "
-                         "starting the model (UPDATE.bat / update.sh run it after a git pull)")
-    ap.add_argument("--rollback-engine", action="store_true",
-                    help="put back the engine an update replaced (kept in engine/.previous), and keep the current one there")
-    ap.add_argument("--build", action="store_true", help="compile the engine instead of using the ready-made one")
+                    help="update the installed engine (compiled again when its source changed), Python packages and "
+                         "model settings as a start would, without starting the model (UPDATE.bat / update.sh run it "
+                         "after a git pull)")
     ap.add_argument("--max-compatibility", action="store_true",
-                    help="with --build on Windows: compile the engine for other PCs too (STRATA_PORTABLE: AVX2 "
-                         "baseline, static MSVC runtime - the release build); the default build uses this PC's own "
-                         "CPU instructions")
+                    help="on Windows: compile the engine for other PCs too (STRATA_PORTABLE: AVX2 baseline, static "
+                         "MSVC runtime); the default build uses this PC's own CPU instructions")
     ap.add_argument("--source", choices=SOURCES, default=None,
                     help="where the model files come from: auto (default: Hugging Face), huggingface or modelscope "
                          "(mainland China: the same files, checked against ModelScope's published SHA-256; "
@@ -7857,27 +7416,10 @@ def main() -> int:
                     help="a .gguf file or folder of shards you already have: setup inspects it, matches it to a family "
                          "and size, and installs without downloading the model")
     ap.add_argument("--cuda", choices=["12", "13", "auto"], default=os.environ.get("STRATA_CUDA") or None,
-                    help="NVIDIA: the CUDA toolkit of this model's engine. auto (default): CUDA 13, the ready-made "
-                         "engine; CUDA 12 (experimental) when a chosen card is older than CUDA 13 supports (Pascal, "
-                         "Volta). 12 also runs with an older driver (Windows 528+, Linux 525+). docs/OLDER_GPUS.md")
-    ap.add_argument("--prebuilt", default=os.environ.get("STRATA_PREBUILT_URL", PREBUILT_URL),
-                    help="where the ready-made engine is (a URL folder or a local folder)")
+                    help="NVIDIA: the CUDA toolkit the engine is compiled with. auto (default): CUDA 13; CUDA 12 "
+                         "(experimental) when a chosen card is older than CUDA 13 supports (Pascal, Volta). 12 also "
+                         "runs with an older driver (Windows 528+, Linux 525+). docs/OLDER_GPUS.md")
     ap.add_argument("--check", action="store_true", help="only check this PC and exit")
-    ap.add_argument("--calibrate", action="store_true",
-                    help="tune the engine's settings for this PC (about 15-30 minutes, longer on a slow card), then start the model")
-    ap.add_argument("--draft-vocab", choices=list(DRAFT_VOCABS),
-                    help="the draft layer's tokens: cjk = with Chinese, Japanese and Korean (default), en = English "
-                         "and code only (~110 MiB less VRAM, English answers 1-2%% faster), cyrillic = English, code "
-                         "and the Cyrillic script (Ukrainian, Russian... answers decode ~30%% faster), fr = English, "
-                         "code and French (French answers: 18%% more drafts accepted)")
-    ap.add_argument("--low-ram", choices=["auto", "on", "off", "resident", "mmap"], default="auto",
-                    help="read the model's experts from one file in its folder instead of copying them all into RAM "
-                         "(for a PC with a big GPU and little RAM); auto: when the experts would not fit the RAM. In "
-                         "this mode the experts the GPU does not hold are copied into RAM once when they fit (resident), "
-                         "else read through the OS file cache (mmap); resident / mmap force one of the two")
-    ap.add_argument("--resident-budget-gib", type=float, metavar="N",
-                    help="UD-Q4_K_XL, UD-IQ4_XS: the GiB of its experts kept in RAM (default: the RAM less 24 GB, 40 on 64 GB; "
-                         "more is kept as you choose, with a note)")
     ap.add_argument("--vram-reserve-mib", type=int, metavar="N",
                     help="VRAM in MiB the engine leaves free for other programs (a game, another model; the engine's "
                          "default: 700); the expert cache takes that much less")
@@ -7888,20 +7430,12 @@ def main() -> int:
                     help="several GPUs: run N independent engines, each on its own equal group of the chosen cards (2 "
                          "replicas on 4 cards = two 2-card engines), requests spread over them (opt-in; more total "
                          "throughput for a model that fits fewer cards; each replica holds its own copy of the model)")
-    ap.add_argument("--kv-streaming", choices=["auto", "on", "off"], default="auto",
-                    help="from a 64K context: keep the KV cache in RAM and only the attention's window in VRAM (more "
-                         "experts fit on the GPU); auto: when the RAM has room for it")
-    ap.add_argument("--backend", choices=["cuda", "hip", "sycl"],
+    ap.add_argument("--backend", choices=["cuda", "hip"],
                     help="cuda = NVIDIA (default), hip = AMD RX 7900 / 7800 / 7700 XT, RX 9060 XT / 9070 / AI PRO R9700 on "
-                         "Linux or Windows (chosen by itself when the PC has no NVIDIA card PolyStrata can use), "
-                         "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
+                         "Linux or Windows (chosen by itself when the PC has no NVIDIA card PolyStrata can use)")
     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     a._custom_gguf_shards = None                      # set by --custom-gguf; None means "not using your own file"
-    # a strata-poly family's own size (FAMILIES[f]["models"]) is checked by poly_setup, which names the family
-    if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and             not any(a.model in d.get("models", {}) for d in FAMILIES.values()):
-        ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in PREVIEW_FAMILIES.items()
-                                                              if a.model in d["models"]))
     if a.source:
         os.environ["STRATA_SOURCE"] = a.source
     if a.inspect:                                      # headers only: nothing is installed
@@ -7917,21 +7451,12 @@ def main() -> int:
             warn(f"--gguf-dir {a.gguf_dir} is ignored: --custom-gguf files are not downloaded")
         a.gguf_dir = str(p) if p.is_dir() else str(p.parent)
         a.family, a.model = _fam, _model
-        # validate the resolved pair: this engine path must be able to install that size
-        if _fam in OWN_PATH_FAMILIES:
-            ok_models = OWN_PATH_FAMILIES[_fam]["models"]
-        elif _fam in FAMILIES and "models" in FAMILIES[_fam]:
-            ok_models = FAMILIES[_fam]["models"]
-        else:
-            ok_models = family_models(_fam)
+        # validate the resolved pair: the family must be one Puddle offers, with that size
+        ok_models = FAMILIES[_fam]["models"] if _fam in FAMILIES else {}
         if a.model not in ok_models:
             avail = sorted(ok_models)
             fail(f"--custom-gguf matched --family {_fam} --model {_model}, but {a.family}'s engine path cannot install it",
                  f"available sizes for {a.family}: {', '.join(avail)}")
-    if a.backend == "sycl":                            # Intel Arc: the SYCL port's own setup (sycl/setup_intel.py)
-        return sycl_setup(sys.argv[1:])
-    if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
-        ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
     if a.vision_tokens is not None and a.vision_tokens < 1:
         ap.error("--vision-tokens takes a number of image tokens, 1 or more, e.g. --vision-tokens 768")
     if a.vram_reserve_mib is not None and a.vram_reserve_mib < 0:
@@ -7943,14 +7468,11 @@ def main() -> int:
             a.gpu = int(a.gpu)
         else:
             ap.error(f"--gpu takes a GPU number as nvidia-smi numbers them, e.g. --gpu 1 (or --gpus 0,2), not {a.gpu!r}")
-    say("PolyStrata - Qwen3.8-Flash-Next, GLM 5.3 Flash and smaller MoE models on a normal PC (a GPU + system RAM + CPU)")
+    say("Puddle - Laguna, Occamy and Gemma 4 on a normal PC (a GPU + system RAM + CPU)")
     data, elsewhere = data_folder(a.data_dir)          # the model files: in the data folder, found from any copy
     roots = [data, *elsewhere]
     if a.models_dir is None:
         a.models_dir = str(data / "models")
-
-    if a.rollback_engine:                              # #670
-        return rollback_engine(12 if a.cuda == "12" else 13)
 
     # ---- 0. already installed: just start it
     have = installed_configs()
@@ -7967,9 +7489,7 @@ def main() -> int:
                     "copy the same way - the model files are reused, nothing big is downloaded.")
                 a.family, a.model, a.context = ch["family"], ch["model"], a.context or ch["context"]
                 adopted = prev
-                a.kv = a.kv or ch["kv"]
                 a.vision = a.vision or ch["vision"]
-                a.experimental_speed_projection = a.experimental_speed_projection or ch["esp"]
                 a.host, a.api_key = a.host or ch["host"], a.api_key or ch["api_key"]
                 a.port = a.port or ch["port"]
                 if a.vram_reserve_mib is None:          # #493: an explicit reserve set up before
@@ -7988,41 +7508,10 @@ def main() -> int:
     # choice, and asked once when the PC has cards that could share the model
     run_gpu = start_gpus(a.gpus) or a.gpu
     port = a.port or 8080                              # a new install's port (issue #32: --port for an existing one)
-    if a.calibrate and (a.setup or a.check or not have):    # #2036: said, not dropped
-        why = ("--setup" if a.setup else "--check" if a.check else "no model is installed yet")
-        warn(f"--calibrate does nothing with {why}: it tunes a model that is already installed. Run setup first, "
-             "then " + ("START-HERE.bat" if WIN else "./setup.sh") + " --calibrate [--model NAME]")
-    if have and a.calibrate and not (a.setup or a.check):
-        targets = calibration_targets(have, a.model, a.family)
-        if not targets:                                # #2036: --model names a model that is not installed
-            names = ", ".join(sorted({choices_from_config(c)["model"] or c.stem for c in have}))
-            fail(f"--calibrate: {a.model or a.family} is not installed (installed: {names})",
-                 "calibrate an installed model, or set this one up first without --calibrate")
-        have = targets
-        if not a.build:
-            update_installed_engine(a.prebuilt)
-        pick_cfg = have[0]
-        if len(have) > 1:
-            say()
-            for i, c in enumerate(have, 1):
-                say(f"  {i}) {json.loads(c.read_text(encoding='utf-8-sig')).get('model_name', c.stem)}")
-            pick_cfg = have[int(ask("Tune which one?", [str(i) for i in range(1, len(have) + 1)], "1", a.yes)) - 1]
-        if poly_config(json.loads(pick_cfg.read_text(encoding="utf-8-sig"))):
-            warn("--calibrate measures settings of the Qwen engine: strata-poly has none of them, so nothing is "
-                 "tuned")
-        elif not calibrate_config(pick_cfg):           # #447: said again where it is not lost above the start
-            say()
-            warn("this PC is NOT tuned: the tuning failed (the reason is above); the model "
-                 + ("keeps" if a.no_start else "starts with") + " the default settings")
-        return 0 if a.no_start else start(pick_cfg, a.port, run_gpu, yes=a.yes, layer_split=a.layer_split,
-                     keep={"host": a.host, "api_key": a.api_key, "draft_vocab": a.draft_vocab,
-                           "vram_reserve_mib": a.vram_reserve_mib, "open_browser": a.browser})
     if have and not (a.setup or a.model or a.family or a.check or a.no_start):
-        if not a.build:
-            update_installed_engine(a.prebuilt)
         if len(have) == 1:
             return start(have[0], a.port, run_gpu, yes=a.yes, layer_split=a.layer_split,
-                     keep={"host": a.host, "api_key": a.api_key, "draft_vocab": a.draft_vocab,
+                     keep={"host": a.host, "api_key": a.api_key,
                            "vram_reserve_mib": a.vram_reserve_mib, "open_browser": a.browser})
         say()
         for i, c in enumerate(have, 1):
@@ -8031,7 +7520,7 @@ def main() -> int:
         pick = int(ask("Which one?", [str(i) for i in range(1, len(have) + 2)], "1", a.yes))
         if pick <= len(have):
             return start(have[pick - 1], a.port, run_gpu, yes=a.yes, layer_split=a.layer_split,
-                     keep={"host": a.host, "api_key": a.api_key, "draft_vocab": a.draft_vocab,
+                     keep={"host": a.host, "api_key": a.api_key,
                            "vram_reserve_mib": a.vram_reserve_mib, "open_browser": a.browser})
 
     # ---- 1. the PC
@@ -8055,7 +7544,7 @@ def main() -> int:
             + "   (recommended)")
         say("  2) AMD: " + ", ".join(f"{g['name']} ({g['vram_gb']:.0f} GB{', unified memory' if g.get('uma') else ''})"
                                for g in amd_ok)
-            + f"   ({'the ready-made AMD engine, no images' if WIN else 'compiled here, images on the CPU'}"
+            + f"   ({'compiled here, no images' if WIN else 'compiled here, images on the CPU'}"
               " - docs/AMD_HIP.md)")
         hip = ask("Which cards?", ["1", "2"], "1", a.yes or a.check) == "2"
         if a.check and not hip:
@@ -8131,7 +7620,7 @@ def main() -> int:
             ok("GPUs: " + " + ".join(gpu_name(x) for x in chosen) + " together (the model's layers are split across them)")
         ok(f"GPU: {gpu['name']}, {gpu['vram_gb']:.1f} GB VRAM, compute capability {cc(gpu)}, driver {gpu['driver']}")
         # one engine per model: its oldest card decides
-        cuda_tk, why = cuda_choice(gpu["archs"], a.cuda, FAMILIES.get(a.family, {}).get("engine") == "poly")
+        cuda_tk, why = cuda_choice(gpu["archs"], a.cuda, True)   # every family runs on strata-poly
         if why:
             (warn if cuda_tk == 13 or str(a.cuda) == "12" else ok)(f"CUDA {cuda_tk}: {why}")
         min_driver = CUDA12_MIN_DRIVER if cuda_tk == 12 else MIN_DRIVER
@@ -8145,26 +7634,10 @@ def main() -> int:
              + ": PolyStrata will run, but most experts stay on the CPU and it will be slow")
     ram = ram_gb()
     cpu, avx2, avx512 = cpu_info()
-    need = min(d["ram_gb"] for d in MODELS.values())
-    low_ok = low_ram_fits("IQ1_M", ram, low_ram_vram(gpu)) and a.low_ram != "off"   # the smallest model, mapped
-    # a family of strata-poly has its own estimate of the RAM it wants, by size and card (poly_setup)
-    own_ram = bool(a.family) and FAMILIES[a.family].get("engine") == "poly"
-    if ram < need - 4 and not a.check and not low_ok and not own_ram:
-        # every model keeps ALL its experts in RAM (23+ GB); VRAM only holds a copy of the most-used ones, so a
-        # bigger GPU does not lower this.  The owner's rule: a stop by default, a risk the user can take (--model
-        # with --yes, or y)
-        confirm_risk(f"RAM: {ram:.0f} GB - the smallest model (the Coder) needs about {need} GB: PolyStrata keeps all of "
-                     "the model's experts in RAM (23-50 GB, whatever the GPU), so the OS will page them from disk. "
-                     "Expect it to be very slow, and it may not start at all.", bool(a.model), a.yes,
-                     f"RAM: {ram:.0f} GB - the smallest model (the Coder) needs about {need} GB",
-                     "PolyStrata keeps all of the model's experts in RAM (23-50 GB, whatever the GPU) and the GPU holds a "
-                     "copy of the most-used ones: it needs 32 GB of RAM or more (48 GB for the full model); --model "
-                     "NAME --yes installs one anyway. Qwen3.6, Ornith 1.5 and Gemma 4 want less: --family qwen36, "
-                     "ornith or gemma4")
-        warn(f"going on with {ram:.0f} GB of RAM, as you chose")
-    ram_msg = (f"RAM: {ram:.0f} GB" if ram >= need - 4 or own_ram else f"RAM: {ram:.0f} GB (less than the {need} GB the smallest model needs)"
-               + ("; the GPU's VRAM makes up for it (the low-RAM mode)" if ram < need - 4 and low_ok else ""))
-    (ok if ram >= need - 4 or low_ok or own_ram else warn)(ram_msg)   # #977: a RAM below every model's floor is not [ok]
+    # each family has its own estimate of the RAM it wants, by size and card (poly_setup); here only the floor
+    need = min(d["ram_gb"] for f in FAMILIES.values() for d in f["models"].values())
+    (ok if ram >= need else warn)(f"RAM: {ram:.0f} GB" + ("" if ram >= need else
+                                                         f" (less than the {need} GB the smallest model wants)"))
     pf = page_file_gb()
     if pf is not None and pf < 4:
         warn(page_file_advice(pf, page_file_setting()))
@@ -8179,45 +7652,15 @@ def main() -> int:
     if floor == "unsupported":
         fail("this CPU has neither AVX2 nor SSE4.2; PolyStrata needs at least SSE4.2 (Intel Nehalem, 2008, or newer)")
     if not avx2:
-        # #394 #595 #623: the ready-made engine is AVX2; an older CPU gets one compiled here, whose CPU experts run on
-        # ggml-cpu's kernels for this CPU.  Experimental: measured only on newer CPUs with the older path forced, and by
-        # users on a few Xeons.  A warning, not a stop.
-        warn(f"this CPU has no AVX2: PolyStrata support for it is EXPERIMENTAL and slow. Setup compiles the engine on this "
-             f"PC for {'AVX' if floor == 'avx' else 'SSE4.2'} (STRATA_ISA_FLOOR={floor}; 10-20 minutes, once), and the "
-             "CPU's share of the experts runs on ggml-cpu's kernels, a few times slower than on an AVX2 CPU. "
-             "See \"Older CPUs\" in docs/INSTALL.md")
-        if hip and WIN:
-            fail("the older-CPU engine is not compiled on Windows for an AMD card",
-                 "use Linux for an AMD card on this CPU, or an NVIDIA card")
-        a.build = True
+        # #394 #595 #623: an older CPU: the CPU's share of the experts runs on ggml-cpu's kernels for this CPU.
+        # Experimental: measured only on newer CPUs with the older path forced, and by users on a few Xeons.  A
+        # warning, not a stop.
+        warn("this CPU has no AVX2: PolyStrata support for it is EXPERIMENTAL and slow - the CPU's share of the "
+             "experts runs on ggml-cpu's kernels, a few times slower than on an AVX2 CPU")
     if a.check:
         say()
         any_fits = False
-        for m, d in MODELS.items():
-            verdict = "fits" if ram >= d["ram_gb"] else "tight" if ram >= d["ram_gb"] - 8 else "does not fit"
-            if "glm" in d.get("families", ()):
-                verdict = poly_verdict(d, ram, gpu["vram_gb"], hip)
-            elif d.get("budget") and not unsloth_budget(m, ram, gpu):     # Phase 2: all of them in RAM
-                verdict = ("EXPERIMENTAL, " if d.get("experimental") else "") + "fits (all of its experts in RAM)"
-            elif d.get("budget"):
-                verdict = (("EXPERIMENTAL, " if d.get("experimental") else "") +
-                           f"fits with {resident_budget_gib(m, ram)} GiB of its experts in RAM, the rest "
-                           "read from the SSD" if ram >= d["ram_gb"] else
-                           f"slow here: {resident_budget_gib(m, ram)} GiB of its "
-                           f"{int(d['arena_gb'] / 1.073741824)} GiB of experts in RAM, the rest read from the SSD "
-                           "(setup asks first)" if ram >= UNSLOTH_MIN_RAM_GB else "does not fit")
-            elif low_ram_needed(m, ram) and low_ram_fits(m, ram, low_ram_vram(gpu)) and a.low_ram != "off":
-                verdict = (f"fits in the low-RAM mode (the GPU holds ~{100 * low_ram_gpu_share(m, low_ram_vram(gpu)):.0f}% "
-                           "of its experts, " + ("the rest stays in RAM)" if low_ram_resident(m, ram, low_ram_vram(gpu))
-                                                 else "the rest is read from the SSD as needed)"))
-            if d.get("budget") and hip and d.get("nvidia_only"):   # #429: not run on AMD yet
-                verdict += " - NVIDIA only so far, untested on AMD"
-            if hip and d.get("repo"):                  # the ready-made NVFP4 packs: no AMD kernels at all
-                verdict = "NVIDIA only (the AMD engine has no NVFP4 kernels)"
-            else:
-                any_fits = any_fits or not verdict.startswith("does not fit")
-            say(f"  {m:8s} needs ~{d['ram_gb']} GB RAM: {verdict}")
-        for f, fd in FAMILIES.items():                  # the families with sizes of their own
+        for f, fd in FAMILIES.items():                  # every family has sizes of its own
             for m, d in fd.get("models", {}).items():
                 any_fits = any_fits or poly_fits(d, ram, gpu["vram_gb"], hip)
                 say(f"  {fd['title']} {m}: {poly_verdict(d, ram, gpu['vram_gb'], hip, bool(fd.get('windows')))}")
@@ -8232,771 +7675,19 @@ def main() -> int:
 
     # ---- 2. the questions
     step(2, "your choices")
-    fams = menu_families(hip)
+    fams = list(FAMILIES)
     if a.family:
         family = a.family
     else:
-        rec_fam = STRIX_HALO_FAMILY if strix_halo_recommends(gpu, ram) and STRIX_HALO_FAMILY in fams else fams[0]
         for i, f in enumerate(fams, 1):
             d = FAMILIES[f]
-            say(f"  {i}) {d['title']:20s} {d['by']} - {d['about']}" + ("   [experimental]" if d.get("experimental") else "")
-                + family_menu_note(f, hip, gpu, avx2, avx512)
-                + (f"   (recommended for Strix Halo: {STRIX_HALO_MODEL})" if f == rec_fam and rec_fam != fams[0] else ""))
-        for j, f in enumerate(OWN_PATH_FAMILIES, len(fams) + 1):   # families with an engine path of their own
-            d = OWN_PATH_FAMILIES[f]
-            say(f"  {j}) {d['title']:20s} {d['by']} - {d['about']}   [new]")
-        allf = fams + list(OWN_PATH_FAMILIES)
-        family = allf[int(ask("Which model?", [str(i) for i in range(1, len(allf) + 1)],
-                              str(allf.index(rec_fam) + 1), a.yes)) - 1]
-    if family in OWN_PATH_FAMILIES:                    # Qwen3.6: its own engine path, its own steps 2-7
-        return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted)
+            say(f"  {i}) {d['title']:20s} {d['by']} - {d['about']}" + ("   [experimental]" if d.get("experimental") else ""))
+        family = fams[int(ask("Which model?", [str(i) for i in range(1, len(fams) + 1)], "1", a.yes)) - 1]
     fam = FAMILIES[family]
-    if fam.get("ready") and hip:
-        # not a risk the user could take: the HIP engine has no NVFP4 expert kernels at all, so it would not start
-        fail(f"{fam['title']} runs on NVIDIA cards only: the AMD engine has no NVFP4 kernels",
-             "UD-IQ4_XS is about the same size and runs on AMD: --family unsloth --model UD-IQ4_XS")
-    if fam.get("ready") and a._custom_gguf_shards:
-        fail(f"--custom-gguf does not apply to {fam['title']}: its files are ready-made packs, not GGUF shards",
-             "drop --custom-gguf; setup downloads the pack for you")
-    elif fam.get("ready") and a.gguf_dir:
-        warn(f"--gguf-dir does not apply to {fam['title']}: its files are ready-made packs, not GGUF shards")
-        a.gguf_dir = None
     ok(f"model: {fam['title']}")
-    if fam.get("ready") and nvfp4_cpu_note(avx2, avx512):   # #2347: a note (the AVX2 rows work), not a refusal
-        warn(nvfp4_cpu_note(avx2, avx512))
     if fam.get("license"):
         say(f"  Its license: {fam['license']}")
-    if fam.get("engine") == "poly":                     # another engine: its own questions and steps
-        return poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted)
-    say()
-    names = [m for m in MODELS if family in MODELS[m].get("families", ("qwen", "swift"))]
-    names.sort(key=lambda m: bool(MODELS[m].get("experimental")))   # an experimental size last, never the default
-    if a.model and a.model not in names:
-        # #444: say which family has that size, and (with --gguf-dir) which files PolyStrata can run at all
-        elsewhere_fams = [f for f in FAMILIES if a.model in family_models(f)]
-        fail(f"{fam['title']} has no {a.model} model file", "choose one of: " + ", ".join(names)
-             + (f" (or {a.model}: " + ", ".join(f"--family {f} --model {a.model}" for f in elsewhere_fams) + ")"
-                if elsewhere_fams else "")
-             + (f".\n       {SUPPORTED_GGUFS}" if a.gguf_dir else ""))
-    installed = installed_size(family, names, have)
-    for i, m in enumerate(names, 1):
-        d = MODELS[m]
-        fit = "" if ram >= d["ram_gb"] else f"   <- needs {d['ram_gb']} GB RAM, you have {ram:.0f}"
-        if d.get("budget"):
-            keeps = (f"~{resident_budget_gib(m, ram)} GB" if unsloth_budget(m, ram, gpu, a.resident_budget_gib)
-                     else "all")
-            say(f"  {i}) {m}{size_tag(family, m, installed)} {d['about']}; download {d['download_gb']:.0f} GB, keeps {keeps} of its "
-                f"{d['arena_gb']:.0f} GB of experts in RAM{fit}")
-            continue
-        if low_ram_needed(m, ram) and low_ram_fits(m, ram, low_ram_vram(gpu)) and a.low_ram != "off":
-            fit = (f"   <- fits in the low-RAM mode (the GPU holds ~{100 * low_ram_gpu_share(m, low_ram_vram(gpu)):.0f}%, "
-                   + ("the rest in RAM)" if low_ram_resident(m, ram, low_ram_vram(gpu)) else "the rest from the SSD)"))
-        say(f"  {i}) {m:8s}{size_tag(family, m, installed)} {d['about']}; download {d['download_gb']:.0f} GB, uses ~{d['arena_gb']:.0f} GB of RAM{fit}")
-    rec = str(names.index(installed or recommended_size(family, names, ram)) + 1)
-    model = a.model or names[int(ask("Which size?", [str(i) for i in range(1, len(names) + 1)], rec, a.yes)) - 1]
-    budget, q4_split = None, False
-    in_budget = bool(MODELS[model].get("budget")) and unsloth_budget(model, ram, gpu, a.resident_budget_gib)
-    if MODELS[model].get("budget"):
-        # Unsloth's files: every expert in RAM where they fit with UNSLOTH_RESIDENT_BESIDE_GB beside them (Phase 2,
-        # unsloth_budget), as ISTA's.  Else a RAM budget of experts, the rest from the GGUF on the SSD - not the low-RAM
-        # mode (no experts.bin: it would be another 77 GB on the disk), and one GPU (the budget mode had no layer split)
-        # unless the RAM holds the GGUFs and 24 GB more: then several, without the budget, if asked for (#498).  #642:
-        # from RESIDENT_SPLIT_ENGINE several GPUs, when asked for, keep the budget (unsloth_together)
-        if MODELS[model].get("experimental"):
-            warn(f"{model} is EXPERIMENTAL (docs/UNSLOTH_Q4.md)" + (
-                 ": most of its experts are read from the SSD while it answers, so it is several times slower than the "
-                 "2-3-bit models" if in_budget else "") + "; quality checked against llama.cpp")
-        if hip and MODELS[model].get("nvidia_only"):
-            # #429 (jkuepker): checked before the 111 GB download.  The HIP engine has no prompt kernels for its
-            # Q4_K / Q5_K experts (STRATA_MMQ_KQUANTS is CUDA-only) and it has not been run on AMD: asked, not refused
-            confirm_risk(f"{model} has not been run on AMD cards yet: its prompt kernels are NVIDIA-only, so on "
-                         f"{gpu_name(gpu)} long prompts read much more slowly, and it may not work at all",
-                         bool(a.model), a.yes, f"{model} is NVIDIA-only so far", "choose one of the 2-3-bit models, "
-                         f"or --model {model} --yes to try it on AMD anyway", "  Try it anyway?")
-            warn(f"installing {model} on an AMD card, as you chose (please report how it runs)")
-        if ram < MODELS[model]["ram_gb"]:
-            have = resident_budget_gib(model, ram)
-            total = int(MODELS[model]["arena_gb"] / 1.073741824)
-            confirm_risk(f"{model} needs {MODELS[model]['ram_gb']} GB of RAM or more; this PC has {ram:.0f} GB: "
-                         f"it would keep {have} GiB of its {total} GiB of experts in RAM and read the other "
-                         f"{total - have} GiB from the SSD while it answers (single-digit tokens/s on most SSDs), and "
-                         "it may run out of RAM", bool(a.model), a.yes,
-                         f"{model} needs {MODELS[model]['ram_gb']} GB of RAM or more; this PC has {ram:.0f} GB",
-                         f"choose a smaller size, or --model {model} --yes to install it anyway", "  Install it anyway?")
-            warn(f"installing {model} with {ram:.0f} GB of RAM, as you chose")
-        if in_budget:
-            budget = budget_choice(model, ram, a.resident_budget_gib)
-            if multi and not unsloth_together(a, model, ram, gpu, chosen):
-                multi, sel, chosen = [], [gpu["index"]], [gpu]
-            q4_split = bool(multi) and not resident_split()   # #498: on several GPUs without the RAM budget (#642: kept)
-            if not q4_split:
-                ok(f"RAM budget: {budget:g} GiB of {model}'s experts in RAM, the rest read from the model files on the SSD")
-        else:
-            ok(f"all {MODELS[model]['arena_gb']:.0f} GB of {model}'s experts in RAM (they and "
-               f"{UNSLOTH_RESIDENT_BESIDE_GB} GiB more fit this PC's {ram:.0f} GB; --resident-budget-gib N keeps only "
-               "N GiB of them)")
-        if a.low_ram not in ("auto", "off"):
-            warn(f"--low-ram {a.low_ram} does not apply to {model}: it always reads part of its experts from the files")
-    elif a.resident_budget_gib is not None:
-        warn(f"--resident-budget-gib is for UD-Q4_K_XL and UD-IQ4_XS: {model} keeps all of its experts in RAM or in "
-             "the low-RAM mode")
-    low_ram = low_ram_wanted(model, ram, a.low_ram)
-    # #642: the engines from RESIDENT_SPLIT_ENGINE run the low-RAM mode on the chosen cards as on one (decided below)
-    if low_ram and multi and not resident_split() and not low_ram_together(a, model, ram, gpu, chosen):
-        multi, sel, chosen = [], [gpu["index"]], [gpu]
-    # (the low-RAM mode's variant is decided once the context is known, below; on several GPUs it is the mapped one
-    # before RESIDENT_SPLIT_ENGINE, #642)
-    if not low_ram and budget is None and ram < MODELS[model]["ram_gb"] - 4:
-        confirm_paging(model, ram, a.low_ram, a.yes, bool(a.model))
-    ok(f"size: {model}")
-    if MODELS[model].get("license"):                   # the ready-made packs: each size has its own license
-        say(f"  Its license: {MODELS[model]['license']}")
-    tag = fam["tag"] + custom_gguf_tag(a._custom_gguf_shards, model)
-    small = min(x["vram_gb"] for x in chosen)         # each card keeps its layers' KV of the whole context
-    rec_ctx = 32768 if small < 14 else 65536 if small < 20 else 131072
-    if budget is not None:                             # UD-Q4_K_XL: every GB of KV is a GB fewer of cached experts
-        rec_ctx = 8192 if small < 14 else 32768
-    # #406: the RAM rule is part of the recommendation (the smaller of the two), no longer a cap over the user's choice
-    rec_ctx = min(rec_ctx, ram_ctx(model, ram, low_ram))
-    if a.context:
-        ctx = a.context
-    else:
-        say()
-        say("  Context length = how much text the model can see at once (your chat, files, tool output).")
-        say("  Longer needs more VRAM for it, so fewer experts fit on the GPU:")
-        for i, c in enumerate(CONTEXTS, 1):
-            need_c = ctx_ram_need(model, c, low_ram)
-            note = ("   (recommended for your GPU)" if c == rec_ctx else "") + \
-                   ("   (experimental: setup adds rope scaling)" if c > 262144 else "") + \
-                   (f"   (needs ~{need_c:.0f} GB RAM, this PC has {ram:.0f}: may run out of memory)"
-                    if c > 131072 and need_c is not None and need_c > ram else "")
-            say(f"  {i}) {c // 1024}K tokens{note}")
-        ctx = CONTEXTS[int(ask("Context?", [str(i) for i in range(1, len(CONTEXTS) + 1)],
-                               str(CONTEXTS.index(rec_ctx) + 1), a.yes)) - 1]
-    # #406 #364: a context past the RAM rule (an explicit --context, a pick in the list, or the earlier install's) is
-    # kept, with what it risks.  It used to become 128K: users ran 256K fine where setup's estimate said no.
-    need_gb = ctx_ram_need(model, ctx, low_ram)
-    if need_gb is not None and ram < need_gb and ctx > 131072:
-        warn(f"{ctx // 1024}K with {model} needs ~{need_gb:.0f} GB of RAM by setup's estimate "
-             f"({MODELS[model]['arena_gb']:.0f} GB of experts + the context + room for the rest); this PC has "
-             f"{ram:.0f}. Kept as you chose: it may be slower or run out of RAM under load. {rec_ctx // 1024}K is the "
-             "recommended size.")
-    scaling = a.rope_scaling
-    if ctx > 262144 and scaling is None and not a.yes:
-        # the interactive path: one question, yarn preselected (llama.cpp's extension method, recall-tested
-        # here at 512K).  With --yes nothing prints: resolve_rope takes yarn below and the ok() line says so.
-        say()
-        say(f"  A {ctx // 1024}K context runs the model past its trained 262,144 positions: the rotary angles")
-        say("  get rescaled (llama.cpp's RoPE extension). yarn keeps the trained angles on the high-frequency")
-        say("  pairs and corrects the magnitudes; linear shrinks every angle. Override any time with")
-        say("  --rope-scaling.")
-        scaling = ask("RoPE extension method?", ["yarn", "linear"], "yarn", a.yes)
-    try:
-        scaling, rope_scale = resolve_rope(ctx, scaling, a.rope_scale)
-    except ValueError as e:
-        fail(str(e))
-    if scaling is not None:
-        origin = ("final context / trained 262144; override with --rope-scale" if a.rope_scale is None
-                  else "as requested")
-        ok(f"rope scaling: {scaling}, factor {rope_scale:g} ({origin})")
-    ok(f"context: {ctx} tokens")
-    # the KV cache (the model's memory of the conversation): 8-bit, or 4-bit after a Hadamard rotation (PR #21)
-    kv = "fp16" if ctx <= 8192 else (a.kv or "int8")
-    if ctx > 8192 and not a.kv and not a.yes:
-        say()
-        say("  KV cache precision (the model's memory of the conversation):")
-        say("  1) 8-bit   (recommended: what every published number was measured with)")
-        say("  2) 4-bit   half the memory (about 4% faster at 128K), but measurably less precise on long")
-        say("             documents; long-context lookups (needle tests) still pass")
-        kv = ["int8", "q4_0"][int(ask("KV cache?", ["1", "2"], "1", a.yes)) - 1]
-    if ctx > 8192:
-        ok(f"KV cache: {'8-bit' if kv == 'int8' else '4-bit (Hadamard-rotated)'}")
-    if MODELS[model].get("vision", fam.get("vision")) is False:     # UD-IQ4_XS: images, unlike UD-Q4_K_XL
-        vision = "none"
-        if a.vision not in (None, "no", "none"):
-            warn(f"images are not available with {model} yet: off")
-    elif hip:
-        # MODEL-UPDATE: Unsloth's files on AMD (Linux) read images with the CPU encoder by default where their experts
-        # all stay in RAM (it takes no VRAM; measured on an R9700 with UD-Q4_K_XL and UD-Q5_K_XL, docs/QUANTS.md)
-        vision = hip_vision(a.vision if a.vision is not None or not unsloth_images_default(model, family, ram, gpu)
-                            else "cpu")
-    elif a.vision:
-        vision = flash_vision_encoder(a.vision, gpu) if a.vision != "no" else "none"
-        vision = "none" if vision in ("no", "none") else vision
-    else:
-        small = 0 < float(gpu.get("vram_gb") or 0.0) < IMAGES_GPU_ENCODER_MIN_VRAM_GB
-        say()
-        say("  Images: the model can also read pictures (screenshots, photos, scanned pages). This adds a 0.9 GB")
-        if small:
-            say("  download. On a card under 24 GB the encoder runs on the CPU (a few seconds per picture, nothing taken")
-            say("  from the GPU, pictures read at up to 300 tokens; --vision-tokens 1024 for more detail): the GPU")
-            say("  encoder keeps ~1.4 GB of VRAM free, which costs 3-5% of text speed on 16 GB cards (measured) and")
-            say("  more on some PCs. --vision gpu if you want pictures in under a second.")
-        else:
-            say("  download and keeps ~1.4 GB of VRAM free for the image encoder, so text is a few % slower.")
-        # MODEL-UPDATE: on by default for Unsloth's files on a card with room for the encoder (16 GB and more)
-        default = "y" if unsloth_images_default(model, family, ram, gpu) else "n"
-        vision = flash_vision_encoder("yes", gpu) if ask("Do you want images?", ["y", "n"], default, a.yes) == "y" else "none"
-    ok("images: " + {"none": "off", "gpu": "on", "cpu": "on (encoder on the CPU)"}[vision])
-    if vision != "none" and MODELS[model].get("vision_untested"):
-        warn(f"images with {model} are untested: users report them working, but we have not run this file with "
-             "images (#967); tell us if the answers look wrong")
-    # The low-RAM mode's two variants.  resident: the experts the GPU's cache does not hold (and, as far as RAM allows,
-    # the ones the prompt path borrows cache room from) are copied from the pack's experts.bin into RAM once, so
-    # nothing is read from the SSD while it answers (engine 0.1.30, --resident-experts; the engine falls back to mmap
-    # with a warning when they do not fit the RAM it finds free).  mmap: they are read through the OS file cache.
-    # The GPU's share: its VRAM less the dense weights and buffers, this context's KV cache and the image encoder's room.
-    resident = False
-    if low_ram and not fam.get("ready"):               # NVFP4's packs: the RAM-budget mode instead (step 7)
-        arena = MODELS[model]["arena_gb"]
-        vram = low_ram_vram(gpu) - (VISION[vision]["reserve_mib"] / 1024 if vision != "none" else 0)
-        share = low_ram_gpu_share(model, vram, ctx, kv)
-        rest = arena - low_ram_gpu_gb(model, vram, ctx, kv)
-        resident = a.low_ram == "resident" or (a.low_ram != "mmap" and low_ram_resident(model, ram, vram, ctx, kv))
-        if multi:      # every chosen card's share (the image encoder on the main one); #364 #384: the mapped variant
-            held = min(arena, low_ram_gpu_gb(model, vram, ctx, kv) +
-                       sum(low_ram_gpu_gb(model, low_ram_vram(x), ctx, kv) for x in chosen[1:]))
-            share, rest = held / arena, arena - held
-            # #642: the resident variant on a split, by the same rule as on one card - what no card holds fits the RAM
-            resident = resident_split() and (a.low_ram == "resident" or
-                                             (a.low_ram != "mmap" and ram >= rest + LOW_RAM_HEADROOM_GB))
-            if resident:
-                ok(f"low-RAM mode on {len(chosen)} GPUs: they hold ~{100 * share:.0f}% of {model}'s experts "
-                   f"({arena:.0f} GB) and the other ~{rest:.0f} GB stay in RAM ({ram:.0f} GB), read once from a copy "
-                   "in the model folder")
-            else:
-                ok(f"low-RAM mode on {len(chosen)} GPUs: {model}'s experts ({arena:.0f} GB) are read from the model "
-                   f"folder through the OS file cache instead of a copy in RAM ({ram:.0f} GB); the GPUs hold "
-                   f"~{100 * share:.0f}% of them")
-                if share < 0.6:
-                    warn("most of the experts are read from the SSD while it answers: expect it to be much slower "
-                         "than with enough RAM (a faster SSD and a smaller size help)")
-        elif resident:
-            ok(f"low-RAM mode: the GPU holds ~{100 * share:.0f}% of {model}'s experts ({arena:.0f} GB) and the other "
-               f"~{rest:.0f} GB stay in RAM ({ram:.0f} GB), read once from a copy in the model folder")
-        else:
-            ok(f"low-RAM mode: {model}'s experts ({arena:.0f} GB) are read from the model folder through the OS file "
-               f"cache instead of a copy in RAM ({ram:.0f} GB); the GPU holds ~{100 * share:.0f}% of them")
-            if share < 0.6:
-                warn("most of the experts are read from the SSD while it answers: expect it to be much slower than "
-                     "with enough RAM (a faster SSD and a smaller size help)")
-    # EXPERIMENTAL: the experimental-speed-projection control vector (data/experimental-speed-projection), off unless
-    # chosen here; with it loaded, the web app and the API switch it off per request
-    esp = None
-    esp_choice = (a.experimental_speed_projection or "").strip()
-    if family in ("qwen", "coder"):                   # the Coder: the same model's residual stream
-        if not esp_choice:
-            say()
-            say("  EXPERIMENTAL - speed projection: a small control vector applied while the model runs (layers 4-44).")
-            say("  It changes how the model answers: its package describes it as a refusal-direction projection (the")
-            say("  model declines far fewer requests). Off unless you choose it; when on, the web app can switch it off")
-            say("  per chat. Details: data/experimental-speed-projection/README.md")
-            esp_choice = "on" if ask("Turn on the experimental speed projection?", ["y", "n"], "n", a.yes) == "y" else "off"
-        if esp_choice.lower() not in ("off", "no", "n", "0"):
-            esp = ESP_VECTOR if esp_choice.lower() in ("on", "yes", "y", "1") else Path(esp_choice).expanduser().resolve()
-            if not esp.is_file():
-                fail(f"the experimental speed projection's vector is missing: {esp}")
-        ok("experimental speed projection: " + ("ON (experimental)" if esp else "off"))
-    elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
-        warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
-             if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
-    ready = bool(fam.get("ready"))                     # NVFP4: ready-made packs (NVFP4_REPOS), no GGUF shards
-    if ready:
-        models_dir = Path(a.models_dir)
-        for r in elsewhere:                            # already downloaded and checked in a PolyStrata folder elsewhere
-            if all(ready_verified(ready_where(r / "models", f), f[5]) for f in ready_files(model)):
-                models_dir = r / "models"
-                ok(f"model files found in {models_dir}")
-                break
-        shards = [ready_where(models_dir, f) for f in ready_files(model)]
-    else:
-        models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
-        shards = (a._custom_gguf_shards if a._custom_gguf_shards
-                  else gguf_dir_shards(models_dir, fam, model)) if a.gguf_dir else \
-            [models_dir / model_file(fam, model, i) for i in range(1, model_shards(fam, model) + 1)]
-    problem = gguf_dir_problem(models_dir, shards[0], fam, model) if a.gguf_dir else None
-    if problem:                                        # #444: files PolyStrata cannot run, or another choice's files
-        fail(*problem)
-    if not ready and not a.gguf_dir and not all(sh.exists() and done(sh) for sh in shards):
-        for r in elsewhere:                            # already downloaded in a PolyStrata folder on another drive
-            cand = [r / "models" / tag / sh.name for sh in shards]
-            if all(c.exists() and done(c) for c in cand):
-                models_dir, shards = cand[0].parent, cand
-                ok(f"model files found in {models_dir}")
-                break
-    for s in ([] if ready else shards):                # #173: a whole file copied in by hand has no finish mark
-        if s.exists() and not done(s) and whole_shard(s):
-            try:
-                mark(s, "whole (checked against its own tensor directory)")
-            except OSError as e:                       # a read-only folder (--gguf-dir on a share): the file is still whole
-                warn(f"{s.name} is whole but its finish mark cannot be written ({e})")
-    have_model = all(ready_verified(ready_where(models_dir, f), f[5]) for f in ready_files(model)) if ready else \
-        all(s.exists() and (done(s) or a.gguf_dir) for s in shards)
-    # #425 (jctaborda): a download that resumes needs room only for what is still missing - the finished shards and
-    # the .part files already on the disk count
-    on_disk = sum(f.stat().st_size for s in shards for f in (s, s.with_name(s.name + ".part")) if f.is_file()) / 1e9
-    to_fetch = 0 if a.gguf_dir or have_model else max(MODELS[model]["download_gb"] - on_disk, 0)
-    # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
-    # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
-    pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-    pack_bin = ready or ((pack_now / "experts.bin").exists() and (pack_now / "index.txt").exists())   # ready: in the download
-    mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
-    q2_avx = model == "Q2_0" and avx512 and family == "qwen"
-    need = to_fetch + (2 if mtp_have else 8) + \
-        (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + \
-        (MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0)
-    if free_gb(models_dir) < need:
-        fail(f"not enough free disk space in {models_dir}: need ~{need:.0f} GB" +
-             (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""),
-             "use --models-dir on a bigger drive")
-
-    # ---- 3. python packages
-    step(3, "Python packages")
-    pip_install(requirement_lines() if REQUIREMENTS.exists() else PY_PACKAGES,
-                "numpy, jinja2, regex, pyyaml, tqdm, requests, cmake, ninja, pillow, psutil")
-
-    # ---- 4. the engine
-    step(4, "the PolyStrata engine")
-    llama, eng, meta, lib_dirs, gpu, vision = engine_step(a, gpu, hip, amd, cuda_tk, vision)
-    if ready and meta.get("source") != "local" and \
-            tuple(int(x) for x in str(meta.get("version", "0")).split(".")[:4] if x.isdigit()) < MODELS[model]["engine"]:
-        # a ready-made engine from before NVFP4 cannot read these experts: one compiled from this source can
-        warn(f"the ready-made engine {meta.get('version')} has no NVFP4 experts yet: compiling the engine from this source")
-        eng = build_engine(gpu, vision, a.yes, llama, toolkit=cuda_tk,
-                           portable=bool(WIN and (getattr(a, "max_compatibility", False) or
-                                                  (not a.build and meta.get("portable")))))
-        meta = json.loads((eng / "BUILD.json").read_text(encoding="utf-8"))
-        lib_dirs = meta.get("lib_dirs") or meta.get("cuda_dirs") or cuda_lib_dirs(cuda_tk)
-    engine_ver = tuple(int(x) for x in str(meta.get("version", "0")).split(".")[:4] if x.isdigit())
-    need_engine = MODELS[model].get("engine", UNSLOTH_ENGINE)
-    # checked before the 94-188 GB download
-    if MODELS[model].get("budget") and engine_ver < need_engine:
-        fail(f"{model} needs engine {'.'.join(map(str, need_engine))} or newer; this one is {meta.get('version')}",
-             "update PolyStrata (or compile the engine with --build) and run setup again")
-    ok(f"engine: {eng / EXE}")
-
-    # ---- 5. the model files
-    step(5, f"downloading {fam['title']} {model}")
-    if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
-        say(f"  The model files go in {models_dir / MODELS[model]['repo'].replace('/', '--')}")
-        if model_source() == "modelscope":
-            warn("these packs are on Hugging Face only: downloading them from " + hf_endpoint())
-        ready_fetch(model, models_dir)
-    elif not a.gguf_dir:
-        missing = [s.name for s in shards if not (s.exists() and done(s))]
-        if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-            say(f"  The model files go in {models_dir}")
-            say(f"  Files you already have: put them here with their original names ({', '.join(missing)}), or use "
-                "--gguf-dir <their folder>.")
-            if model_source() == "modelscope":
-                say(f"  Downloading from ModelScope ({ms_endpoint()}); --source huggingface downloads from Hugging Face")
-                warn("ModelScope serves the repositories' current files, not the pinned revisions: each file is checked "
-                     "against the SHA-256 ModelScope itself publishes (self-attested); the MTP tensors against the "
-                     "pinned checkpoint's own hashes")
-            elif hf_endpoint() != HF_DEFAULT:
-                say(f"  Downloading from {hf_endpoint()} (HF_ENDPOINT)")
-        for s in shards:
-            if s.exists() and done(s):
-                ok(f"{s.name} already downloaded")
-                continue
-            # the original's shard 2 is the same file for all its sizes and the Coder: reuse one that is already here
-            other = [p for p in Path(a.models_dir).glob("*/Qwen3.8-Flash-Next-GSQ-RCO-*-00002-of-00002.gguf") if done(p)]
-            if family in ("qwen", "coder") and s.name.endswith("00002-of-00002.gguf") and other and not s.exists():
-                try:
-                    os.link(other[0], s)
-                    mark(s)
-                    ok(f"{s.name} shared with {other[0].parent.name} (identical file)")
-                    continue
-                except OSError:
-                    pass
-            download(fam["hf"].format(q=model) + s.name, s)
-    if not ready:
-        check_shards(shards)
-    for s in ([] if ready else shards):                # the Unsloth files: pinned sizes and SHA-256
-        if s.name in fam.get("sha256", {}):
-            verify_sha256(s, *fam["sha256"][s.name], own=bool(a.gguf_dir))
-    ok("model files present")
-    mmproj = Path(a.models_dir) / fam.get("mmproj", MMPROJ)
-    if not mmproj.exists():                            # an earlier install's copy (the same file for every family)
-        mmproj = find_in(roots, f"models/{fam['mmproj']}") or mmproj
-    if vision != "none":
-        if not mmproj.exists() and a.gguf_dir and (Path(a.gguf_dir) / fam["mmproj"]).exists():
-            mmproj = Path(a.gguf_dir) / fam["mmproj"]
-        else:
-            download(fam["mmproj_hf"] + fam["mmproj"], mmproj, "vision encoder")
-        if fam.get("mmproj_sha256"):                   # the NVFP4 family pins it by size and SHA-256 too
-            verify_sha256(mmproj, *fam["mmproj_sha256"], own=bool(a.gguf_dir) and mmproj.parent == Path(a.gguf_dir))
-        ok(f"vision encoder: {mmproj}")
-        if vision == "cpu" and "BF16" in mmproj.name:       # a tip only (recommend, never force; #625)
-            say("       tip: on the CPU a Q8_0 copy of this encoder is a third smaller and about as exact (embedding "
-                "cosine 0.999 vs BF16); see 'A Q8_0 encoder' in docs/DETAILS.md")
-
-    # ---- 6. the pack and the MTP draft layer
-    step(6, "preparing the model for PolyStrata")
-    pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-    env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
-    if ready:                                          # the downloaded pack folder is the pack, experts.bin included
-        pack = ready_paths(model, models_dir)["pack"]
-    elif model == "Q2_0" and avx512 and family == "qwen":
-        # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
-        if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-            say("  Converting the Q2_0 experts for the AVX-512 kernel (one time, ~40 GB written, 2-5 min) ...")
-            run([sys.executable, str(ROOT / "tools" / "strata_pack.py"), "build", "--gguf", str(shards[0]),
-                 "--out", str(pack), "--skip-hash", "--force"], env=env)   # --force: #634 refuses an occupied pack
-            run([sys.executable, str(ROOT / "tools" / "pack_index.py"), "--pack", str(pack)], env=env)
-        if not (pack / "tokenizer" / "vocab.json").exists():
-            run([sys.executable, str(ROOT / "tools" / "strata_tokenizer.py"), "--gguf", str(shards[0]),
-                 "--out", str(pack)], env=env)   # writes <pack>/tokenizer/
-    elif not (pack / "native_experts.txt").exists() or not (pack / "tokenizer" / "vocab.json").exists():
-        # every tensor as the GGUF stores it; the experts are read from the GGUF at start (seconds to build)
-        # (UD-Q4_K_XL: --compat-bf16 - its Q8_0 hyper-connection projections become BF16, the form the engine reads)
-        run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
-             *fam.get("pack_args", [])], env=env)
-    if low_ram and not ready and not (pack / "experts.bin").exists():
-        say(f"  Writing the experts into one file for the low-RAM mode (one time, {MODELS[model]['arena_gb']:.0f} GB) ...")
-        run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
-             "--experts-bin"], env=env)
-    ok(f"model prepared: {pack}")
-    mtp = (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
-    rt = mtp / "rt"
-    corrupt = (rt / "experts.bin").exists() and mtp_corrupt(mtp, env)
-    if corrupt:
-        warn("some MTP tensors are not the checkpoint's (a download mirror that ignored range requests, #327): "
-             "fetching them again and rebuilding the draft layer")
-    if corrupt or not (rt / "experts.bin").exists():
-        say("  The MTP draft layer (speculative decoding, ~2x faster output) comes from the original Qwen checkpoint:")
-        say("  only its ~5 GB of MTP tensors are downloaded.")
-        run([sys.executable, str(ROOT / "tools" / "mtp_fetch.py"), "fetch", "--out", str(mtp)],
-            env={**env, "STRATA_SOURCE": model_source()})
-        run([sys.executable, str(ROOT / "tools" / "mtp_pack.py"), "--src", str(mtp), "--experts", "q2_0",
-             "--out", str(mtp / "mtp-q2_0.gguf")], env=env)
-        run([sys.executable, str(ROOT / "tools" / "mtp_rt.py"), "--gguf", str(mtp / "mtp-q2_0.gguf"), "--out", str(rt)],
-            env=env)
-    # a setup run again without --draft-vocab keeps the subset this model's config chose before (cyrillic, fr, en)
-    draft_vocab = a.draft_vocab or saved_draft_vocab(ROOT / f"strata-{tag.lower()}.json")
-    refresh_draft_vocab(rt, draft_vocab or "cjk")
-    ok(f"MTP draft layer: {rt}")
-    for line in draft_vocab_note(gpu.get("vram_gb", 0.0), draft_vocab):   # #474: a recommendation, nothing changes
-        say("  " + line)
-
-    # ---- 7. the start script
-    step(7, "writing the start script")
-    sys.path.insert(0, str(ROOT / "tools"))
-    from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
-    if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
-        rp = ready_paths(model, models_dir)            # the FP8 n-gram table, the BF16 token embedding
-        ple = rp["ple"]
-        model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
-                      "--ple-gguf", str(ple), "--embd-gguf", str(rp["embd"])]
-    else:
-        ple = next((s for s in shards if any(t.name == "per_layer_token_embd.weight" for t in GGUFFile(s).tensors)), None)
-        if ple is None:
-            fail("the model has no per_layer_token_embd tensor (is this a Qwen3.8-Flash-Next GGUF?)")
-        # (a 4-shard file: the engine finds the PLE table's shard itself from shard 1, the measured setup)
-        model_args = ["--pack", str(pack), "--native", str(shards[0]),
-                      *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
-    args = [*model_args,
-            "--expert-profile", str(ROOT / "data" / fam.get("profile", "expert-profile.bin")), "--expert-cache", "auto",
-            "--prefill", "auto", "--spec", "4", "--spec-min-p", "0.5", "--mtp", str(rt),
-            "--max-context", str(ctx)]
-    if scaling is not None:     # the resolved config: explicit flags as given, or the automatic yarn+factor
-        args += ["--rope-scaling", scaling, "--rope-scale", f"{rope_scale:g}"]
-    if ctx > 8192:
-        args += ["--kv", kv]
-    if resident and a.low_ram != "resident" and engine_ver < RESIDENT_ENGINE:
-        resident = False                               # an engine from before --resident-experts would refuse it
-        ok(f"low-RAM mode: engine {meta.get('version')} has no resident variant yet; the experts are read through "
-           "the OS file cache (run setup again after the next engine update)")
-    if low_ram and ready:
-        # NVFP4 (68 GB of experts) on a PC whose RAM does not hold them: the RAM-budget mode, as Unsloth's files - the
-        # most-used experts outside VRAM pinned within RAM less 24 GB, the rest read from experts.bin.  Mapped
-        # (--mmap-experts) on a 64 GB Windows PC, the experts it read stayed in the engine's working set: free RAM
-        # fell to 0.6 GB on the RTX 5070 PC (2026-10-13), where the budget mode kept 22 GB free
-        rb = resident_budget_gib(model, ram)
-        args += ["--resident-budget-gib", str(rb)]
-        ok(f"low-RAM mode: {rb} GiB of {model}'s experts kept in RAM (the most used), the rest read from the pack's "
-           "experts.bin on the SSD as needed")
-    elif low_ram:   # the experts from the pack's experts.bin: the ones the GPU does not hold copied into RAM, or mapped
-        args += ["--resident-experts" if resident else "--mmap-experts"]
-    disk = None if is_wsl() else rotational_disk(ple)  # #605 (WSL's virtual disk says rotational)
-    if disk:
-        tensor = None if ready else next((t for t in GGUFFile(ple).tensors if t.name == "per_layer_token_embd.weight"), None)
-        size = ple.stat().st_size if ready else getattr(tensor, "expected_bytes", lambda: None)()
-        table_gb = size / 1e9 if size else 28.8
-        if ram >= MODELS[model]["ram_gb"] + table_gb + 4:
-            args += ["--ple-io", "ram"]
-            ok(f"the model is on a rotational disk ({disk}): its {table_gb:.0f} GB n-gram table is kept in RAM "
-               "(--ple-io ram) - read from the disk at random, it can stall prompts for minutes (#605)")
-        else:
-            warn(f"the model is on a rotational disk ({disk}): its n-gram table is read from it at random, which can "
-                 f"stall prompts for minutes (#605). An SSD is recommended; with ~{table_gb:.0f} GB more RAM, "
-                 "--ple-io ram in the config's args keeps the table in RAM instead")
-    # KV streaming: from 64K up the whole KV cache lives in RAM and only the part the attention reads (32K positions
-    # per layer) stays in VRAM; the VRAM it frees holds more experts (+6% at 128K, +23% at 262K with Q2_0). It
-    # costs ~13.7 KB of RAM per context token with 8-bit KV (1.7 GB at 128K), 10.6 KB with K8V4, 7.5 KB with 4-bit, so only
-    # when it fits.
-    kv_ram_gb = kv_streaming_ram_gb(ctx, kv)      # the branches below are kv_streaming_wanted, with its messages
-    # --kv-streaming on|off overrides the RAM test (the owner's rule); WSL stays off - it cannot stream.
-    stream_fits = ram >= MODELS[model]["ram_gb"] + kv_ram_gb + 1
-    if is_wsl() and ctx >= 65536:
-        ok("WSL: KV streaming off (the driver pins only about 1 GB of RAM); the KV cache stays in VRAM")
-        if a.kv_streaming == "on":
-            warn("--kv-streaming on: WSL cannot stream the KV cache (its RAM copy must be pinned, and the driver pins "
-                 "only about 1 GB there): off")
-    elif ctx >= 65536 and a.kv_streaming == "off":
-        ok("KV streaming off, as you chose (--kv-streaming off): the KV cache stays in VRAM")
-    elif ctx >= 65536 and (stream_fits or a.kv_streaming == "on"):
-        args += ["--kv-resident", "32768"]
-        ok(f"KV streaming on: the context's KV cache lives in RAM ({kv_ram_gb:.1f} GB), more experts fit in VRAM")
-        if not stream_fits:
-            warn(f"KV streaming needs ~{kv_ram_gb:.1f} GB of RAM beside the ~{MODELS[model]['ram_gb']} GB {model} "
-                 f"uses; this PC has {ram:.0f}. Kept as you chose (--kv-streaming on): it may page or run out of RAM "
-                 "under load")
-        if q4_split:                                   # #498: no budget to take it out of
-            pass
-        elif budget is not None and a.resident_budget_gib is None:   # its RAM comes out of the experts' budget
-            budget = resident_budget_gib(model, ram, kv_ram_gb)
-            ok(f"RAM budget: {budget} GiB (less the KV cache's RAM)")
-        elif budget is not None and budget > resident_budget_gib(model, ram, kv_ram_gb):
-            warn(f"the KV cache's {kv_ram_gb:.1f} GB of RAM come on top of your {budget:g} GiB RAM budget (setup "
-                 f"would take them out of it: {resident_budget_gib(model, ram, kv_ram_gb)} GiB); kept as you chose")
-    elif ctx >= 65536:   # #620: say why, so a regenerated config that lost --kv-resident is not a surprise
-        ok(f"KV streaming off: it needs ~{kv_ram_gb:.1f} GB of RAM beside the ~{MODELS[model]['ram_gb']} GB {model} "
-           f"uses, and this PC has {ram:.0f}; the KV cache stays in VRAM (fewer cached experts). --kv-streaming on "
-           "turns it on anyway")
-    elif a.kv_streaming == "on":
-        warn("--kv-streaming on: a context under 64K is not streamed (the attention's window holds all of it): off")
-    if budget is not None and not q4_split:   # UD-Q4_K_XL: the experts read from the GGUF in place, the most-used N
-        args += ["--resident-budget-gib", f"{budget:g}"]   # GiB kept in RAM (#498: a layer split had no budget)
-        if gpu.get("uma") and "--expert-cache" in args:
-            # #1715: the cache and the budget draw on the same RAM: a number that leaves the OS its room, not `auto`
-            slots = uma_expert_cache(model, ram, budget, kv_ram_gb if "--kv-resident" in args else 0.0)
-            if slots is not None:
-                args[args.index("--expert-cache") + 1] = str(slots)
-                ok(f"expert cache: {slots} slots (not auto): this GPU shares the RAM with the {budget:g} GiB budget, "
-                   f"so setup leaves {UNSLOTH_RAM_LEFT_GB} GB of the RAM for the OS and the desktop (#1715). "
-                   "--expert-cache N in the config's args sets it")
-            else:
-                warn(f"this GPU shares the RAM, and the {budget:g} GiB RAM budget leaves almost none for the expert "
-                     "cache: it stays on auto, which may take the room the OS needs (#1715). A smaller "
-                     "--resident-budget-gib leaves room")
-    if vision != "none":
-        args += ["--vision", "--vram-reserve-mib", str(VISION[vision]["reserve_mib"])]
-        if vision == "gpu" and a.vram_reserve_mib is None and 0 < gpu.get("vram_gb", 0.0) <= 12.5:
-            # a tip only (recommend, never force): on a 12 GB card the encoder's 700 MiB can leave ~200 MiB free
-            print(f"  tip: images on a {gpu['vram_gb']:.0f} GB card can leave little VRAM free; if a request stalls, "
-                  f"run setup again with --vram-reserve-mib {VISION_GPU_SMALL_RESERVE_MIB}")
-    if a.vram_reserve_mib is not None:                 # #493: VRAM left free for other programs (only when given)
-        if "--vram-reserve-mib" in args:
-            i = args.index("--vram-reserve-mib") + 1
-            if vision == "gpu" and a.vram_reserve_mib < int(args[i]):
-                warn(f"--vram-reserve-mib {a.vram_reserve_mib}: the image encoder on the GPU needs ~{args[i]} MiB of "
-                     "it; kept as you chose (it may run out of VRAM when it reads a picture)")
-            args[i] = str(a.vram_reserve_mib)
-        else:
-            args += ["--vram-reserve-mib", str(a.vram_reserve_mib)]
-        ok(f"VRAM kept free for other programs: {a.vram_reserve_mib} MiB (--vram-reserve-mib; the expert cache takes "
-           "that much less)")
-    if not multi and family == "unsloth" and 0 < gpu.get("vram_gb", 0.0) <= UD_FIT_CARD_GB:
-        # a card of about 8 GB: the config setup would write may not start (measured on an A750).  Pick the least
-        # harmful one that fits and say so; what the user chose with --context / --kv / --vram-reserve-mib is kept
-        res_arg = int(args[args.index("--vram-reserve-mib") + 1]) if "--vram-reserve-mib" in args[:-1] else None
-        vg = gpu["vram_gb"]
-        rt_mib = unsloth_runtime_mib(gpu)
-        fits = unsloth_vram_slack_mib(vg, ctx, kv, UD_FIT_ENGINE_RESERVE_MIB if res_arg is None else res_arg, True,
-                                      rt_mib) >= UD_FIT_MIN_SLACK_MIB
-        plan = None
-        if not fits:
-            plan = unsloth_small_card_plan(vg, ctx, kv, res_arg, ctx_fixed=bool(a.context), kv_fixed=bool(a.kv),
-                                           runtime_mib=rt_mib)
-            if plan is not None:
-                nctx, nkv, nmtp, slack = plan
-                changes = []
-                if nctx != ctx:
-                    args[args.index("--max-context") + 1] = str(nctx)
-                    changes.append(f"context {ctx} -> {nctx}")
-                    ctx = nctx
-                if nkv != kv:
-                    if "--kv" in args[:-1]:
-                        args[args.index("--kv") + 1] = nkv
-                    else:
-                        args += ["--kv", nkv]
-                    changes.append(f"KV cache {kv} -> {nkv}")
-                    kv = nkv
-                if not nmtp and "--mtp" in args[:-1]:
-                    i = args.index("--mtp")
-                    del args[i:i + 2]
-                    changes.append("no MTP draft layer on the GPU (about 0.8 GB more for the expert cache; decode is slower)")
-                warn(f"with the usual settings {model} would not start on this {vg:.0f} GB card (setup's estimate: no VRAM "
-                     "left for the expert cache). Setup chose the least harmful start that fits: " + ", ".join(changes)
-                     + ". A bigger context, 8-bit KV or the draft layer need a card with more VRAM (or "
-                     "--vram-reserve-mib 0, which leaves nothing for other programs).")
-        for line in unsloth_small_card_lines(model, vg, plan, fits):
-            warn(line)
-    if not multi and 0 < gpu.get("vram_gb", 0.0) < SMALL_CARD_GB:
-        # #496: on a 6 GB card the expert cache can get no room at all; the engine lowers its own reserve when that
-        # is what it takes, and says what is short when even that is not enough.  Setup only says what helps.
-        for line in small_card_note(ctx, draft_vocab):   # a recommendation: nothing changes
-            say("  " + line)
-    elif hip and a.vram_reserve_mib is None and linux_desktop():
-        for line in desktop_reserve_note():              # #560 #516: a recommendation: nothing changes
-            say("  " + line)
-    if not hip and not multi and a.vram_reserve_mib is None and gpu_drives_display(gpu):
-        say("  tip: this card drives a display. If the PC freezes or the screen goes black once the model is loaded "
-            f"(#779), keep more VRAM free: run setup again with --vram-reserve-mib {DISPLAY_RESERVE_MIB}")   # a tip only
-    if not hip:
-        for gi in ([g for g in multi] if multi else [gpu.get("index", 0)]):
-            gi = gi["index"] if isinstance(gi, dict) else gi
-            w = compute_mode_warning(gi, gpu_compute_mode(gi))
-            if w:
-                warn(w)                                   # #1445: a warning only, never a refusal
-    if esp is not None:
-        # the package's profile, with llama.cpp's flags (the engine takes the same ones)
-        args += ["--control-vector-scaled", f"{esp}:1.0", "--control-vector-layer-range", "4", "44",
-                 "--cvec-mode", "project", "--cvec-dir", "per-layer"]
-    cfg = {"exe": str(eng / EXE), "args": args, "cwd": str(ROOT), "tokenizer": str(pack / "tokenizer"),
-           "model_name": f"{fam['name']}-{model.lower()}", "log": str(ROOT / f"strata-{tag.lower()}.log"),
-           "lib_dirs": lib_dirs, "port": port}
-    if cuda_tk == 12:                                  # the experimental CUDA 12 engine (engine-cuda12/)
-        cfg["cuda"] = 12
-    if (uenv := unsloth_default_env(family, model, hip, in_budget)):
-        cfg["env"] = uenv
-    if hip:
-        cfg["backend"] = "hip"
-        # the dense prompt GEMMs through hipBLASLt with kernels measured on this GPU generation (tools/hip; +40-60%
-        # prompt speed on the 7900 XTX): only a table for this card's arch AND the installed hipBLASLt version (the
-        # engine refuses any other one and falls back to plain hipBLAS)
-        table = hipblaslt_table(gpu["arch"], lib_dirs, meta.get("hipblaslt_version"))
-        if table:
-            cfg["env"] = {"STRATA_HIPBLASLT_TUNING": str(table)}
-        if GFX1103_OPT_IN and gfx_arch_is(gpu["arch"], "gfx1103") and not WIN:
-            # the 780M's KFD queues are evicted (a GPU reset) while transparent huge pages move the pinned expert arena
-            cfg.setdefault("env", {})["STRATA_NO_ARENA_THP"] = "1"
-            # the exact gfx1151 speed switches measured on this chip (GFX1103_SWITCHES): the engine has no arch defaults
-            # for gfx1103, so setup writes them into the config.  They are setup's own (SETUP_ENV), so a re-run refreshes
-            # them and turning the opt-in off takes them out again.
-            cfg.setdefault("env", {}).update(GFX1103_SWITCHES)
-        if GFX1150_OPT_IN and gfx_arch_is(gpu["arch"], "gfx1150"):
-            # the exact gfx1151 speed switches measured on this chip (GFX1150_SWITCHES): the engine has no arch defaults
-            # for gfx1150, so setup writes them into the config.  They are setup's own (SETUP_ENV), so a re-run refreshes
-            # them and turning the opt-in off takes them out again.
-            cfg.setdefault("env", {}).update(GFX1150_SWITCHES)
-        # RDNA2 (gfx103x): the prompt's FP16 GEMMs through rocBLAS's best kernel per shape (tools/hip/tune_rocblas;
-        # the GDN input projection 6x faster below 1,152 tokens on a 6900 XT).  The ids are valid for one rocBLAS
-        # build, which only the engine can read, so setup points it at the directory and the engine picks the file
-        # <arch>-rocblas-<version>.txt for its own library, or runs the default kernels and says so in its log.
-        rocblas_tables = sorted(p.name for p in (ROOT / "tools" / "hip").glob(f"{gpu['arch']}-rocblas-*.txt"))
-        if rocblas_tables:
-            cfg.setdefault("env", {})["STRATA_ROCBLAS_TUNING"] = str(ROOT / "tools" / "hip")
-            ok(f"rocBLAS tuning tables for {gpu['arch']}: {', '.join(rocblas_tables)} (the engine takes the one of its rocBLAS build)")
-        if resident:   # ROCm: large page-locked host allocations can fail or be slow for the CPU; keep the copy pageable
-            cfg.setdefault("env", {})["STRATA_RESIDENT_PIN"] = "0"
-    if gpu["count"] > 1 or a.gpu is not None:
-        cfg["gpu"] = gpu["index"]                      # the engine is told this card (issue #51)
-        cfg["gpus_asked"] = True                       # chosen at setup: not asked again at start
-    if multi:                                          # a layer split across these cards (the server adds the flag)
-        cfg["gpu"] = multi
-        cfg["layer_split"] = a.layer_split or "auto"
-        ok(f"layer split across GPUs {multi} ({cfg['layer_split']})")
-        recommend_remote_expert_opt(cfg, off=a.no_remote_expert_opt)
-    if a.replicas is not None and a.replicas >= 2:      # data-parallel replicas (serve/replicas.py), opt-in
-        cards = multi if multi else []
-        if not cards or len(cards) % a.replicas:
-            warn(f"--replicas {a.replicas}: needs the chosen GPUs ({cards or 'one'}) to divide into {a.replicas} equal "
-                 "groups; not set (choose the cards with --gpu 0,1,2,3, or write the groups into the config: "
-                 '"replicas": [{"gpus": [0, 1]}, {"gpus": [2, 3]}])')
-        else:
-            cfg["replicas"] = a.replicas
-            per = len(cards) // a.replicas
-            ok(f"{a.replicas} replicas of {per} GPU(s) each: {' | '.join(','.join(map(str, cards[i * per:(i + 1) * per])) for i in range(a.replicas))}")
-            if per > 1 and a.layer_split not in (None, "auto"):
-                warn("--layer-split is one engine's value; with replicas every group would get it: leave it at auto")
-            if (os.cpu_count() or 0) < 8 * a.replicas:
-                warn("each replica loads its own copy of the model into RAM and runs its own host threads: check the RAM")
-    if a.host:
-        cfg["host"] = a.host
-    if a.api_key:
-        cfg["api_key"] = a.api_key
-    if draft_vocab:
-        cfg["draft_vocab"] = draft_vocab
-    if a.browser is not None:                          # #609: only when given (else an earlier choice is carried over)
-        cfg["open_browser"] = a.browser
-    # #465: requests at once - written only when given (else an earlier "parallel" is carried over); a recommendation
-    streaming = "--kv-resident" in args
-    if a.parallel is not None:
-        if a.parallel >= 2:
-            cfg["parallel"] = a.parallel
-            for i, line in enumerate(parallel_note(a.parallel, [g.get("vram_gb", 0.0) for g in chosen],
-                                                   MODELS[model]["arena_gb"], ctx, kv, streaming)):
-                (ok if i == 0 else warn)(line)
-        else:
-            cfg["parallel"] = 1
-            ok("parallel requests: one at a time (--parallel 1)")
-    if vision != "none":
-        old_cfg = ROOT / f"strata-{tag.lower()}.json"
-        vt = vision_tokens(a.vision_tokens, vision, old_cfg if old_cfg.is_file() else adopted)
-        cfg["vision"] = {"exe": str(eng / VEXE), "mmproj": str(mmproj),     # the text model, opened vocab-only:
-                         "model": str(ready_paths(model, models_dir)["dense"] if ready else shards[0]),
-                         "gpu": vision == "gpu", "max_tokens": vt}
-        if vision == "cpu":
-            cfg["vision"]["threads"] = max(1, (os.cpu_count() or 8) // 2)
-    elif a.vision_tokens is not None:
-        warn("--vision-tokens: images are off for this model, so it is not used")
-    if a.images:                                       # only when given: else an earlier "images" is carried over
-        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir))
-    cfg_path = ROOT / f"strata-{tag.lower()}.json"
-    cal = setup_calibration(cfg, hip)                  # #566: Linux HIP too; the tuning is offered on NVIDIA only
-    if cal is not None:
-        sys.path.insert(0, str(ROOT / "tools"))
-        import calibrate as CAL
-        cfg["args"] = CAL.apply(cfg["args"], cal.get("settings") or {})
-        if "env" in cal:                               # a calibration from before the env step leaves "env" as it is
-            cfg["env"] = CAL.apply_env(cfg.get("env"), cal["env"])
-        ok("the settings tuned for this PC earlier are used" + (f" ({cal['date']})" if cal.get("date") else ""))
-    else:                                              # #642: measured counts (a calibration) win over the rule
-        cfg["args"] = recommend_pool_workers(cfg["args"])
-        for line in two_socket_note(cpu_sockets()):    # bench tips: text only, the config is not touched
-            say("  " + line)
-    for line in bench_tips(cfg["args"], cfg.get("env"), ram, MODELS[model]["ram_gb"], gpu.get("vram_gb", 0.0), vision, WIN):
-        say("  " + line)
-    write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None)
-    script = write_run_script(tag, cfg_path, port, cfg.get("open_browser") is not False)
-    # offered only when someone answers: --yes installs and adopted earlier installs are not held up by it
-    if cal is None and not hip and not a.no_start and not a.yes and ask(
-            "Tune PolyStrata for this PC now? It measures a few engine settings (about 15-30 minutes, longer on a slow card; the PC is busy "
-            "meanwhile; later: START-HERE --calibrate)", ["y", "n"], "y", a.yes) == "y":
-        tuned = calibrate_config(cfg_path)
-    else:
-        tuned = None                                   # not asked for: nothing to repeat below
-    ok(f"start script: {script.name}")
-
-    say()
-    say("All set.")
-    say(f"  API (OpenAI):     http://127.0.0.1:{port}/v1   (any API key; model name: anything)")
-    say(f"  API (Anthropic):  http://127.0.0.1:{port}/v1/messages")
-    if a.host and a.host not in ("127.0.0.1", "localhost"):
-        say(f"  Other devices:    the server window prints this PC's address (http://<IP>:{port}/)"
-            + ("" if a.api_key else " - no API key set: anyone on your network can use it"))
-    say(f"  Next time:        just run {'START-HERE.bat' if WIN else './setup.sh'} (or {script.name}) - it starts right away")
-    if vision != "none":
-        say("  Images:           send them in the chat page, in chat.py (/image <path>) or over the API")
-    if cfg.get("images"):
-        say(f"  Image generation: POST http://127.0.0.1:{port}/v1/images/generations (OpenAI's images API)")
-    if a.parallel is None:                             # #465: the opt-in, said once (nothing changes)
-        for line in parallel_note(None, [g.get("vram_gb", 0.0) for g in chosen], MODELS[model]["arena_gb"], ctx, kv,
-                                  "--kv-resident" in cfg["args"]):
-            say("  " + line)
-    if tuned is False:                                 # #447: a failed tuning is repeated here, not only above
-        say("  Tuning:           FAILED (the reason is above): the default settings stay - "
-            f"{'START-HERE.bat' if WIN else './setup.sh'} --calibrate tries again")
-    if a.no_start:
-        return 0
-    # offered only when someone answers (--yes asks nothing), default no; the benchmark starts its own server and stops it
-    if not a.yes and sys.stdin.isatty() and ask(
-            "Run a quick benchmark now? It measures this install for about 10 minutes and writes a report you can share "
-            f"(later: {'BENCH.bat' if WIN else './bench.sh'})", ["y", "n"], "n", a.yes) == "y":
-        subprocess.call([sys.executable, str(ROOT / "tools" / "strata_bench.py"), "--config", str(cfg_path), "--port", str(port)])
-    return start(cfg_path, port)
+    return poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted)
 
 
 if __name__ == "__main__":
