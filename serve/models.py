@@ -5,7 +5,7 @@ The registry lists them.  What a model is comes from its own file where it has o
 its size, its context and whether it carries a draft block), and models.json in the same folder may add to that
 or correct it: an object of model names, each with any of the keys of an entry.
 
-    {"qwen3.6-35b-a3b": {"display_name": "Qwen3.6 35B-A3B", "notes": "the daily one"}}
+    {"laguna-s-2.1-ud-q3_k_xl": {"display_name": "Laguna S 2.1", "notes": "the daily one"}}
 
 Nothing here starts or stops an engine: that is the server's (Service.switch_model).
 """
@@ -21,15 +21,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 # what an architecture is run by, and what the registry calls it
 BACKENDS = {
-    "glm5-next": "glm5-next", "glm5next": "glm5-next",
-    "qwen35moe": "qwen35moe",
-    "clover_moe": "clover_moe",
+    "laguna": "laguna",          # Laguna-S 2.1, Laguna-XS 2.1
+    "qwen35moe": "qwen35moe",    # Occamy 1.0
     "gemma4": "gemma4",
-    "deepseek4": "deepseek4",
-    "lfm2moe": "lfm2moe",
-    "flint": "flint",
-    "kolibri1": "kolibri1",
-    "laguna": "laguna",
 }
 # a routed expert's tensors: they stay in the file and are held in VRAM as far as it has room
 EXPERT = re.compile(r"\.ffn_(gate|up|down|gate_up)_exps\.weight$")

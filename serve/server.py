@@ -150,9 +150,7 @@ VISION_START = "<|vision_start|>"
 # The tokens that open a chat turn in each call format's template.  The last one in a prompt begins the reply's
 # turn: strata-poly keeps a checkpoint there (turn_at), which the chat's next request goes on from.  The second one
 # ends the first turn: the system prompt with the tools, which "warm_start" keeps.
-TURN_OPENERS = {"function": ("<|im_start|>",), "gemma": ("<|turn>",),
-                "glm": ("<|system|>", "<|developer|>", "<|user|>", "<|assistant|>", "<|observation|>"),
-                "dsml": ("<｜User｜>", "<｜Assistant｜>"), "lfm2": ("<|im_start|>",)}
+TURN_OPENERS = {"function": ("<|im_start|>",), "gemma": ("<|turn>",)}
 # A model whose turns are not its call format's: Laguna writes GLM's calls, and of its turn tags only <assistant> is
 # one token (<system>, <user> and <tool_response> are text)
 TURN_OPENERS_OF_PRE = {"laguna": ("<assistant>",)}
@@ -3340,7 +3338,8 @@ class Service:
         im_end = tokenizer.encode(IM_END, parse_special=True)
         if len(im_end) == 1:
             self.stop_ids = set(im_end + tokenizer.encode("<|endoftext|>", parse_special=True))
-        else:   # not a ChatML model (GLM): the ids its GGUF names for the end of the text, the turn and the message
+        else:   # not a ChatML model (Laguna, Gemma): the ids its GGUF names for the end of the text, the turn and
+            # the message
             special = getattr(tokenizer, "special_ids", None) or {}
             self.stop_ids = {special[k] for k in ("tokenizer.ggml.eos_token_id", "tokenizer.ggml.eot_token_id",
                                                   "tokenizer.ggml.eom_token_id") if k in special}
@@ -3355,12 +3354,12 @@ class Service:
             if key in special}
         # how the model writes a tool call (serve/frontend.py's OutputParser)
         pre = getattr(tokenizer, "pre", "")
-        self.call_format = "glm" if pre in ("glm4", "glm5", "flint", "laguna") else "gemma" if pre == "gemma4" else \
-            "dsml" if pre in ("joyai-llm", "deepseek-v3") else "lfm2" if pre == "lfm2" else "function"
+        # (Laguna writes GLM's calls; Occamy, a qwen2 / qwen35 model, Qwen's <function=...> ones)
+        self.call_format = "glm" if pre == "laguna" else "gemma" if pre == "gemma4" else "function"
         openers = TURN_OPENERS_OF_PRE.get(pre) or TURN_OPENERS[self.call_format]
-        # templates that read a tool as OpenAI sends it, {"type": "function", "function": {...}}: Gemma's and DeepSeek's
-        # look inside it, and Laguna's prints it whole (vLLM and llama.cpp give it the request's tools as they are)
-        self.openai_tools = self.call_format in ("gemma", "dsml") or pre == "laguna"
+        # templates that read a tool as OpenAI sends it, {"type": "function", "function": {...}}: Gemma's looks
+        # inside it, and Laguna's prints it whole (vLLM and llama.cpp give it the request's tools as they are)
+        self.openai_tools = self.call_format == "gemma" or pre == "laguna"
         self.turn_ids = frozenset(t[0] for t in (tokenizer.encode(s, parse_special=True)
                                                  for s in openers) if len(t) == 1)
         self.engine.turn_ids = self.turn_ids            # the GEN line's turn_at (StrataEngine.turn_key)
@@ -3376,14 +3375,8 @@ class Service:
             self.stop_ids |= set(turn_end if len(turn_end) == 1 else [])
             self.think_open_ids = tokenizer.encode("<|channel>thought\n", parse_special=True)
         elif self.call_format == "glm":
-            # GLM's prompt opens it, and Laguna's when thinking is on; Flint opens it itself
+            # Laguna's prompt opens it when thinking is on
             self.think_open_ids = tokenizer.encode("<think>", parse_special=True)
-            # #70: GLM ends its turn with <|user|> and a tool call with <|observation|>, which llama.cpp's converter
-            # names eot and eom.  A GGUF can name neither (REAP50-Q3_K_M: eos only), and the reply then runs on.
-            # Flint, which writes GLM's tool calls, also opens a developer turn; llama.cpp ends a reply at all three.
-            for end in ("<|user|>", "<|observation|>", "<|developer|>"):
-                ids = tokenizer.encode(end, parse_special=True)
-                self.stop_ids |= set(ids if len(ids) == 1 else [])
         # an image in a prompt (prepare()): the token the template writes for it, which stands for each of its rows;
         # the token the template writes before that one, if it writes one; the tokens to put around the rows, if
         # the template leaves that to the program

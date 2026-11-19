@@ -51,6 +51,57 @@ class ToolCalls(unittest.TestCase):
                 self.assertEqual("".join(e.text for e in evs if e.kind == "content"), "Let me look.")
 
 
+class GlmCalls(unittest.TestCase):
+    """GLM's call format, which Laguna writes (the parser came with GLM 5.3 Flash, no longer offered)."""
+
+    SCHEMA = [{"name": "write", "parameters": {"properties": {"path": {"type": "string"}, "n": {"type": "integer"},
+                                                              "content": {"type": "string"}}}}]
+    CONTENT = "close a call with </tool_call>, a value with </arg_value>\nend"
+    TEXT = ("thinking</think>\n\nI will write it.\n<tool_call>write\n<arg_key>path</arg_key><arg_value>doc.md"
+            "</arg_value>\n<arg_key>n</arg_key><arg_value>3</arg_value><arg_key>content</arg_key><arg_value>"
+            + CONTENT + "</arg_value></tool_call>")
+
+    def events(self, stream_tools, step):
+        p = OutputParser(thinking=True, tools=self.SCHEMA, stream_tools=stream_tools, call_format="glm", opened=True)
+        evs = []
+        for i in range(0, len(self.TEXT), step):
+            evs += p.feed(self.TEXT[i:i + step])
+        return evs + p.finish()
+
+    def test_call_is_parsed_however_it_arrives(self):
+        for stream_tools in (False, True):
+            for step in (1, 7, 10_000):
+                with self.subTest(stream_tools=stream_tools, step=step):
+                    evs = self.events(stream_tools, step)
+                    calls = [e.call for e in evs if e.kind == "tool_call"]
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(calls[0].name, "write")
+                    self.assertEqual(calls[0].arguments, {"path": "doc.md", "n": 3, "content": self.CONTENT})
+                    self.assertEqual("".join(e.text for e in evs if e.kind == "reasoning"), "thinking")
+                    self.assertEqual("".join(e.text for e in evs if e.kind == "content"), "I will write it.")
+
+    def test_streamed_call_is_announced_first(self):
+        kinds = [e.kind for e in self.events(True, 1) if e.kind.startswith("tool_")]
+        self.assertEqual(kinds, ["tool_start", "tool_args", "tool_call"])
+
+    def test_call_without_arguments(self):
+        p = OutputParser(thinking=False, call_format="glm")
+        evs = p.feed("<tool_call>now</tool_call>") + p.finish()
+        self.assertEqual([(e.call.name, e.call.arguments) for e in evs if e.kind == "tool_call"], [("now", {})])
+
+
+class GlmReasoning(unittest.TestCase):
+    def test_an_answer_right_after_a_quote_is_content(self):
+        # the answer comes right after </think>, also when the thinking ends on a quote
+        text = 'so I should just say "Paris."</think>Paris'
+        for size in (1, 5, len(text)):
+            with self.subTest(size=size):
+                p = OutputParser(thinking=True, call_format="glm", opened=True)   # the prompt ended on <think>
+                evs = [e for i in range(0, len(text), size) for e in p.feed(text[i:i + size])] + p.finish()
+                self.assertEqual("".join(e.text for e in evs if e.kind == "reasoning"), 'so I should just say "Paris."')
+                self.assertEqual("".join(e.text for e in evs if e.kind == "content"), "Paris")
+
+
 class LagunaTokens(ByteTokenizer):
     # the ids as their types are in the GGUF: 〈|EOS|〉 (bos and eos) and </assistant> (eot) are control tokens;
     # <assistant>, <think>, </think>, <tool_call> and </tool_call> are user-defined ones, matched in any text;
