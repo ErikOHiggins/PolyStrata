@@ -1113,11 +1113,14 @@ __global__ void add_bias_kernel(const float* __restrict__ b, float* __restrict__
 // One block per head and token.  The pairs of the rotation are i and i + n_rot / 2 for i below n_rot / 2.  With
 // axes, a token has a position on each of three axes, and pair j turns by the one on axis (j % sections) % 3.
 // With `at`, the first token's position is what the card holds there when the launch runs.
+// YARN (head_norm_rope_yarn, laguna's full layers): the angle and the magnitude as ggml's rope_yarn makes them; the
+// other instantiation is the kernel as it was, which every other caller runs.
+template <bool YARN>
 __global__ void head_norm_rope_kernel(const float* __restrict__ x, int x_stride, const float* __restrict__ w,
                                       float* __restrict__ y, int dim, int heads, int n_rot, float theta_scale,
                                       const float* __restrict__ freq, long long pos, float eps,
                                       const int* __restrict__ axes, int sections,
-                                      const long long* __restrict__ at) {
+                                      const long long* __restrict__ at, RopeYarn yarn) {
     __shared__ float part[8];
     const float* xr = x + size_t(blockIdx.x) * x_stride;
     float* yr = y + size_t(blockIdx.x) * dim;
@@ -1139,7 +1142,22 @@ __global__ void head_norm_rope_kernel(const float* __restrict__ x, int x_stride,
         const float theta = freq ? turn / freq[j] : turn;
         const float x0 = w ? xr[j] * scale * w[j] : xr[j] * scale;
         const float x1 = w ? xr[j + half] * scale * w[j + half] : xr[j + half] * scale;
-        yr[i] = i < half ? x0 * cosf(theta) - x1 * sinf(theta) : x0 * sinf(theta) + x1 * cosf(theta);
+        if constexpr (YARN) {
+            // ggml's rope_yarn: the interpolated angle, mixed with the extrapolated one by the ramp over the pairs
+            // (rope_yarn_ramp: pair j's place between corr_low and corr_high), and the magnitude on cos and sin
+            const float interp = yarn.freq_scale * theta;
+            float angle = interp;
+            if (yarn.ext_factor != 0.0f) {
+                const float ramp_y = (float(j) - yarn.corr_low) / fmaxf(0.001f, yarn.corr_high - yarn.corr_low);
+                const float ramp = (1.0f - fminf(1.0f, fmaxf(0.0f, ramp_y))) * yarn.ext_factor;
+                angle = interp * (1.0f - ramp) + theta * ramp;
+            }
+            const float c = cosf(angle) * yarn.mscale, s = sinf(angle) * yarn.mscale;
+            yr[i] = i < half ? x0 * c - x1 * s : x0 * s + x1 * c;
+        } else {
+            (void) yarn;
+            yr[i] = i < half ? x0 * cosf(theta) - x1 * sinf(theta) : x0 * sinf(theta) + x1 * cosf(theta);
+        }
     }
 }
 
@@ -1598,7 +1616,7 @@ attn_split_kernel(const float* __restrict__ q, const half* __restrict__ kcache, 
 // has.  A head's sink, with `sinks`, takes its share of the weight as one more score that weighs no value.
 constexpr int JOIN_WARPS = 16;
 
-template <int DIM>
+template <int DIM, int KEYS = SPLIT_KEYS>   // KEYS: the rows of a block (attn_split_group_kernel's are GROUP_KEYS)
 __global__ void __launch_bounds__(JOIN_WARPS * WARP)
 attn_join_kernel(const float* __restrict__ part, float* __restrict__ out, int n_head, long long pos, int first,
                  int tokens, int blocks, const long long* __restrict__ at, const float* __restrict__ sinks) {
@@ -1606,7 +1624,7 @@ attn_join_kernel(const float* __restrict__ part, float* __restrict__ out, int n_
     __shared__ float top[JOIN_WARPS], sl[JOIN_WARPS], so[JOIN_WARPS][DIM];
     const int h = blockIdx.x, t = blockIdx.y, lane = threadIdx.x % WARP, w = threadIdx.x / WARP;
     const long long p = (at ? *at : pos) + first;
-    const int used = int((p + tokens + SPLIT_KEYS - 1) / SPLIT_KEYS);   // the blocks the split kernel wrote
+    const int used = int((p + tokens + KEYS - 1) / KEYS);   // the blocks the split kernel wrote
     const float* pb = part + (size_t(t) * n_head + h) * blocks * (DIM + 2);
     float mx = -INFINITY;
     for (int b = threadIdx.x; b < used; b += JOIN_WARPS * WARP) mx = fmaxf(mx, pb[size_t(b) * (DIM + 2) + DIM]);
@@ -1641,6 +1659,156 @@ attn_join_kernel(const float* __restrict__ part, float* __restrict__ out, int n_
     float* y = out + ((size_t(first) + t) * n_head + h) * DIM;
 #pragma unroll
     for (int u = 0; u < VALS; ++u) y[VALS * lane + u] = s[u] / sum;
+}
+
+// attend_group(): a few tokens over the whole conversation, for heads of 128 values in groups of 2 to 7 (Laguna's
+// full layers, 6), over an fp16 cache or a q8_0 one: attn_split_kernel's way - a launch block for a block of rows, a
+// group and a token, its sums of each head for attn_join_kernel to add up - with the group's `per` heads in the
+// first of 8 places (the others a query of zeros, never written out), blocks of GROUP_KEYS rows, and each warp's
+// reads of GROUP_ROWS rows issued together before their products: a row of the cache is read once a block for the
+// whole group, and enough of them are on their way at once for the card to read a q8_0 cache, whose rows are half
+// an fp16 one's, at its pace too.  A block's rows are counted from the cache's first, so a token comes out the same
+// whatever tokens the call has beside it.
+constexpr int GROUP_KEYS = 256, GROUP_ROWS = 4;
+
+template <bool Q8>
+__global__ void __launch_bounds__(8 * WARP)
+attn_split_group_kernel(const float* __restrict__ q, const half* __restrict__ kcache,
+                        const half* __restrict__ vcache, const int8_t* __restrict__ kcodes,
+                        const uint16_t* __restrict__ kscales, const int8_t* __restrict__ vcodes,
+                        const uint16_t* __restrict__ vscales, float* __restrict__ part, int n_head, int kv_heads,
+                        int per, long long pos, int first, int tokens, float scale, int blocks,
+                        const long long* __restrict__ at) {
+    constexpr int DIM = 128, G = 8, KEYS = GROUP_KEYS, U = GROUP_ROWS, VALS = DIM / WARP;
+    static_assert(DIM / SCORE_VALUES == WARP && WARP % G == 0 && VALS == 4, "a warp a row, four values a lane");
+    __shared__ float e[G][KEYS];
+    __shared__ float sums[G][G][DIM];
+    const int g = blockIdx.y, b = blockIdx.x, t = blockIdx.z, lane = threadIdx.x % WARP, w = threadIdx.x / WARP;
+    const long long p = (at ? *at : pos) + first;
+    const int k0 = b * KEYS, span = int(p) + tokens;   // the call's tokens attend rows [0, span)
+    if (k0 >= span) return;
+    const int nk = min(KEYS, span - k0);
+    const int own = int(p) + t + 1;   // the token attends rows [0, own)
+    const float* qt = q + ((size_t(first) + t) * n_head + g * per) * DIM + SCORE_VALUES * lane;
+    float4 y[G];
+#pragma unroll
+    for (int i = 0; i < G; ++i)
+        y[i] = i < per ? *reinterpret_cast<const float4*>(qt + i * DIM) : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const size_t stride = size_t(kv_heads) * DIM;           // from a row of the cache to the next, in values
+    const size_t first_row = size_t(k0) * stride + size_t(g) * DIM;   // the block's first row, at this group's head
+
+    // the scores: warp w takes rows w, w + G, ..., U of them a round, their reads first
+    for (int r0 = w; r0 < nk; r0 += G * U) {
+        float x[U][SCORE_VALUES];
+#pragma unroll
+        for (int u = 0; u < U; ++u) {
+            const int r = r0 + u * G;
+            const bool live = r < nk && k0 + r < own;
+            const size_t at_r = first_row + size_t(r) * stride + SCORE_VALUES * lane;
+            if constexpr (Q8) {
+                // four codes in one read; the four lie in one block of 32, so one scale
+                const unsigned bits = live ? *reinterpret_cast<const unsigned*>(kcodes + at_r) : 0u;
+                const float s = live ? __half2float(__ushort_as_half(kscales[at_r / 32])) : 0.0f;
+#pragma unroll
+                for (int j = 0; j < SCORE_VALUES; ++j) x[u][j] = float((signed char) (bits >> 8 * j)) * s;
+            } else {
+                const unsigned long long bits =
+                    live ? *reinterpret_cast<const unsigned long long*>(kcache + at_r) : 0ull;
+#pragma unroll
+                for (int j = 0; j < SCORE_VALUES; ++j)
+                    x[u][j] = __half2float(__ushort_as_half((unsigned short) (bits >> 16 * j)));
+            }
+        }
+#pragma unroll
+        for (int u = 0; u < U; ++u) {
+            const int r = r0 + u * G;
+            float acc[G];
+#pragma unroll
+            for (int i = 0; i < G; ++i) {
+                acc[i] = 0.0f;
+                acc[i] += y[i].x * x[u][0];
+                acc[i] += y[i].y * x[u][1];
+                acc[i] += y[i].z * x[u][2];
+                acc[i] += y[i].w * x[u][3];
+            }
+            int which;
+            const float sum = scores_sum<G>(acc, lane, &which);   // every lane of the warp takes part
+            if (r < nk && (lane & (WARP / G - 1)) == 0) e[which][r] = k0 + r < own ? sum * scale : -INFINITY;
+        }
+    }
+    __syncthreads();
+    // each head's softmax over the block (a warp a head)
+    float m = -INFINITY;
+    for (int j = lane; j < nk; j += WARP) m = fmaxf(m, e[w][j]);
+#pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) m = fmaxf(m, __shfl_xor_sync(0xffffffffu, m, o));
+    float l = 0.0f;
+    for (int j = lane; j < nk; j += WARP) {
+        const float x = m == -INFINITY ? 0.0f : expf(e[w][j] - m);   // a block the token sees none of: 0
+        e[w][j] = x;
+        l += x;
+    }
+    l = warp_sum(l);
+    __syncthreads();
+
+    // the values: warp w takes every G-th row for all the heads, U of them a round, their reads first, a lane four
+    // values of a row; then warp w adds the warps' sums of head w
+    float o[G][VALS];
+#pragma unroll
+    for (int i = 0; i < G; ++i)
+#pragma unroll
+        for (int u = 0; u < VALS; ++u) o[i][u] = 0.0f;
+    for (int j0 = w; j0 < nk; j0 += G * U) {
+        float xv[U][VALS];
+#pragma unroll
+        for (int u = 0; u < U; ++u) {
+            const int j = j0 + u * G;
+            const size_t at_j = first_row + size_t(j) * stride + VALS * lane;
+            if constexpr (Q8) {
+                const unsigned bits = j < nk ? *reinterpret_cast<const unsigned*>(vcodes + at_j) : 0u;
+                const float s = j < nk ? __half2float(__ushort_as_half(vscales[at_j / 32])) : 0.0f;
+#pragma unroll
+                for (int v = 0; v < VALS; ++v) xv[u][v] = float((signed char) (bits >> 8 * v)) * s;
+            } else {
+                const unsigned long long bits =
+                    j < nk ? *reinterpret_cast<const unsigned long long*>(vcache + at_j) : 0ull;
+#pragma unroll
+                for (int v = 0; v < VALS; ++v)
+                    xv[u][v] = __half2float(__ushort_as_half((unsigned short) (bits >> 16 * v)));
+            }
+        }
+#pragma unroll
+        for (int u = 0; u < U; ++u) {
+            const int j = j0 + u * G;
+            if (j >= nk) break;
+#pragma unroll
+            for (int i = 0; i < G; ++i) {
+                const float wt = e[i][j];
+#pragma unroll
+                for (int v = 0; v < VALS; ++v) o[i][v] += wt * xv[u][v];
+            }
+        }
+    }
+#pragma unroll
+    for (int i = 0; i < G; ++i)
+#pragma unroll
+        for (int u = 0; u < VALS; ++u) sums[w][i][VALS * lane + u] = o[i][u];
+    __syncthreads();
+    if (w >= per) return;   // a place no head of the group took: every warp has added its rows above
+    float r[VALS];
+#pragma unroll
+    for (int u = 0; u < VALS; ++u) r[u] = 0.0f;
+#pragma unroll
+    for (int k = 0; k < G; ++k)
+#pragma unroll
+        for (int u = 0; u < VALS; ++u) r[u] += sums[k][w][VALS * lane + u];
+    float* out = part + ((size_t(t) * n_head + g * per + w) * blocks + b) * (DIM + 2);
+#pragma unroll
+    for (int u = 0; u < VALS; ++u) out[VALS * lane + u] = r[u];
+    if (lane == 0) {
+        out[DIM] = m;
+        out[DIM + 1] = l;
+    }
 }
 
 // attn_value_kernel with the weights as attn_softmax_kernel leaves them with `wt`: a row's queries side by side,
@@ -2210,6 +2378,17 @@ __global__ void mul_sigmoid_kernel(float* __restrict__ acc, const float* __restr
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     acc[size_t(blockIdx.y) * n + i] *= sigmoid(g[size_t(blockIdx.y) * g_stride + (one_gate ? 0 : i)]);
+}
+
+// ggml's softplus (op_softplus in ggml-cuda/unary.cu): x above 20 as it is, else log1p(exp(x)).
+__device__ __forceinline__ float softplus_ggml(float x) { return x > 20.0f ? x : log1pf(expf(x)); }
+
+// mul_sigmoid_kernel with softplus: laguna's attention output gate.
+__global__ void mul_softplus_kernel(float* __restrict__ acc, const float* __restrict__ g, int n, int g_stride,
+                                    bool one_gate) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    acc[size_t(blockIdx.y) * n + i] *= softplus_ggml(g[size_t(blockIdx.y) * g_stride + (one_gate ? 0 : i)]);
 }
 
 // Where a token leaves the recurrent state as it is after it: `snaps` has a bit for each of a call's tokens that
@@ -3038,8 +3217,15 @@ void add_bias(const float* b, float* acc, int n, int rows, void* stream) {
 void head_norm_rope(const float* x, int x_stride, const float* w, float* y, int dim, int heads, int n_rot,
                     float theta_scale, int64_t pos, int rows, float eps, void* stream, const float* freq,
                     const int32_t* axes, int sections, const long long* at) {
-    head_norm_rope_kernel<<<rows * heads, dim >= 256 ? 256 : 128, 0, cs(stream)>>>(
-        x, x_stride, w, y, dim, heads, n_rot, theta_scale, freq, (long long) pos, eps, axes, sections, at);
+    head_norm_rope_kernel<false><<<rows * heads, dim >= 256 ? 256 : 128, 0, cs(stream)>>>(
+        x, x_stride, w, y, dim, heads, n_rot, theta_scale, freq, (long long) pos, eps, axes, sections, at, RopeYarn{});
+}
+
+void head_norm_rope_yarn(const float* x, int x_stride, const float* w, float* y, int dim, int heads, int n_rot,
+                         float theta_scale, int64_t pos, int rows, float eps, void* stream, const RopeYarn& yarn,
+                         const long long* at) {
+    head_norm_rope_kernel<true><<<rows * heads, dim >= 256 ? 256 : 128, 0, cs(stream)>>>(
+        x, x_stride, w, y, dim, heads, n_rot, theta_scale, nullptr, (long long) pos, eps, nullptr, 1, at, yarn);
 }
 
 void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows, float* score,
@@ -3200,6 +3386,45 @@ __global__ void dequant_q8_kernel(const int8_t* __restrict__ codes, const uint16
 
 size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim) {
     return size_t(chunk) * n_head * grid(size_t(max_rows), SPLIT_KEYS) * (dim + 2);
+}
+
+size_t attend_group_floats(int chunk, int n_head, int max_rows, int dim) {
+    return size_t(chunk) * n_head * grid(size_t(max_rows), GROUP_KEYS) * (dim + 2);
+}
+
+void attend_group(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows, float* score,
+                  int chunk, float* out, int dim, int n_head, int kv_heads, float scale, void* stream, int window,
+                  int ring, bool whole, const long long* at, int room, size_t score_floats, Kvq8 kq8, Kvq8 vq8,
+                  const float* sinks) {
+    const int per = kv_heads > 0 && n_head % kv_heads == 0 ? n_head / kv_heads : 0;
+    const bool kq = kq8.codes != nullptr, vq = vq8.codes != nullptr;
+    // the kernel's reads: the queries 16 bytes at a time, fp16 keys and values 8, q8_0 codes 4
+    const bool aligned = uintptr_t(q) % 16 == 0 && (kq ? uintptr_t(kq8.codes) % 4 == 0 && uintptr_t(vq8.codes) % 4 == 0
+                                                       : uintptr_t(kcache) % 8 == 0 && uintptr_t(vcache) % 8 == 0);
+    const bool takes = dim == 128 && per >= 2 && per < 8 && kq == vq && window == 0 && ring == 0 && !whole &&
+                       (!at || room >= 1) && chunk >= 1 && aligned;
+    const int gmost = takes ? grid(size_t(at ? room : pos + rows), GROUP_KEYS) : 0;
+    const int gfit = gmost > 0 ? (int) std::min<size_t>(chunk, score_floats / (size_t(n_head) * gmost * (dim + 2))) : 0;
+    if (gfit < 1) {   // another shape, a window, or score without the room: attend() as it is
+        attend(q, kcache, vcache, pos, rows, score, chunk, out, dim, n_head, kv_heads, scale, stream, window, ring,
+               whole, at, room, score_floats, kq8, vq8, sinks);
+        return;
+    }
+    for (int first = 0, c = 0; first < rows; first += c) {
+        c = std::min(gfit, rows - first);
+        const int blocks = grid(size_t(at ? room : pos + first + c), GROUP_KEYS);
+        const dim3 split(blocks, kv_heads, c), join(n_head, c);
+        if (kq)
+            attn_split_group_kernel<true><<<split, 8 * WARP, 0, cs(stream)>>>(
+                q, nullptr, nullptr, kq8.codes, kq8.scales, vq8.codes, vq8.scales, score, n_head, kv_heads, per,
+                (long long) pos, first, c, scale, blocks, at);
+        else
+            attn_split_group_kernel<false><<<split, 8 * WARP, 0, cs(stream)>>>(
+                q, (const half*) kcache, (const half*) vcache, nullptr, nullptr, nullptr, nullptr, score, n_head,
+                kv_heads, per, (long long) pos, first, c, scale, blocks, at);
+        attn_join_kernel<128, GROUP_KEYS><<<join, JOIN_WARPS * WARP, 0, cs(stream)>>>(
+            score, out, n_head, (long long) pos, first, c, blocks, at, sinks);
+    }
 }
 
 // ---------------------------------------------- the int8 attention caches' readers (--kv int8 / int8k)
@@ -4033,6 +4258,12 @@ void likeliest(const float* logits, int n, Likeliest* out, void* stream) {
 void mul_sigmoid(float* acc, const float* g, int n, int rows, int g_stride, bool one_gate, void* stream) {
     for (int r = 0; r < rows; r += 65535)   // a grid has at most 65535 rows, and 4,096 tokens have 16 heads each
         mul_sigmoid_kernel<<<dim3(grid(n, 256), std::min(65535, rows - r)), 256, 0, cs(stream)>>>(
+            acc + size_t(r) * n, g + size_t(r) * g_stride, n, g_stride, one_gate);
+}
+
+void mul_softplus(float* acc, const float* g, int n, int rows, int g_stride, bool one_gate, void* stream) {
+    for (int r = 0; r < rows; r += 65535)   // a grid has at most 65535 rows: 1,024 tokens of 72 heads are 73,728
+        mul_softplus_kernel<<<dim3(grid(n, 256), std::min(65535, rows - r)), 256, 0, cs(stream)>>>(
             acc + size_t(r) * n, g + size_t(r) * g_stride, n, g_stride, one_gate);
 }
 

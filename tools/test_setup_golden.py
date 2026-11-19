@@ -1,27 +1,26 @@
 """The owner's rule for setup (#403 #406 #364 #384): setup RECOMMENDS, it never forces - and the recommended answers
 stay exactly what they were.  setup.main() with --yes (and with Enter for every question) on a few PCs writes the same
-run config, byte for byte, as 0.1.32 plus the fixes on top of it did (tools/test_setup_golden.json, written by that
-setup).  Every outside effect is mocked: no GPU, no downloads, nothing written outside a temp folder.
+run config, byte for byte, as the recorded baseline (tools/test_setup_golden.json).  Every outside effect is mocked
+(tools/poly_setup_harness.py): no GPU, no downloads, nothing written outside a temp folder.
+
+The baseline was recorded again for Puddle's families (phase 1b-1, 2026-11-19: the Qwen engine's families are gone;
+phase 1c: Laguna-S, Laguna-XS and Occamy added); record it again only when a default changes on purpose.
 
     python -m unittest tools.test_setup_golden
     python tools/test_setup_golden.py --write      (only to record a new baseline on purpose)
 """
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import re
 import sys
-import tempfile
-import types
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import setup  # noqa: E402
+from tools.poly_setup_harness import PolyMain  # noqa: E402
 
 GOLDEN = Path(__file__).with_name("test_setup_golden.json")
 
@@ -30,7 +29,6 @@ def card(i, name, vram, arch):
     return {"index": i, "name": name, "vram_gb": vram, "arch": arch, "driver": "580.97"}
 
 
-# the PCs: total RAM as ram_gb() reads it (a little under the label), the cards as nvidia-smi lists them
 PROFILES = {
     "64GB-1x32GB": (63.7, [card(0, "NVIDIA GeForce RTX 5090", 31.8, "120")]),                  # #406
     "32GB-2x24GB": (31.9, [card(i, "NVIDIA GeForce RTX 3090", 24.0, "86") for i in range(2)]),  # #364
@@ -39,14 +37,7 @@ PROFILES = {
     "128GB-1x24GB": (127.8, [card(0, "NVIDIA GeForce RTX 4090", 24.0, "89")]),
 }
 # (family, model): None = the recommended size
-MODELS = [("qwen", None), ("qwen", "Q2_0"), ("qwen", "IQ3_XXS"), ("qwen", "IQ3_S"), ("unsloth", "UD-Q4_K_XL")]
-
-
-class FakeGGUF:
-    """gguf_reader.GGUFFile: shard 2 holds the PLE table."""
-    def __init__(self, path):
-        names = ["per_layer_token_embd.weight"] if "00002-of" in str(path) else ["blk.0.ffn_up_exps.weight"]
-        self.tensors = [types.SimpleNamespace(name=n) for n in names]
+MODELS = [x for f in setup.FAMILIES for x in [(f, None), *((f, m) for m in setup.family_models(f))]]
 
 
 def normalize(v, t: Path):
@@ -56,96 +47,31 @@ def normalize(v, t: Path):
     if isinstance(v, list):
         return [normalize(x, t) for x in v]
     if isinstance(v, str):
-        # The stored baseline uses the Windows encoder name; normalize only a
-        # complete executable basename, as for the main engine below.
-        v = re.sub(r"(?<![\w.-])strata-vision(?:\.exe)?(?![\w.-])", "strata-vision.exe", v)
-        return re.sub(rf"(?<![w.-]){re.escape(setup.EXE)}(?![w.-])", "<EXE>", v.replace(str(t), "<T>").replace("\\", "/"))   # #973: only the whole name, not "strata-x.log" on Linux
+        v = v.replace(str(t), "<T>").replace("\\", "/")
+        for exe in ("strata-poly", "strata-vision"):                  # the whole executable name only
+            v = re.sub(rf"(?<![\w.-]){exe}(?:\.exe)?(?![\w.-])", f"<{exe}>", v)
+        return v
     return v
+
+
+class _Run(PolyMain):
+    """The harness outside a test case."""
 
 
 def install(ram, found, argv, answers=None, extra=(), avx512=False, configs=()):
     """setup.main() on a mocked PC -> (exit code, printed text, the written config or None, the questions asked).
-    answers: None = --yes (a question fails the run), "" = Enter for every question, a list of answers in order, or
-    {words of a question: its answer} (Enter for the others).
-    extra: more patches (mock.patch objects).  configs: (name, dict) run configs already in the PolyStrata folder."""
-    with tempfile.TemporaryDirectory() as tmp:
-        t = Path(tmp)
-        (t / "data" / "mtp" / "rt").mkdir(parents=True)
-        (t / "data" / "mtp" / "rt" / "experts.bin").write_bytes(b"")
-        eng = t / "engine"
-        eng.mkdir()
-        (eng / "BUILD.json").write_text(json.dumps({"version": "0.1.32", "source": "local", "cuda_dirs": ["<cuda>"]}))
-        for name, c in configs:
-            (t / name).write_text(json.dumps(c))
-        asked = []
-
-        def fake_input(prompt=""):
-            asked.append(prompt)
-            if answers is None:
-                raise AssertionError(f"asked {prompt!r} with --yes")
-            if isinstance(answers, list):
-                return answers.pop(0) if answers else ""
-            if isinstance(answers, dict):                  # {words of the question: answer}, else Enter
-                return next((v for k, v in answers.items() if k in prompt), "")
-            return answers
-
-        def fake_download(url, dst, what=None):
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(b"")
-            setup.mark(dst)
-
-        patches = [
-            # These fixtures describe PCs, even when the test runner is a Mac.
-            mock.patch.object(setup.sys, "platform", "win32" if setup.WIN else "linux"),
-            mock.patch.object(setup, "ROOT", t),
-            mock.patch.object(setup, "GPU_PICK", None),
-            mock.patch.object(setup, "data_folder", lambda d: (t / "data", [])),
-            mock.patch.object(setup, "load_settings", lambda: {}),
-            mock.patch.object(setup, "save_settings", lambda s: None),
-            mock.patch.object(setup, "gpus", lambda: found),
-            mock.patch.object(setup, "amd_gpus", lambda: []),
-            mock.patch.object(setup, "ram_gb", lambda: ram),
-            mock.patch.object(setup, "cpu_info", lambda: ("Test CPU", True, avx512)),
-            mock.patch.object(setup, "cpu_cores", lambda: None),   # #642: not a hybrid CPU
-            mock.patch.object(setup.os, "cpu_count", lambda: 12),   # the CPU image encoder's threads: half of them
-            mock.patch.object(setup, "page_file_gb", lambda: 16.0),
-            mock.patch.object(setup, "is_wsl", lambda: False),
-            mock.patch.object(setup, "rotational_disk", lambda p: None),   # #605: the test PC's own disk
-            mock.patch.object(setup, "free_gb", lambda p: 900.0),
-            mock.patch.object(setup, "pip_install", lambda *a, **k: None),
-            mock.patch.object(setup, "get_llama_cpp", lambda: t / "llama.cpp"),
-            mock.patch.object(setup, "get_prebuilt", lambda *a, **k: eng),
-            mock.patch.object(setup, "update_installed_engine", lambda *a, **k: None),
-            mock.patch.object(setup, "download", fake_download),
-            mock.patch.object(setup, "check_shards", lambda shards: None),
-            mock.patch.object(setup, "verify_sha256", lambda *a, **k: None),
-            mock.patch.object(setup, "run", lambda *a, **k: None),
-            mock.patch.object(setup, "mtp_corrupt", lambda *a, **k: False),
-            mock.patch.object(setup, "refresh_draft_vocab", lambda *a, **k: None),
-            mock.patch.object(setup, "write_run_script", lambda tag, cfg, port, *_: t / f"run-{tag}.bat"),
-            mock.patch.object(setup, "saved_calibration", lambda cfg: None),
-            mock.patch.object(setup, "calibrate_config", mock.Mock(side_effect=AssertionError("calibrated"))),
-            mock.patch.dict(sys.modules, {"gguf_reader": types.SimpleNamespace(GGUFFile=FakeGGUF)}),
-            mock.patch.object(sys, "argv", ["setup.py", "--models-dir", str(t / "models"), *argv]
-                              + (["--yes"] if answers is None else [])),
-            mock.patch("builtins.input", fake_input),
-            *extra,
-        ]
-        out = io.StringIO()
-        code = None
-        with contextlib.ExitStack() as st:
-            for p in patches:
-                st.enter_context(p)
-            with contextlib.redirect_stdout(out):
-                try:
-                    code = setup.main()
-                except SystemExit as e:
-                    code = e.code
-        written = sorted(t.glob("strata-*.json"), key=lambda p: p.stat().st_mtime)
-        cfg = None
-        if written and code == 0:
-            cfg = normalize(json.loads(written[-1].read_text(encoding="utf-8")), t)
-        return code, out.getvalue(), cfg, asked
+    answers: None = --yes (a question fails the run), "" = Enter for every question, or {words of a question: its
+    answer} (Enter for the others).  extra: more patches (mock.patch objects).  configs: (name, dict) run configs
+    already in the Puddle folder.  argv names the family and --no-start where it wants them."""
+    r = _Run()
+    r.setUp()
+    try:
+        code, out, cfg = r.main(list(argv), ram=ram, cards=found, family=None, no_start=False,
+                                answers={} if answers == "" else answers, extra=extra, avx512=avx512,
+                                configs=configs)
+        return code, out, (normalize(cfg, r.t) if cfg is not None else None), r.asked
+    finally:
+        r.tearDown()
 
 
 def argv_for(family, model):
@@ -177,12 +103,11 @@ class Golden(unittest.TestCase):
                     yield key, ram, found, family, model
 
     def test_the_baseline_covers_every_kind_of_pc(self):
+        self.assertEqual(sorted(self.golden), sorted(f"{p} {f} {m or 'recommended'}" for p in PROFILES for f, m in MODELS))
         written = [k for k, v in self.golden.items() if v["code"] == 0]
-        self.assertGreaterEqual(len(written), 20)
-        lowram_multi = self.golden["32GB-2x24GB qwen IQ3_XXS"]["config"]   # #364 -> #642: low-RAM, two cards -> both
-        self.assertIn("--resident-experts" if "--resident-experts" in lowram_multi["args"] else "--mmap-experts",
-                      lowram_multi["args"])
-        self.assertEqual(lowram_multi.get("gpu"), [0, 1])                   # 0.1.40 (#642): resident on both cards
+        self.assertGreaterEqual(len(written), 50)
+        for prof in PROFILES:                                        # every PC gets the recommended size
+            self.assertEqual(self.golden[f"{prof} gemma4 recommended"]["code"], 0, prof)
 
     def test_yes(self):
         for key, ram, found, family, model in self.cases():
@@ -193,11 +118,14 @@ class Golden(unittest.TestCase):
                 self.assertEqual(asked, [])
 
     def test_enter_for_every_question(self):
+        """Enter takes every recommended answer.  A size named with --model that setup expects to run badly is the
+        one difference: --yes with the flag is consent, Enter at "Go on anyway?" (default n) is not."""
         for key, ram, found, family, model in self.cases():
-            if "UD-Q4_K_XL" in key and ram < 48:               # --yes consents to the risk; Enter declines it (the
-                continue                                       # "Install it anyway? [n]" question), by design
             with self.subTest(key):
                 code, out, cfg, asked = install(ram, found, argv_for(family, model), answers="")
+                if code != 0 and model is not None and any("Go on anyway?" in q for q in asked):
+                    self.assertIn("as you chose", install(ram, found, argv_for(family, model))[1])
+                    continue
                 self.assertEqual(code, 0, out[-3000:])
                 self.assertEqual(cfg, self.golden[key]["config"], out[-3000:])
 

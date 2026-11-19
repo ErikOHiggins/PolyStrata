@@ -1,0 +1,41 @@
+# /etc/systemd/system/polystrata.service  (installed by deploy-on-echo.sh)
+#
+# PolyStrata on echo. The server starts with the Kolibri 1 Q4_K_M config; that config has "switch_on_request": true, so a
+# request that names another installed model (any strata-*.json in /home/eohiggins/PolyStrata) loads that one.
+#
+# The API key is not in any config. It comes from /etc/polystrata/polystrata.env (STRATA_API_KEY=...), which systemd
+# reads at launch. The server takes --api-key first, then $STRATA_API_KEY, and only then a config's "api_key".
+#
+#   sudo systemctl start|stop|restart polystrata
+#   journalctl -u polystrata -f                  the server's output (the engine log is the config's "log" file)
+
+[Unit]
+Description=PolyStrata LLM server (Kolibri 1 Q4_K_M at start, switch_on_request)
+Wants=network-online.target
+After=network-online.target
+# a start that keeps failing (a model that does not load) stops after 3 tries in 10 minutes instead of looping
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=eohiggins
+WorkingDirectory=/home/eohiggins/PolyStrata
+EnvironmentFile=/etc/polystrata/polystrata.env
+Environment=PYTHONUNBUFFERED=1
+# What run-swift-iq3_s.sh runs, without --open (no browser on a headless machine).
+# Laguna (2026-11-14): the server of the dev checkout (~/src/PolyStrata, branch laguna of the fork), which serves
+# Laguna beside the installed models; their configs and engines are the installation's, as before.  To go back:
+# the same line with /home/eohiggins/PolyStrata/serve/server.py (the backup deploy-laguna.sh keeps).
+ExecStart=/home/eohiggins/PolyStrata/.venv/bin/python /home/eohiggins/src/PolyStrata/serve/server.py --engine strata --config /home/eohiggins/PolyStrata/strata-kolibri1-q4_k_m.json --port 8080
+# --ple-io ram locks the PLE table with mlock(); systemd's default lock limit (8 MiB) would refuse that.
+LimitMEMLOCK=infinity
+# SIGTERM goes to the server only: it ends its engine and vision encoder itself (QUIT, then waits).
+# Whatever is left after TimeoutStopSec is killed.
+KillMode=mixed
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

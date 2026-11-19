@@ -53,8 +53,8 @@ main() {
     fi
   else
     echo "This copy of PolyStrata was not made with git, so it cannot fetch new files itself. Download the newest one:"
-    echo "  https://github.com/VecSzn/PolyStrata/archive/refs/heads/main.zip"
-    echo "unzip it anywhere and run ./setup.sh (or ./update.sh) in it: it finds the model files in PolyStrata-data and"
+    echo "  https://github.com/ErikOHiggins/Puddle/archive/refs/heads/main.zip"
+    echo "unzip it anywhere and run ./setup.sh (or ./update.sh) in it: it finds the model files in Puddle-data and"
     echo "sets itself up the same way - nothing big is downloaded again."
     echo "Checking this copy's engine and settings meanwhile ..."
   fi

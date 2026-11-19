@@ -115,7 +115,6 @@ class ExactArch(unittest.TestCase):
 _NOT_COPIED = ("STRATA_HCD_EXACT", "STRATA_TOPK_REG_MIN_BLOCKS")
 
 
-
 class Gfx1103Switches(unittest.TestCase):
     def test_is_the_gfx1151_defaults_less_hcd_exact(self):
         """GFX1103_SWITCHES is the gfx1151 arch-default set (src/core/arch_defaults.cpp) minus STRATA_HCD_EXACT, which
@@ -199,7 +198,6 @@ class AuroraFixture(LinuxBase):
         self.assertAlmostEqual(g["dedicated_gb"], 2.0)                                # the BIOS carve-out
         self.assertAlmostEqual(g["shared_gb"], 112.0)                                 # GTT, below RAM - 6
         self.assertAlmostEqual(g["vram_gb"], 114.0)
-        self.assertAlmostEqual(setup.low_ram_vram(g), 2.0)                            # the shared pool is the RAM itself
         self.assertIn("unified memory", setup.amd_mem_text(g))
 
     def test_marketing_name_by_cu_count(self):
@@ -240,7 +238,6 @@ class AuroraFixture(LinuxBase):
             g = setup.amd_gpus(str(self.root))[0]
         self.assertAlmostEqual(g["dedicated_gb"], 96.0)
         self.assertAlmostEqual(g["vram_gb"], 96.0 + 24.0)
-        self.assertAlmostEqual(setup.low_ram_vram(g), 96.0)                           # that memory is extra to the RAM
         notes = setup.strix_halo_notes(g, 30.0)
         self.assertTrue(any(n.startswith("!") and "carve-out" in n for n in notes))
 
@@ -289,7 +286,6 @@ class OtherChips(LinuxBase):
             self.assertFalse(g.get("uma"), arch)
             self.assertFalse(setup.is_strix_halo(g), arch)
             self.assertAlmostEqual(g["vram_gb"], vram)                                # a card's VRAM is not changed
-            self.assertEqual(setup.low_ram_vram(g), vram)
             self.assertIsNone(setup.amd_problem(g), arch)
 
 
@@ -392,129 +388,6 @@ class WindowsDetection(unittest.TestCase):
         self.assertAlmostEqual(g[1]["vram_gb"], 24.0)
 
 
-class WindowsZip(unittest.TestCase):
-    """get_prebuilt_hip never installs a zip with no code for the card; for a Strix Halo it says why and what to do."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.warnings: list[str] = []
-        for p in (mock.patch.object(setup, "ROOT", self.root), mock.patch.object(setup, "warn", self.warnings.append),
-                  mock.patch.object(setup, "say", lambda *a, **k: None), mock.patch.object(setup, "ok", lambda *a, **k: None),
-                  mock.patch.object(setup, "download", self.fake_download),
-                  mock.patch.object(setup, "engine_digest", self.fake_digest),
-                  mock.patch.object(setup.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(b"")),
-                  mock.patch.object(setup, "hip_runtime_beside_exe", lambda eng: None)):
-            p.start()
-            self.addCleanup(p.stop)
-        self.archs = ["gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030"]      # the 0.1.39 zip
-
-    def fake_download(self, url, dest, label=""):
-        with zipfile.ZipFile(dest, "w") as z:
-            z.writestr("BUILD.json", json.dumps({"source": "prebuilt", "backend": "hip", "platform": "windows-x64",
-                                                  "version": ".".join(map(str, setup.MIN_ENGINE)), "archs": self.archs, "lib_dirs": []}))
-            z.writestr(setup.EXE, "x")
-
-
-    def fake_digest(self, asset, base):
-        """The size and SHA-256 of whatever the mocked download just wrote.
-
-        The engine archive is checked against a published digest before it is unpacked, so a test that
-        mocks the download has to say what the hash is or it never reaches the part it is about. This
-        hashes the real bytes the fake download produced, so the check still runs.
-        """
-        p = self.root / "engine" / asset
-        data = p.read_bytes() if p.exists() else b""
-        return len(data), hashlib.sha256(data).hexdigest()
-
-    def halo(self):
-        return {"index": 0, "name": setup.AMD_NAMES["gfx1151"], "vram_gb": 52.0, "arch": "gfx1151", "uma": True,
-                "dedicated_gb": 4.0, "shared_gb": 48.0, "vendor": "amd", "driver": "amd"}
-
-    def test_zip_without_gfx1151_is_refused_with_the_reason(self):
-        self.assertIsNone(setup.get_prebuilt_hip("https://example.invalid/", self.halo()))
-        self.assertEqual(len(self.warnings), 1)
-        msg = self.warnings[0]
-        self.assertIn("no gfx1151 code", msg)
-        self.assertIn("docs/STRIX_HALO.md", msg)
-        self.assertIn("build_windows.bat", msg)
-        self.assertFalse((self.root / "engine" / "strata-windows-x64-hip.zip").exists())   # dropped
-        self.assertFalse((self.root / "engine" / setup.EXE).exists())                      # nothing installed
-
-    def test_zip_with_gfx1151_is_installed(self):
-        self.archs = self.archs + ["gfx1151"]
-        eng = setup.get_prebuilt_hip("https://example.invalid/", self.halo())
-        self.assertEqual(eng, self.root / "engine")
-        self.assertEqual(self.warnings, [])
-        meta = json.loads((eng / "BUILD.json").read_text(encoding="utf-8"))
-        self.assertIn("gfx1151", meta["archs"])
-
-    def test_a_7900_xtx_still_takes_the_old_zip(self):
-        g = {"index": 0, "name": "x", "vram_gb": 24.0, "arch": "gfx1100", "vendor": "amd", "driver": "amd"}
-        self.assertIsNotNone(setup.get_prebuilt_hip("https://example.invalid/", g))
-
-    def test_windows_build_script_lists_gfx1151(self):
-        bat = (ROOT / "tools/hip/build_windows.bat").read_text(encoding="utf-8")
-        m = re.search(r'if not defined STRATA_HIP_ARCHS set "STRATA_HIP_ARCHS=([^"]+)"', bat)
-        self.assertIn("gfx1151", m.group(1).split(";"))
-        self.assertTrue({"gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030"} <= set(m.group(1).split(";")))
-
-
-class Recommendation(unittest.TestCase):
-    def halo(self, carve=2.0):
-        return {"arch": "gfx1151", "uma": True, "dedicated_gb": carve, "shared_gb": 100.0, "vram_gb": carve + 100.0}
-
-    def test_ud_iq4_xs_with_enough_memory(self):
-        self.assertEqual((setup.STRIX_HALO_FAMILY, setup.STRIX_HALO_MODEL), ("unsloth", "UD-IQ4_XS"))
-        self.assertIn(setup.STRIX_HALO_MODEL, setup.MODELS)
-        self.assertIn(setup.STRIX_HALO_FAMILY, setup.FAMILIES)
-        self.assertTrue(setup.strix_halo_recommends(self.halo(), AURORA_RAM_GB))
-        self.assertTrue(setup.strix_halo_recommends(self.halo(), 128.0))
-        self.assertTrue(setup.strix_halo_recommends(self.halo(32.0), 60.0))             # 32 GB carve-out + 60 GB RAM
-        self.assertFalse(setup.strix_halo_recommends(self.halo(), 62.0))                # a 64 GB box: no recommendation
-        self.assertFalse(setup.strix_halo_recommends(self.halo(), 30.0))
-        self.assertFalse(setup.strix_halo_recommends({"arch": "gfx1100", "vram_gb": 24.0}, 256.0))
-        self.assertFalse(setup.strix_halo_recommends({"arch": "gfx1150", "vram_gb": 0.5}, 256.0))
-
-    def test_the_recommended_model_is_a_regular_choice_on_amd(self):
-        m = setup.MODELS[setup.STRIX_HALO_MODEL]
-        self.assertFalse(m.get("nvidia_only"))
-        self.assertFalse(m.get("experimental"))
-
-    def test_notes_are_recommendations(self):
-        win = setup.WIN
-        try:
-            setup.WIN = False
-            g = {**self.halo(), "shared_gb": 60.0, "vram_gb": 62.0}
-            notes = setup.strix_halo_notes(g, AURORA_RAM_GB)
-            joined = "\n".join(notes)
-            self.assertIn("docs/STRIX_HALO.md", joined)
-            self.assertIn("UD-IQ4_XS", joined)
-            self.assertTrue(any(n.startswith("!") and "ttm.pages_limit" in n for n in notes))   # a small GTT: a warning
-            self.assertIn("changes no host setting", joined)
-            big = {**self.halo(), "shared_gb": 112.0, "vram_gb": 114.0}
-            self.assertFalse(any(n.startswith("!") for n in setup.strix_halo_notes(big, AURORA_RAM_GB)))
-        finally:
-            setup.WIN = win
-
-    def test_hipblaslt_table_for_gfx1151(self):
-        t = setup.hipblaslt_table("gfx1151", [], 100401)
-        self.assertIsNotNone(t)
-        self.assertEqual(t.name, "gfx1151-hipblaslt-100401.txt")
-
-
-class LowRamUsesTheCarveOutOnly(unittest.TestCase):
-    def test_apu_memory_is_not_double_counted(self):
-        halo = {"arch": "gfx1151", "uma": True, "dedicated_gb": 2.0, "shared_gb": 112.0, "vram_gb": 114.0, "index": 0}
-        card = {"arch": "gfx1100", "vram_gb": 24.0, "index": 0}
-        self.assertEqual(setup.low_ram_vram(halo), 2.0)
-        self.assertEqual(setup.low_ram_vram(card), 24.0)
-        # a 32 GB-RAM Strix Halo: the smallest model is not "made to fit" by counting the GPU's shared memory as extra
-        self.assertFalse(setup.low_ram_fits("IQ1_M", 24.0, setup.low_ram_vram(halo)))
-        self.assertTrue(setup.low_ram_fits("IQ1_M", 24.0, 40.0))                            # a 40 GB dedicated card does
-
-
 class IgpuTextIsArchExact(unittest.TestCase):
     """The owner's rule: setup never takes one AMD iGPU for another.  gfx1103 (Radeon 780M / 760M) gets its own text,
     never the Strix Halo (gfx1151) lines; gfx1151 keeps its."""
@@ -546,10 +419,10 @@ class IgpuTextIsArchExact(unittest.TestCase):
         for a in ("gfx1150", "gfx1152", "gfx1100", "gfx1201"):
             self.assertEqual(setup.igpu_notes(self.gpu(a, "x"), 64.0), [])
 
-    def test_no_strix_halo_model_recommendation_for_gfx1103(self):
-        g = self.gpu("gfx1103", "AMD Radeon 780M Graphics")
-        self.assertFalse(setup.strix_halo_recommends(g, 128.0))
-        self.assertTrue(setup.strix_halo_recommends(self.gpu("gfx1151", "x"), 128.0))
+    def test_no_model_recommendation_for_any_igpu(self):
+        for arch in ("gfx1103", "gfx1151"):            # the Qwen engine's UD-IQ4_XS recommendation is gone
+            notes = setup.igpu_notes(self.gpu(arch, "x"), 128.0)
+            self.assertFalse(any("Recommended model" in n for n in notes), arch)
 
     def test_setup_prints_notes_through_the_exact_helper(self):
         src = Path(setup.__file__).read_text(encoding="utf-8")

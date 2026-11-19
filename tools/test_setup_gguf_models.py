@@ -1,6 +1,6 @@
-"""Tests for setup.py's Qwen3.6-35B-A3B, Ornith 1.5, Gemma 4 26B-A4B and Tiel Coder (docs/BACKENDS.md): the pinned
-files, the estimates for a small card, and that each is installed by GLM's steps with nothing of GLM's own (no shipped
-expert profile, no draft block to fetch).  Mocked like tools/test_setup_glm.py, whose harness this uses.
+"""Tests for setup.py's GGUF families of strata-poly (Gemma 4 26B-A4B; docs/BACKENDS.md): the pinned files, the
+estimates for a small card, and the install by poly_setup (no shipped expert profile, no draft block to fetch).  Every
+outside effect is mocked by tools/poly_setup_harness.py.
 
     python -m unittest tools.test_setup_gguf_models
 """
@@ -16,28 +16,17 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import setup  # noqa: E402
-from tools import test_setup_glm as glm_tests  # noqa: E402   (the module: its test classes are not this file's)
+from tools.poly_setup_harness import PolyMain  # noqa: E402
 
 # family: (size, file, repository, bytes) of the size setup takes when the PC has the RAM for it
 NEW = {
-    "qwen36": ("UD-Q3_K_M", "Qwen3.6-35B-A3B-UD-Q3_K_M.gguf", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", 17104402720),
-    "ornith": ("APEX-I-COMPACT", "Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf",
-               "mudler/Ornith-1.5-35B-A3B-APEX-MTP-GGUF", 17437861408),
     "gemma4": ("UD-Q3_K_M", "gemma-4-26B-A4B-it-UD-Q3_K_M.gguf", "unsloth/gemma-4-26B-A4B-it-GGUF", 12728497888),
-    "tiel": ("UD-Q3_K_XL", "Tiel-Coder-35B-A3B-MTP-UD-Q3_K_XL.gguf", "peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP",
-             17234935648),
 }
 # family: its other sizes in setup's order, the smaller and then the larger: (size, file, bytes)
 MORE = {
-    "qwen36": [("UD-Q2_K_XL", "Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf", 12574128416),
-               ("UD-Q4_K_M", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", 22663387424)],
-    "ornith": [("APEX-I-MINI", "Ornith-1.5-35B-A3B-APEX-MTP-I-Mini.gguf", 14366220832),
-               ("APEX-I-QUALITY", "Ornith-1.5-35B-A3B-APEX-MTP-I-Quality.gguf", 23718411808)],
     "gemma4": [("UD-Q2_K_XL", "gemma-4-26B-A4B-it-UD-Q2_K_XL.gguf", 10546934240),
                ("UD-Q4_K_M", "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf", 16947541728),
                ("QAT-UD-Q4_K_XL", "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf", 14249047104)],
-    "tiel": [("UD-IQ3_XXS", "Tiel-Coder-35B-A3B-MTP-UD-IQ3_XXS.gguf", 13600579424),
-             ("UD-Q4_K_XL", "Tiel-Coder-35B-A3B-MTP-UD-Q4_K_XL.gguf", 22749880160)],
 }
 
 
@@ -68,13 +57,6 @@ class Pins(unittest.TestCase):
                 self.assertRegex(pinned[1], r"^[0-9a-f]{64}$")
             self.assertAlmostEqual(fam["sha256"][fam["mmproj"]][0] / 1e9, fam["vision_gb"], delta=0.05)
 
-    def test_two_families_have_a_size_of_one_name(self):
-        q, g = setup.FAMILIES["qwen36"]["models"]["UD-Q3_K_M"], setup.FAMILIES["gemma4"]["models"]["UD-Q3_K_M"]
-        self.assertNotEqual(q["download_gb"], g["download_gb"])
-        self.assertNotIn("UD-Q3_K_M", setup.MODELS)                      # the other families' sizes are not theirs
-        for f in ("qwen", "swift", "coder", "unsloth", "glm"):
-            self.assertNotIn("UD-Q3_K_M", setup.family_models(f), f)
-
     def test_tags_tell_the_families_apart(self):
         tags = [d["tag"] for d in setup.FAMILIES.values() if d["tag"]]
         for a in tags:
@@ -91,17 +73,14 @@ class Estimates(unittest.TestCase):
     def test_an_8_gb_card(self):
         # what the families' menu lines say of an 8 GB card
         need = {f: setup.poly_ram_need(next(iter(setup.family_models(f).values())), 8.0) for f in NEW}
-        self.assertAlmostEqual(need["qwen36"], 21, delta=0.5)
-        self.assertAlmostEqual(need["ornith"], 22, delta=0.5)
         self.assertAlmostEqual(need["gemma4"], 18, delta=0.5)
-        self.assertAlmostEqual(need["tiel"], 21, delta=0.5)
         for f, n in need.items():
             self.assertIn(f"~{n:.0f} GB of RAM beside an 8 GB card", setup.FAMILIES[f]["about"])
             self.assertEqual(next(iter(setup.family_models(f).values()))["ram_gb"], round(n))
 
     def test_check_lines(self):
-        d = setup.FAMILIES["qwen36"]["models"]["UD-Q3_K_M"]
-        self.assertIn("fits by setup's estimate (~21 GB of RAM", setup.poly_verdict(d, 32, 8.0, False))
+        d = setup.FAMILIES["gemma4"]["models"]["UD-Q3_K_M"]
+        self.assertIn("fits by setup's estimate (~18 GB of RAM", setup.poly_verdict(d, 32, 8.0, False))
         self.assertIn("read from the SSD", setup.poly_verdict(d, 12, 8.0, False))
         self.assertIn("does not fit", setup.poly_verdict(d, 64, 6.0, False))
         with mock.patch.object(setup, "WIN", False):   # #11: AMD on Linux runs it
@@ -123,8 +102,8 @@ class Config(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
-    """setup.main() for the four families, every outside effect mocked."""
-    setUp, tearDown, main = glm_tests.Main.setUp, glm_tests.Main.tearDown, glm_tests.Main.main
+    """setup.main() for the families, every outside effect mocked."""
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
     def test_install(self):
         for family, (size, file, _repo, _n) in NEW.items():
@@ -151,10 +130,7 @@ class Main(unittest.TestCase):
                                      self.t / "models" / tag / more[0])
                 else:
                     self.assertNotIn("--draft-model", args)        # theirs is in the model's file
-                if family == "qwen36":                            # the others' answers move more (docs/BACKENDS.md)
-                    self.assertEqual(args[args.index("--tail-skip") + 1], "6")
-                else:
-                    self.assertNotIn("--tail-skip", args)
+                self.assertNotIn("--tail-skip", args)
                 self.assertEqual(cfg["model_name"], f"{fam['name']}-{size.lower()}")
                 self.assertEqual(cfg["display_name"], f"{fam['title']} {size}")
                 self.assertEqual(Path(cfg["exe"]), self.t / setup.ENGINE_POLY_DIR / setup.POLY_EXE)
@@ -231,15 +207,10 @@ class Main(unittest.TestCase):
         self.assertEqual(Path(cfg["vision"]["mmproj"]), folder / fam["mmproj"])
 
     def test_images_are_asked_about(self):
-        code, out, cfg = self.main(family="qwen36", ram=64.0, vram=24.0, answers={"Do you want images": "y"})
+        code, out, cfg = self.main(family="gemma4", ram=64.0, vram=24.0, answers={"Do you want images": "y"})
         self.assertEqual(code, 0, out)
-        self.assertIn("a 0.9 GB", out)
+        self.assertIn("a 1.2 GB", out)
         self.assertEqual((self.encoder, cfg["vision"]["gpu"]), ("gpu", True))
-        # GLM 5.3 Flash reads no pictures: it is not asked, and --vision is said to be unused
-        code, out, cfg = self.main(["--vision", "yes"], family="glm")
-        self.assertEqual(code, 0, out)
-        self.assertIn("not used with GLM 5.3 Flash", out)
-        self.assertNotIn("vision", cfg)
 
     def test_the_draft_model_beside_files_of_ones_own(self):
         size, file, _repo, _n = NEW["gemma4"]
@@ -264,42 +235,31 @@ class Main(unittest.TestCase):
         self.assertEqual([v[0] for v in self.verified], [file, Path(guesser).name])
         self.assertEqual(Path(cfg["args"][cfg["args"].index("--draft-model") + 1]), mine / Path(guesser).name)
 
-    def test_a_pc_below_the_qwen_models_ram_is_not_stopped(self):
-        # 24 GB is under what the smallest Qwen3.8 size needs, and enough for these by their own estimate
-        code, out, cfg = self.main(family="gemma4", ram=24.0, vram=8.0)
+    def test_a_pc_with_24_gb_of_ram(self):
+        code, out, cfg = self.main(family="gemma4", ram=24.0, vram=8.0)   # enough by the family's own estimate
         self.assertEqual(code, 0, out)
-        self.assertNotIn("the Coder", out)
         self.assertIn("RAM: 24 GB", out)
         self.assertIsNotNone(cfg)
 
     def test_too_little_ram_for_the_model_stops(self):
-        code, out, cfg = self.main(family="qwen36", ram=12.0, vram=8.0)   # too little for its smallest size too
+        code, out, cfg = self.main(family="gemma4", ram=10.0, vram=8.0)   # too little for its smallest size too
         self.assertNotEqual(code, 0)
-        self.assertIn("wants about 17 GB", out)
+        self.assertIn("wants about 15 GB", out)
         self.assertIsNone(cfg)
-        code, out, cfg = self.main(family="qwen36", ram=12.0, vram=8.0, model="UD-Q3_K_M")   # named: a risk taken
+        code, out, cfg = self.main(family="gemma4", ram=10.0, vram=8.0, model="UD-Q3_K_M")   # named: a risk taken
         self.assertEqual(code, 0, out)
         self.assertIn("as you chose", out)
 
     def test_the_size_taken_without_a_name(self):
         """The first size where the PC has the RAM for it, the smaller one where not; the larger one only by name."""
-        for ram, size in ((64.0, "UD-Q3_K_M"), (20.0, "UD-Q3_K_M"), (16.0, "UD-Q2_K_XL")):
-            code, out, cfg = self.main(family="qwen36", ram=ram, vram=8.0)
+        # a size is taken unasked from 4 GB below its estimate (poly_default): UD-Q3_K_M ~18 GB, UD-Q2_K_XL ~15 GB
+        for ram, size in ((64.0, "UD-Q3_K_M"), (14.0, "UD-Q3_K_M"), (13.0, "UD-Q2_K_XL")):
+            code, out, cfg = self.main(family="gemma4", ram=ram, vram=8.0)
             self.assertEqual(code, 0, out)
             self.assertIn(f"size: {size}", out, ram)
-        code, out, cfg = self.main(family="qwen36", ram=64.0, vram=8.0, model="UD-Q4_K_M")
+        code, out, cfg = self.main(family="gemma4", ram=64.0, vram=8.0, model="UD-Q4_K_M")
         self.assertEqual(code, 0, out)
         self.assertIn("size: UD-Q4_K_M", out)
-
-    def test_a_size_of_another_family_is_refused_by_name(self):
-        code, out, cfg = self.main(family="gemma4", model="APEX-I-COMPACT")
-        self.assertNotEqual(code, 0)
-        self.assertIn("Gemma 4 26B-A4B has no APEX-I-COMPACT model file", out)
-        self.assertIn("UD-Q3_K_M", out)
-        code, out, cfg = self.main(family="qwen", model="UD-Q3_K_M")     # and the other way: who has it
-        self.assertNotEqual(code, 0)
-        self.assertIn("Qwen3.8-Flash-Next has no UD-Q3_K_M model file", out)
-        self.assertIn("--family qwen36 --model UD-Q3_K_M, --family gemma4 --model UD-Q3_K_M", out)
 
     def test_the_context_note_is_the_familys(self):
         code, out, cfg = self.main(family="gemma4", ram=32.0, vram=8.0, answers={"Context?": "3"})

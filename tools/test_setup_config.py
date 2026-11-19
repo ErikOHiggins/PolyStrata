@@ -1,5 +1,5 @@
 """Tests for what setup keeps in a model's run config when it runs again (#629), the browser choice (#609) and the
-image-token flag (#625).  Every outside effect is mocked (tools/test_setup_golden.py's install()).
+image-token flag (#625).  Every outside effect is mocked (tools/poly_setup_harness.py), with Gemma 4.
 
     python -m unittest tools.test_setup_config
 """
@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 import setup  # noqa: E402
-from test_setup_golden import PROFILES, install  # noqa: E402
+from tools.poly_setup_harness import PolyMain  # noqa: E402
+
+CFG = "strata-gemma4-ud-q3_k_m.json"   # the run config setup writes for Gemma 4 UD-Q3_K_M
 
 
 def quiet(fn, *args, **kw):
@@ -36,27 +38,29 @@ USER = {"sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.
 class CarryOver(unittest.TestCase):
     """#629: setup run again (a different --context) keeps the keys it does not write and keeps the old file as .bak."""
 
-    def setUp(self):
-        self.ram, self.found = PROFILES["64GB-1x32GB"]
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
     def run_setup(self, *extra, configs=()):
-        return install(self.ram, self.found, ["--family", "qwen", "--model", "Q2_0", "--no-start", *extra],
-                       configs=configs)
+        self.tearDown()                      # every run in a folder of its own, with only `configs` in it
+        self.setUp()
+        code, out, cfg = self.main(list(extra), family="gemma4", model="UD-Q3_K_M", ram=64.0, vram=31.84,
+                                   configs=configs)
+        return code, out, cfg, None
 
     def test_user_keys_survive_a_rerun(self):
         code, out, first, _ = self.run_setup("--context", "65536")
         self.assertEqual(code, 0, out)
         old = {**first, **USER, "args": first["args"] + ["--hand-option", "7"]}
-        code, out, cfg, _ = self.run_setup("--context", "131072", configs=[("strata-q2_0.json", old)])
+        code, out, cfg, _ = self.run_setup("--context", "131072", configs=[(CFG, old)])
         self.assertEqual(code, 0, out)
         for k, v in USER.items():
             self.assertEqual(cfg[k], v, k)
         a = cfg["args"]
         self.assertEqual(a[a.index("--max-context") + 1], "131072")       # the new choice is used
         self.assertNotIn("--hand-option", a)                               # setup chooses the engine options...
-        self.assertIn("kept from your earlier strata-q2_0.json: sampling, mcp_servers, mcp, cors_origins, "
+        self.assertIn(f"kept from your earlier {CFG}: sampling, mcp_servers, mcp, cors_origins, "
                       "reasoning_effort", out)
-        self.assertIn("kept as strata-q2_0.json.bak", out)
+        self.assertIn(f"kept as {CFG}.bak", out)
         self.assertIn("--hand-option", out)                                # ...and says which ones it did not keep
 
     def test_a_first_install_is_unchanged(self):
@@ -68,13 +72,12 @@ class CarryOver(unittest.TestCase):
 
     def test_setup_keys_are_rewritten(self):
         code, out, first, _ = self.run_setup()
-        old = {**first, "model_name": "renamed", "port": 9999, "draft_vocab": "en", "host": "0.0.0.0"}
-        code, out, cfg, _ = self.run_setup(configs=[("strata-q2_0.json", old)])
+        old = {**first, "model_name": "renamed", "port": 9999, "host": "0.0.0.0"}
+        code, out, cfg, _ = self.run_setup(configs=[(CFG, old)])
         self.assertEqual(code, 0, out)
         self.assertEqual(cfg["model_name"], first["model_name"])
         self.assertEqual(cfg["port"], first["port"])
         self.assertNotIn("host", cfg)                                     # as before: --host is given to setup
-        self.assertEqual(cfg["draft_vocab"], "en")                        # kept by its own rule (saved_draft_vocab)
         self.assertNotIn("kept from", out)
 
     def test_write_setup_config(self):
@@ -114,16 +117,8 @@ class CarryOver(unittest.TestCase):
             self.assertEqual(json.loads(p.read_text(encoding="utf-8")), {"exe": "e", "args": []})
             self.assertEqual((Path(d) / "strata-x.json.bak").read_text(encoding="utf-8"), "{cut off")
 
-    def test_display_tip_and_typed_ahead_flush(self):
-        # #779: the tip only when nvidia-smi says the card drives a display; #841: typed-ahead keys are dropped on a tty
-        with unittest.mock.patch.object(setup, "out", lambda cmd: "Enabled\n"):
-            self.assertTrue(setup.gpu_drives_display({"index": 0}))
-        with unittest.mock.patch.object(setup, "out", lambda cmd: "Disabled\n"), unittest.mock.patch.object(setup, "out") as o:
-            o.return_value = "Disabled\n"
-            self.assertFalse(setup.gpu_drives_display({"index": 1}))
-            self.assertIn("1", o.call_args[0][0])
-        with unittest.mock.patch.object(setup, "out", lambda cmd: ""):
-            self.assertFalse(setup.gpu_drives_display({"index": 0}))
+    def test_typed_ahead_flush(self):
+        # #841: typed-ahead keys are dropped on a tty
         with unittest.mock.patch.object(setup.sys, "stdin") as stdin:
             stdin.isatty.return_value = False
             setup.flush_typed_ahead()                      # a pipe: nothing touched
@@ -169,12 +164,14 @@ class NoBrowser(unittest.TestCase):
     """#609 (#631): --no-browser keeps the chat page from opening: "open_browser": false in the run config, no --open
     on the start's server command or in run-<model>.bat/.sh.  Without the flag nothing changes."""
 
-    def setUp(self):
-        self.ram, self.found = PROFILES["64GB-1x32GB"]
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
     def run_setup(self, *extra, configs=()):
-        return install(self.ram, self.found, ["--family", "qwen", "--model", "Q2_0", "--no-start", *extra],
-                       configs=configs)
+        self.tearDown()                      # every run in a folder of its own, with only `configs` in it
+        self.setUp()
+        code, out, cfg = self.main(list(extra), family="gemma4", model="UD-Q3_K_M", ram=64.0, vram=31.84,
+                                   configs=configs)
+        return code, out, cfg, None
 
     def test_at_setup(self):
         code, out, cfg, _ = self.run_setup("--no-browser")
@@ -183,9 +180,9 @@ class NoBrowser(unittest.TestCase):
         code, out, cfg, _ = self.run_setup()
         self.assertNotIn("open_browser", cfg)                             # not given: the config as before
         # setup run again without the flag keeps the choice (#629); --browser undoes it
-        code, out, cfg, _ = self.run_setup(configs=[("strata-q2_0.json", {"open_browser": False})])
+        code, out, cfg, _ = self.run_setup(configs=[(CFG, {"open_browser": False})])
         self.assertIs(cfg["open_browser"], False)
-        code, out, cfg, _ = self.run_setup("--browser", configs=[("strata-q2_0.json", {"open_browser": False})])
+        code, out, cfg, _ = self.run_setup("--browser", configs=[(CFG, {"open_browser": False})])
         self.assertIs(cfg["open_browser"], True)
 
     def test_run_script(self):
@@ -198,14 +195,17 @@ class NoBrowser(unittest.TestCase):
 
     def start_cmd(self, cfg, keep=None):
         with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / "strata.exe"
+            exe = Path(d) / setup.POLY_EXE
             exe.write_bytes(b"")
             p = Path(d) / "strata-q2_0.json"
             p.write_text(json.dumps({"exe": str(exe), "args": ["--kv", "int8"], "gpu": 0, "gpus_asked": True, **cfg}))
             call = unittest.mock.Mock(return_value=0)
-            with unittest.mock.patch.object(setup, "gpus", lambda: self.found), \
-                    unittest.mock.patch.object(setup, "is_wsl", lambda: False), \
-                    unittest.mock.patch.object(setup, "ensure_engine_for", lambda cards, path, c, yes: c), \
+            found = [{"index": 0, "name": "NVIDIA GeForce RTX 5090", "vram_gb": 31.84, "arch": "120",
+                      "driver": "580.97"}]
+            with unittest.mock.patch.object(setup, "gpus", lambda: found), \
+                    unittest.mock.patch.object(setup, "update_poly_engine", lambda *a, **k: None), \
+                    unittest.mock.patch.object(setup, "poly_tail_skip", lambda *a, **k: None), \
+                    unittest.mock.patch.object(setup, "poly_kv_whole", lambda *a, **k: None), \
                     unittest.mock.patch.object(setup.subprocess, "call", call):
                 _, out = quiet(setup.start, p, None, None, True, True, None, keep)
             return call.call_args[0][0], out, json.loads(p.read_text())
@@ -231,12 +231,14 @@ class VisionTokens(unittest.TestCase):
     """#625: --vision-tokens N sets the config's vision.max_tokens (the most image tokens a picture becomes); a setup
     run again keeps it for the same encoder device; without it the device's default, as before."""
 
-    def setUp(self):
-        self.ram, self.found = PROFILES["64GB-1x32GB"]
+    setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
     def run_setup(self, *extra, configs=()):
-        return install(self.ram, self.found, ["--family", "qwen", "--model", "Q2_0", "--no-start", *extra],
-                       configs=configs)
+        self.tearDown()                      # every run in a folder of its own, with only `configs` in it
+        self.setUp()
+        code, out, cfg = self.main(list(extra), family="gemma4", model="UD-Q3_K_M", ram=64.0, vram=31.84,
+                                   configs=configs)
+        return code, out, cfg, None
 
     def test_the_flag(self):
         code, out, cfg, _ = self.run_setup("--vision", "cpu")
@@ -254,7 +256,7 @@ class VisionTokens(unittest.TestCase):
 
     def test_kept_when_setup_runs_again(self):
         code, out, first, _ = self.run_setup("--vision", "cpu", "--vision-tokens", "768")
-        old = [("strata-q2_0.json", first)]
+        old = [(CFG, first)]
         code, out, cfg, _ = self.run_setup("--vision", "cpu", "--context", "65536", configs=old)
         self.assertEqual(cfg["vision"]["max_tokens"], 768)
         code, out, cfg, _ = self.run_setup("--vision", "cpu", "--vision-tokens", "300", configs=old)
@@ -270,7 +272,7 @@ class VisionTokens(unittest.TestCase):
         code, out, cfg, _ = self.run_setup("--vision", "no", "--vision-tokens", "768")
         self.assertEqual(code, 0, out)
         self.assertNotIn("vision", cfg)
-        self.assertIn("images are off", out)
+        self.assertIn("images: off", out)
 
 
 if __name__ == "__main__":

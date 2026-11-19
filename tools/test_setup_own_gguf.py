@@ -7,6 +7,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,18 +56,22 @@ class OwnGguf(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.f = self.d / "Tiel-Coder-35B-A3B-MTP-UD-IQ3_XXS.gguf"
+        # a family of the qwen35moe architecture (POLY_GGUF_ARCHS' default), as Occamy will be
+        fams = mock.patch.dict(setup.FAMILIES, {"qwen35moe-family": {"title": "A qwen35moe family"}})
+        fams.start()
+        self.addCleanup(fams.stop)
 
     def test_another_file_of_the_architecture_is_taken(self):
         gguf(self.f, "qwen35moe")
-        code, out = quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")
+        code, out = quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")
         self.assertEqual(code, "ok", out)
         self.assertIn("not the file setup offers", out)
         self.assertIn("own file", self.f.with_name(self.f.name + ".done").read_text())
-        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")[0], "ok")
+        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")[0], "ok")
 
     def test_another_architecture_is_refused_and_kept(self):
         gguf(self.f, "llama")
-        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")[0], "stopped")
+        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")[0], "stopped")
         self.assertTrue(self.f.exists())
         gguf(self.f, "qwen35moe")                  # a Qwen3.6-type file is not a Gemma 4 one
         self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "gemma4")[0], "stopped")
@@ -74,27 +79,27 @@ class OwnGguf(unittest.TestCase):
     def test_gate_and_up_of_different_types_are_refused(self):
         # issue 54: Tiel APEX-I-NanoPlus, whose layer 16 stores gate and up differently; the engine refuses it at load
         gguf_tensors(self.f, "qwen35moe", [("blk.16.ffn_gate_exps.weight", 0, 64), ("blk.16.ffn_up_exps.weight", 1, 64)])
-        code, out = quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")
+        code, out = quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")
         self.assertEqual(code, "stopped")
         self.assertIn("blk.16: F32 and F16", out)
         gguf_tensors(self.f, "qwen35moe", [("blk.16.ffn_gate_exps.weight", 1, 64), ("blk.16.ffn_up_exps.weight", 1, 64)])
-        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")[0], "ok")
+        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")[0], "ok")
 
     def test_an_incomplete_copy_is_refused(self):
         gguf(self.f, "qwen35moe", short=100)
-        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "tiel")[0], "stopped")
+        self.assertEqual(quiet(setup.verify_poly_own, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")[0], "stopped")
         self.assertTrue(self.f.exists())
 
     def test_ones_own_file_in_setups_folder_is_pointed_to_gguf_dir(self):
         # issue 54: renamed into setup's own models folder, without --gguf-dir
         gguf(self.f, "qwen35moe")
-        code, out = quiet(setup.verify_poly_download, self.f, 13_600_000_000, "0" * 64, "tiel")
+        code, out = quiet(setup.verify_poly_download, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")
         self.assertEqual(code, "stopped")
         self.assertIn("--gguf-dir", out)
         self.assertNotIn("delete it and run setup again (the download restarts)", out)
         self.assertTrue(self.f.exists())
         gguf(self.f, "qwen35moe", short=100)       # a truncated download is still one to fetch again
-        code, out = quiet(setup.verify_poly_download, self.f, 13_600_000_000, "0" * 64, "tiel")
+        code, out = quiet(setup.verify_poly_download, self.f, 13_600_000_000, "0" * 64, "qwen35moe-family")
         self.assertIn("the download restarts", out)
 
     def test_a_wrong_hash_deletes_only_what_setup_downloaded(self):

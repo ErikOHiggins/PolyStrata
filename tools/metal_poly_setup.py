@@ -7,7 +7,8 @@ from pathlib import Path
 
 from tools.gguf_reader import GGUFFile
 
-Q8_FAMILIES = frozenset({"qwen36", "ornith", "tiel", "minicpmv"})
+# the families with a Qwen35MoE GGUF (q8_0 KV on a Mac by default)
+Q8_FAMILIES = frozenset({"occamy"})
 
 
 def add_arguments(parser):
@@ -18,7 +19,7 @@ def add_arguments(parser):
     parser.add_argument("--metal-memory", choices=("legacy", "balanced"), default=None,
                         help="strata-poly memory policy (default balanced); omitted keeps a saved setting")
     parser.add_argument("--poly-kv", choices=("fp16", "q8_0"), default=None,
-                        help="strata-poly KV override; default Q8 for compatible Qwen35MoE models, otherwise FP16")
+                        help="strata-poly KV override; default Q8 for Qwen35MoE models, otherwise FP16")
 
 
 def requested(a):
@@ -29,7 +30,7 @@ def validate(a, poly_families):
     if requested(a) and a.family not in poly_families:
         raise ValueError("--metal-optimize, --no-metal-optimize, --metal-memory and --poly-kv require a strata-poly --family")
     if getattr(a, "poly_kv", None) == "q8_0" and a.family not in Q8_FAMILIES:
-        raise ValueError("--poly-kv q8_0 requires qwen36, ornith, tiel or minicpmv (Qwen35MoE)")
+        raise ValueError("--poly-kv q8_0 requires a Qwen35MoE family: " + (", ".join(sorted(Q8_FAMILIES)) or "none yet"))
 
 
 def read_config(path):
