@@ -2,18 +2,16 @@
 
 Reads the document once, then asks each question and reports, per question, the time to the first streamed token and
 the whole request, and the run's total.  Greedy (temperature 0), so two runs of the same file give the same answers and
-a change in how the server keeps the document (the shared prefix below) can be compared answer by answer.
+a change in how the server keeps the document can be compared answer by answer.
 
     python tools/research_run.py --url http://127.0.0.1:8080 --doc paper.txt --questions questions.txt
-    python tools/research_run.py --doc paper.txt --questions q.txt --prefix off --json base.json
-    python tools/research_run.py --doc paper.txt --questions q.txt --prefix on  --json fork.json
+    python tools/research_run.py --doc paper.txt --questions q.txt --json base.json
     python tools/research_run.py --compare base.json fork.json
 
 --layout split  (the default): the document is the first message, the question the second.
 --layout joined: one message, "document + question" (a client that cannot split them).
---prefix on: the request carries "strata_prefix" naming the document as the shared prefix (docs/DETAILS.md): the
-server reads it once and every question starts from it.  off: the field is left out.
 --parallel N: N questions at a time (the server needs "parallel": N for them to run together).
+(The Qwen engine's "strata_prefix", which named the document as a shared prefix, is gone with that engine.)
 """
 from __future__ import annotations
 
@@ -27,15 +25,11 @@ import urllib.request
 from pathlib import Path
 
 
-def request_body(doc: str, question: str, layout: str, prefix: bool, max_tokens: int, model: str | None) -> dict:
+def request_body(doc: str, question: str, layout: str, max_tokens: int, model: str | None) -> dict:
     if layout == "joined":
         body = {"messages": [{"role": "user", "content": doc + "\n\nQuestion: " + question + "\nAnswer:"}]}
-        if prefix:
-            body["strata_prefix"] = {"message": 0, "chars": len(doc) + 2}
     else:
         body = {"messages": [{"role": "user", "content": doc}, {"role": "user", "content": question}]}
-        if prefix:
-            body["strata_prefix"] = {"messages": 1}
     body.update(temperature=0, max_tokens=max_tokens, stream=True)
     if model:
         body["model"] = model
@@ -77,7 +71,7 @@ def run(args) -> dict:
 
         def one(i):
             try:
-                rows[i] = {"q": i, **ask(args.url, request_body(doc, questions[i], args.layout, args.prefix == "on",
+                rows[i] = {"q": i, **ask(args.url, request_body(doc, questions[i], args.layout,
                                                                   args.max_tokens, args.model), headers, args.timeout)}
             except Exception as e:  # noqa: BLE001 - a failed question is reported, the run goes on
                 rows[i] = {"q": i, "error": repr(e)}
@@ -88,7 +82,7 @@ def run(args) -> dict:
             r = rows[i]
             print(f"q{i:02d}  first token {r.get('ttft_s', '-')} s  total {r.get('wall_s', '-')} s  "
                   f"{r.get('error') or repr(r['text'][:60])}", flush=True)
-    out = {"url": args.url, "layout": args.layout, "prefix": args.prefix, "doc_chars": len(doc), "questions": rows,
+    out = {"url": args.url, "layout": args.layout, "doc_chars": len(doc), "questions": rows,
            "total_s": round(time.time() - started, 1)}
     later = [r["ttft_s"] for r in rows[1:] if r and "ttft_s" in r]
     if later:
@@ -122,7 +116,6 @@ def main(argv=None) -> int:
     ap.add_argument("--questions", help="a text file, one question per line")
     ap.add_argument("--n", type=int, default=0, help="only the first N questions")
     ap.add_argument("--layout", choices=("split", "joined"), default="split")
-    ap.add_argument("--prefix", choices=("on", "off"), default="on")
     ap.add_argument("--parallel", type=int, default=1)
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--limit-chars", type=int, default=0, help="use only the first N characters of the document")

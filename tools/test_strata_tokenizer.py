@@ -168,7 +168,6 @@ class PreTokenizerNames(unittest.TestCase):
     def test_qwen2_is_qwen2s_split_not_qwen35s(self):
         text = "cafe\u0301 x"
         self.assertEqual(self.pieces("qwen2", text), ["cafe", "\u0301", " x"])
-        self.assertEqual(self.pieces("kolibri1", text), ["cafe", "\u0301", " x"])
         self.assertEqual(self.pieces("qwen35", text), ["cafe\u0301", " x"])
 
 

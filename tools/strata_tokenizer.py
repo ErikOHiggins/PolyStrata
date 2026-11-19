@@ -65,20 +65,6 @@ QWEN35_PATTERN = (
     r"|\s+"
 )
 
-# The `glm4` / `glm5` pre-tokenizer (GLM 5.3 Flash), from llama.cpp's LLAMA_VOCAB_PRE_TYPE_CHATGLM4: no `\p{M}`,
-# and digits in runs of up to three.  llama.cpp also sets ignore_merges for these two names: a piece that is a
-# token as a whole is that token, without running the merges.  LLAMA_VOCAB_PRE_TYPE_LLAMA3, which llama.cpp gives
-# `lfm2` (LFM2.5-24B-A2B), is the same pattern with the same ignore_merges.
-GLM4_PATTERN = (
-    r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])"
-    r"|[^\r\n\p{L}\p{N}]?\p{L}+"
-    r"|\p{N}{1,3}"
-    r"| ?[^\s\p{L}\p{N}]+[\r\n]*"
-    r"|\s*[\r\n]+"
-    r"|\s+(?!\S)"
-    r"|\s+"
-)
-
 # The `gemma4` tokenizer (Gemma 4), from llama.cpp's LLAMA_VOCAB_PRE_TYPE_GEMMA4: a BPE over UTF-8 characters, not
 # over GPT-2's byte alphabet.  A space is written with SentencePiece's visible space before anything else, the text
 # is cut only at runs of newlines, a run that is a token as a whole is that token, the merges run over the rest,
@@ -86,41 +72,9 @@ GLM4_PATTERN = (
 GEMMA4_PATTERN = r"[^\n]+|\n+"
 SPACE = "\u2581"
 
-# The `joyai-llm` pre-tokenizer (DeepSeek V4 Flash), llama.cpp's LLAMA_VOCAB_PRE_TYPE_JOYAI_LLM, which is
-# DEEPSEEK3_LLM's: three patterns one after the other.  Each splits every piece the one before left into its
-# matches and the text between them, which stays a piece of its own (llama.cpp's unicode_regex_split): runs of up to
-# three digits, then runs of CJK ideographs and kana, then the rest.
-DEEPSEEK3_SEQUENCE = (
-    r"\p{N}{1,3}",
-    r"[一-龥぀-ゟ゠-ヿ]+",
-    r"""[!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+"""
-    r"|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+"
-    r"| ?[\p{P}\p{S}]+[\r\n]*"
-    r"|\s*[\r\n]+"
-    r"|\s+(?!\S)"
-    r"|\s+",
-)
-
-# The `flint` pre-tokenizer (Flint 40B-A2.5B), llama.cpp's LLAMA_VOCAB_PRE_TYPE_FLINT: the same three steps as
-# DeepSeek's, the last one cutting a word where its capitals end (a run of capitals with the small letters after
-# it, or capitals alone), with English contractions kept on the word.
-FLINT_SEQUENCE = (
-    r"\p{N}{1,3}",
-    r"[一-龥぀-ゟ゠-ヿ]+",
-    r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+"
-    r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?"
-    r"|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*"
-    r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?"
-    r"| ?[\p{P}\p{S}]+[\r\n]*"
-    r"|\s*[\r\n]+"
-    r"|\s+(?!\S)"
-    r"|\s+",
-)
-
-# The `qwen2` pre-tokenizer, llama.cpp's LLAMA_VOCAB_PRE_TYPE_QWEN2, which also takes `kolibri1` (Kolibri 1): the patch
-# that adds that architecture gives its pre-tokenizer this type ("same split regex as qwen2").  The letters are cut
-# without the combining marks that Qwen 3's pattern keeps with them.  A file can name `qwen2` itself: Occamy 1.0's
-# GGUFs do (a Qwen3.6-35B-A3B fine-tune whose tokenizer.json splits as Qwen 2), and they got qwen35's split before.
+# The `qwen2` pre-tokenizer, llama.cpp's LLAMA_VOCAB_PRE_TYPE_QWEN2.  The letters are cut without the combining marks
+# that Qwen 3's pattern keeps with them.  Occamy 1.0's GGUFs name it (a Qwen3.6-35B-A3B fine-tune whose tokenizer.json
+# splits as Qwen 2), and they got qwen35's split before.
 QWEN2_PATTERN = (
     r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])"
     r"|[^\r\n\p{L}\p{N}]?\p{L}+"
@@ -135,12 +89,8 @@ QWEN2_PATTERN = (
 # and its runs of newlines first, and each of those by Qwen 2's pattern.
 LAGUNA_SEQUENCE = (r"[^\n]+|[\n]+", QWEN2_PATTERN)
 
-PRE_PATTERNS = {"glm4": GLM4_PATTERN, "glm5": GLM4_PATTERN,   # every other name: QWEN35_PATTERN, as before
-                "qwen2": QWEN2_PATTERN,
-                "gemma4": GEMMA4_PATTERN, "lfm2": GLM4_PATTERN, "kolibri1": QWEN2_PATTERN}
-PRE_SEQUENCES = {"joyai-llm": DEEPSEEK3_SEQUENCE, "deepseek-v3": DEEPSEEK3_SEQUENCE, "flint": FLINT_SEQUENCE,
-                 "laguna": LAGUNA_SEQUENCE}
-IGNORE_MERGES = ("glm4", "glm5", "lfm2")
+PRE_PATTERNS = {"qwen2": QWEN2_PATTERN, "gemma4": GEMMA4_PATTERN}   # every other name: QWEN35_PATTERN, as before
+PRE_SEQUENCES = {"laguna": LAGUNA_SEQUENCE}
 RAW = ("gemma4",)                      # vocabularies of UTF-8 pieces
 MODELS = {"gpt2": None, "gemma4": "gemma4"}   # tokenizer.ggml.model -> the pre-tokenizer it implies, if any
 
@@ -171,7 +121,6 @@ class Tokenizer:
             self.ranks[(parts[0], parts[1])] = i
         self.pre_sequence = PRE_SEQUENCES.get(pre)
         self.pre_pattern = self.pre_sequence[-1] if self.pre_sequence else PRE_PATTERNS.get(pre, QWEN35_PATTERN)
-        self.ignore_merges = pre in IGNORE_MERGES
         self._re = regex.compile(self.pre_pattern)
         self._seq = [regex.compile(x) for x in self.pre_sequence] if self.pre_sequence else None
 
@@ -376,15 +325,12 @@ class Tokenizer:
             got = cache.get(piece)
             if got is None:
                 mapped = "".join(BYTE_TO_UNICODE[b] for b in piece.encode("utf-8"))
-                if self.ignore_merges and mapped in self.ids:
-                    got = [self.ids[mapped]]
-                else:
-                    got = []
-                    for tok in self._bpe(mapped):
-                        i = self.ids.get(tok)
-                        if i is None:
-                            raise KeyError("BPE produced a token outside the vocabulary: %r" % tok)
-                        got.append(i)
+                got = []
+                for tok in self._bpe(mapped):
+                    i = self.ids.get(tok)
+                    if i is None:
+                        raise KeyError("BPE produced a token outside the vocabulary: %r" % tok)
+                    got.append(i)
                 if len(cache) < self.PIECE_CACHE_MAX:
                     cache[piece] = got
             out.extend(got)
@@ -602,13 +548,12 @@ def extract(gguf_path, out_dir) -> dict:
         "pre_pattern": tk.pre_pattern,
         "pre_sequence": list(tk.pre_sequence) if tk.pre_sequence else None,
         "pre_pattern_source": "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_GEMMA4)" if tk.raw
-                              else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM)"
+                              else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_LAGUNA)"
                               if tk.pre_sequence
-                              else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_CHATGLM4)" if tk.ignore_merges
                               else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_QWEN2)"
                               if tk.pre_pattern == QWEN2_PATTERN
                               else ".ref/llama.cpp src/llama-vocab.cpp L396 (LLAMA_VOCAB_PRE_TYPE_QWEN35)",
-        "ignore_merges": tk.ignore_merges,
+        "ignore_merges": False,            # (GLM's and LFM2's pre-tokenizers had it; the readers keep the key)
     }
     merges =["%s %s" % k for k, _ in sorted(tk.ranks.items(), key=lambda kv: kv[1])]
     if tk.raw:      # its pieces can hold a newline, which a line a merge cannot

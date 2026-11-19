@@ -1,8 +1,8 @@
-"""tools/test_strata_mcp.py - tests for tools/strata_mcp.py (PolyStrata's MCP server), standard library only.
+"""tools/test_strata_mcp.py - tests for tools/strata_mcp.py (Puddle's MCP server), standard library only.
 
     python -m unittest tools/test_strata_mcp.py -v
 
-Setup and the model server are fakes (a temporary PolyStrata folder with a stand-in setup.py and serve/server.py), so
+Setup and the model server are fakes (a temporary Puddle folder with a stand-in setup.py and serve/server.py), so
 nothing is downloaded and no GPU is used: the JSON-RPC handshake, argument checks, install / start / stop with real
 background processes, status against a fake HTTP server, and that the built-in model table still matches setup.py.
 """
@@ -32,10 +32,10 @@ from pathlib import Path
 def main():
     root = Path(__file__).resolve().parent
     (root / "setup-args.json").write_text(json.dumps(sys.argv[1:]))
-    print("PolyStrata - fake setup", flush=True)
+    print("Puddle - fake setup", flush=True)
     print("\n=== Step 1: checking your PC ===", flush=True)
     print("  [ok] GPU: fake", flush=True)
-    print("\n=== Step 5: downloading Qwen3.8-Flash-Next Q2_0 ===", flush=True)
+    print("\n=== Step 5: downloading Laguna XS 2.1 Q4_K_M ===", flush=True)
     for pct in (10, 20, 30):
         print(f"\r  model.gguf:  {pct * 0.5:.2f} / 50.00 GB ({pct}%)   ", end="", flush=True)
     print(flush=True)
@@ -50,7 +50,7 @@ def main():
     a = sys.argv
     model = a[a.index("--model") + 1].lower()
     cfg = {"exe": sys.executable, "args": ["--max-context", a[a.index("--context") + 1]], "port": 8080,
-           "model_name": "qwen3.8-flash-next-" + model, "log": str(root / f"strata-{model}.log")}
+           "model_name": "laguna-xs-2.1-" + model, "log": str(root / f"strata-{model}.log")}
     (root / f"strata-{model}.json").write_text(json.dumps(cfg))
     print("All set.", flush=True)
 
@@ -146,12 +146,12 @@ FAKE_HW = {"os": "TestOS 1", "ram_gb": 64.0, "cpu": {"name": "Fake CPU", "cores"
 
 
 class FakeRoot(unittest.TestCase):
-    """A temporary PolyStrata folder: fake setup.py and serve/server.py, its own settings file (data folder)."""
+    """A temporary Puddle folder: fake setup.py and serve/server.py, its own settings file (data folder)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
-        self.root = base / "PolyStrata"
+        self.root = base / "Puddle"
         (self.root / "serve").mkdir(parents=True)
         (self.root / "setup.py").write_text(FAKE_SETUP)
         (self.root / "serve" / "server.py").write_text(FAKE_SERVER)
@@ -242,7 +242,7 @@ class Protocol(FakeRoot):
         call = r[3]["result"]
         self.assertFalse(call["isError"])
         self.assertIn("families", call["structuredContent"])
-        self.assertEqual(json.loads(call["content"][0]["text"])["recommendation"]["model"], "IQ3_XXS")
+        self.assertEqual(json.loads(call["content"][0]["text"])["recommendation"]["model"], "UD-Q3_K_XL")
         self.assertEqual(r[4]["result"], {})
         self.assertNotIn(None, r)                       # the notification got no answer
 
@@ -300,38 +300,36 @@ class Validation(FakeRoot):
         self.assertRejected("strata_install", {"port": 80}, "between")
         self.assertRejected("strata_install", {"backend": "rocm"}, "backend must be one of")
         self.assertRejected("strata_install", {"command": "setup.py --build"}, "unknown argument")
-        res, err = self.call("strata_install", {"family": "swift", "model": "IQ3_S"})
-        self.assertFalse(err, res)                      # Swift 1.5 got its IQ3_S (same shard layout as its IQ2_XS)
-        self.assertIn("--family swift --model IQ3_S", res["plan"]["setup_command"])
-        res, err = self.call("strata_install", {"family": "unsloth", "model": "UD-Q4_K_XL", "vision": "yes"})
-        self.assertFalse(err, res)                      # #967: images are allowed with UD-Q4_K_XL (setup warns)
+        self.assertRejected("strata_install", {"kv": "int8"}, "unknown argument")          # the Qwen engine's
+        self.assertRejected("strata_install", {"low_ram": "on"}, "unknown argument")
+        res, err = self.call("strata_install", {"family": "laguna-s", "model": "Q4_K_M"})
+        self.assertFalse(err, res)                      # poolside's own file
+        self.assertIn("--family laguna-s --model Q4_K_M", res["plan"]["setup_command"])
+        res, err = self.call("strata_install", {"family": "occamy", "vision": "yes"})
+        self.assertFalse(err, res)
         self.assertEqual(res["plan"]["images"], "yes")
+        self.assertRejected("strata_install", {"family": "laguna-s", "vision": "yes"}, "does not read images")
         self.assertRejected("strata_install", {"vision": "yes\nrm"}, "control characters")
 
-    def test_amd_vision_follows_setups_rules(self):
-        """#990: --vision cpu is allowed with the AMD backend on Linux (setup.hip_vision); a GPU encoder is not."""
-        with mock.patch.object(M, "WIN", False):
-            self.assertRejected("strata_install", {"backend": "hip", "vision": "yes"}, "no GPU image encoder")
-            self.assertRejected("strata_install", {"backend": "hip", "vision": "gpu"}, "vision=cpu")
-            res, err = self.call("strata_install", {"backend": "hip", "vision": "cpu"})
-            self.assertFalse(err, res)
-            self.assertEqual(res["plan"]["images"], "cpu")
-            self.assertIn("--vision cpu", res["plan"]["setup_command"])
-            res, err = self.call("strata_install", {"backend": "hip", "vision": "no"})
-            self.assertFalse(err, res)
-        with mock.patch.object(M, "WIN", True):
-            self.assertRejected("strata_install", {"backend": "hip", "vision": "cpu"}, "Linux")
+    def test_amd_has_no_images(self):
+        """The image encoder is a CUDA program: with the AMD backend images are off (setup says so too)."""
+        for vision in ("yes", "gpu", "cpu"):
+            self.assertRejected("strata_install", {"family": "occamy", "backend": "hip", "vision": vision},
+                                "images are off")
+        res, err = self.call("strata_install", {"family": "occamy", "backend": "hip", "vision": "no"})
+        self.assertFalse(err, res)
+        self.assertIn("--backend hip", res["plan"]["setup_command"])
 
     def test_data_dir_paths(self):
         self.assertRejected("strata_install", {"data_dir": "models"}, "absolute")
-        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "x" / ".." / "PolyStrata-x")}, "'..'")
-        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "Documents")}, "named PolyStrata")
-        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "nope" / "PolyStrata-data")},
+        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "x" / ".." / "Puddle-x")}, "'..'")
+        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "Documents")}, "named Puddle")
+        self.assertRejected("strata_install", {"data_dir": str(self.root.parent / "nope" / "Puddle-data")},
                             "does not exist")
-        self.assertRejected("strata_install", {"data_dir": "\\\\server\\share\\PolyStrata-data"}, "network")
-        sysdir = (os.environ.get("SystemRoot", "C:\\Windows") + "\\PolyStrata-data") if M.WIN else "/etc/PolyStrata-data"
+        self.assertRejected("strata_install", {"data_dir": "\\\\server\\share\\Puddle-data"}, "network")
+        sysdir = (os.environ.get("SystemRoot", "C:\\Windows") + "\\Puddle-data") if M.WIN else "/etc/Puddle-data"
         self.assertRejected("strata_install", {"data_dir": sysdir}, "system folder")
-        ok = [self.root.parent / "PolyStrata-data", self.root / "models-here", self.root.parent / "PolyStrata-big"]
+        ok = [self.root.parent / "Puddle-data", self.root / "models-here", self.root.parent / "Puddle-big"]
         for d in ok:
             self.assertEqual(M.norm(self.tools.check_data_dir(str(d))), M.norm(d))
 
@@ -350,7 +348,7 @@ class Validation(FakeRoot):
         self.write_config("q2_0", log=str(Path(self.tmp.name).parent / "elsewhere.log"))
         res, err = self.call("strata_logs", {"source": "engine", "model": "q2_0"})
         self.assertTrue(err)
-        self.assertIn("outside the PolyStrata folder", res["error"])
+        self.assertIn("outside the Puddle folder", res["error"])
         self.write_config("q2_0")
         res, err = self.call("strata_logs", {"source": "engine"})
         self.assertFalse(err)
@@ -366,17 +364,19 @@ class Install(FakeRoot):
         res, err = self.call("strata_install", {})
         self.assertFalse(err)
         self.assertIn("Nothing was done yet", res["summary"])
-        self.assertEqual((res["plan"]["family"], res["plan"]["model"], res["plan"]["context"]), ("qwen", "IQ3_XXS", 32768))
+        self.assertEqual((res["plan"]["family"], res["plan"]["model"], res["plan"]["context"]),
+                         ("laguna-s", "UD-Q3_K_XL", 32768))
         self.assertFalse((self.root / "setup-args.json").exists())
         self.assertIsNone(self.strata.install_job())
 
-        res, err = self.call("strata_install", {"model": "Q2_0", "context": 65536, "vision": "no", "confirm": True})
+        res, err = self.call("strata_install", {"model": "APEX-I-Compact", "context": 65536, "vision": "no",
+                                                "confirm": True})
         self.assertFalse(err, res)
         self.assertIn("started in the background", res["summary"])
         self.wait_job()
         args = json.loads((self.root / "setup-args.json").read_text())
         self.assertEqual(args[:2], ["--yes", "--no-start"])
-        for pair in (["--family", "qwen"], ["--model", "Q2_0"], ["--context", "65536"], ["--vision", "no"]):
+        for pair in (["--family", "occamy"], ["--model", "APEX-I-Compact"], ["--context", "65536"], ["--vision", "no"]):
             i = args.index(pair[0])
             self.assertEqual(args[i:i + 2], pair)
         res, err = self.call("strata_install", {})
@@ -384,24 +384,21 @@ class Install(FakeRoot):
         self.assertEqual(res["install"]["exit_code"], 0)
         self.assertEqual(res["next"], "strata_start")
         st, _ = self.call("strata_status", {"hardware": False})
-        self.assertEqual([m["model"] for m in st["installed"]["models"]], ["q2_0"])
+        self.assertEqual([m["model"] for m in st["installed"]["models"]], ["apex-i-compact"])
 
-    def test_glm_plan(self):
-        """GLM 5.3 Flash: its one size, no images, and the context it was measured with whatever the card."""
+    def test_laguna_plan(self):
+        """Laguna-S: the menu's first family; no images; the context setup preselects whatever the card."""
         card = {**FAKE_HW["gpus"][0], "vram_gb": 31.5}
         self.strata._hardware = lambda: {**FAKE_HW, "ram_gb": 128.0, "gpus": [card]}
-        res, err = self.call("strata_install", {"family": "glm"})
+        res, err = self.call("strata_install", {"family": "laguna-s"})
         self.assertFalse(err, res)
         p = res["plan"]
-        self.assertEqual((p["family"], p["model"], p["context"], p["images"]), ("glm", "3.0BIT", 32768, "no"))
-        self.assertIn("--family glm --model 3.0BIT --context 32768 --vision no", p["setup_command"])
+        self.assertEqual((p["family"], p["model"], p["context"], p["images"]), ("laguna-s", "UD-Q3_K_XL", 32768, "no"))
+        self.assertIn("--family laguna-s --model UD-Q3_K_XL --context 32768 --vision no", p["setup_command"])
         self.assertNotIn("--experimental-speed-projection", p["setup_command"])
-        res, err = self.call("strata_install", {"family": "glm", "vision": "yes"})
-        self.assertTrue(err)
-        self.assertIn("images are not available", res["error"])
 
-    def test_a_family_with_sizes_of_its_own(self):
-        """Qwen3.6, Ornith 1.5 and Gemma 4: three sizes each, two families' of the same names; a 32 GB PC with an
+    def test_sizes_and_families(self):
+        """A size names its family where only one has it; Q4_K_M is Laguna-S's and Laguna-XS's.  A 32 GB PC with an
         8 GB card."""
         card = {**FAKE_HW["gpus"][0], "vram_gb": 8.0}
         self.strata._hardware = lambda: {**FAKE_HW, "ram_gb": 32.0, "gpus": [card]}
@@ -411,41 +408,37 @@ class Install(FakeRoot):
         self.assertEqual((p["family"], p["model"], p["context"], p["download_gb"], p["ram"]),
                          ("gemma4", "UD-Q3_K_M", 32768, 13.2, "fits"))
         self.assertIn("--family gemma4 --model UD-Q3_K_M --context 32768 --vision no", p["setup_command"])
-        res, err = self.call("strata_install", {"model": "APEX-I-COMPACT"})
+        res, err = self.call("strata_install", {"model": "APEX-I-Compact"})
         self.assertFalse(err, res)
-        self.assertEqual((res["plan"]["family"], res["plan"]["download_gb"]), ("ornith", 17.4))
-        res, err = self.call("strata_install", {"model": "UD-Q3_K_M"})
+        self.assertEqual((res["plan"]["family"], res["plan"]["download_gb"]), ("occamy", 16.5))
+        res, err = self.call("strata_install", {"model": "Q4_K_M"})
         self.assertTrue(err)
-        self.assertIn("give family too (qwen36 or gemma4)", res["error"])
-        res, err = self.call("strata_install", {"model": "UD-Q4_K_XL"})    # Unsloth's, as before Tiel had one
+        self.assertIn("give family too (laguna-s or laguna-xs)", res["error"])
+        res, err = self.call("strata_install", {"family": "laguna-xs"})
         self.assertFalse(err, res)
-        self.assertEqual(res["plan"]["family"], "unsloth")
-        res, err = self.call("strata_install", {"family": "tiel"})
-        self.assertFalse(err, res)
-        self.assertEqual((res["plan"]["model"], res["plan"]["download_gb"], res["plan"]["ram"]),
-                         ("UD-Q3_K_XL", 17.2, "fits"))
-        res, err = self.call("strata_install", {"family": "qwen", "model": "UD-Q3_K_M"})
+        self.assertEqual((res["plan"]["model"], res["plan"]["download_gb"], res["plan"]["ram"]), ("Q4_K_M", 20.3, "fits"))
+        res, err = self.call("strata_install", {"family": "laguna-s", "model": "UD-Q3_K_M"})
         self.assertTrue(err)
-        self.assertIn("Qwen3.8-Flash-Next has no UD-Q3_K_M", res["error"])
+        self.assertIn("Laguna S 2.1 has no UD-Q3_K_M", res["error"])
         res, err = self.call("strata_models", {})
         self.assertFalse(err, res)
         by = {f["family"]: f["sizes"] for f in res["families"]}
-        self.assertEqual([(x["model"], x["download_gb"], x["on_this_pc"], x["id"]) for x in by["qwen36"]],
-                         [("UD-Q3_K_M", 17.1, "fits", "qwen36-ud-q3_k_m"),
-                          ("UD-Q2_K_XL", 12.6, "fits", "qwen36-ud-q2_k_xl"),
-                          ("UD-Q4_K_M", 22.7, "fits", "qwen36-ud-q4_k_m")])
+        self.assertEqual([(x["model"], x["download_gb"], x["on_this_pc"], x["id"]) for x in by["occamy"]],
+                         [("APEX-Quality", 22.8, "fits", "occamy-apex-quality"),
+                          ("APEX-I-Compact", 16.5, "fits", "occamy-apex-i-compact"),
+                          ("APEX-Balanced", 25.3, "fits", "occamy-apex-balanced")])
         self.assertEqual((by["gemma4"][0]["download_gb"], by["gemma4"][0]["images"]), (13.2, True))
-        self.assertFalse(next(f for f in res["families"] if f["family"] == "glm")["images"])   # GLM reads none
+        self.assertFalse(next(f for f in res["families"] if f["family"] == "laguna-s")["images"])
 
     def test_progress_while_running_and_cancel(self):
         (self.root / "slow").write_text("")
-        res, err = self.call("strata_install", {"family": "coder", "confirm": True})
+        res, err = self.call("strata_install", {"family": "laguna-xs", "confirm": True})
         self.assertFalse(err, res)
         self.assertTrue(wait_for(lambda: (self.strata.install_job() or {}).get("download") is not None, 30))
-        res, err = self.call("strata_install", {"model": "IQ3_S", "confirm": True})   # a second call: progress only
+        res, err = self.call("strata_install", {"model": "APEX-Quality", "confirm": True})   # a second call: progress only
         self.assertFalse(err)
         self.assertIn("an install is running", res["summary"])
-        self.assertEqual(res["install"]["step"], "5/7: downloading Qwen3.8-Flash-Next Q2_0")
+        self.assertEqual(res["install"]["step"], "5/7: downloading Laguna XS 2.1 Q4_K_M")
         self.assertEqual(res["install"]["download"]["percent"], 30)
         res, err = self.call("strata_start", {})
         self.assertTrue(err)
@@ -456,7 +449,7 @@ class Install(FakeRoot):
 
     def test_failure_is_reported(self):
         (self.root / "fail").write_text("")
-        self.call("strata_install", {"model": "Q2_0", "confirm": True})
+        self.call("strata_install", {"family": "laguna-xs", "confirm": True})
         self.wait_job()
         res, _ = self.call("strata_install", {})
         self.assertEqual(res["install"]["result"], "failed")
@@ -464,9 +457,9 @@ class Install(FakeRoot):
 
     def test_disk_space_is_checked(self):
         self.strata.disk_free = lambda p: 10.0
-        res, err = self.call("strata_install", {"model": "Q2_0"})
+        res, err = self.call("strata_install", {"family": "laguna-xs"})
         self.assertIn("not enough free disk space", res["plan"]["disk_short"])
-        res, err = self.call("strata_install", {"model": "Q2_0", "confirm": True})
+        res, err = self.call("strata_install", {"family": "laguna-xs", "confirm": True})
         self.assertTrue(err)
         self.assertIsNone(self.strata.install_job())
 
@@ -478,7 +471,7 @@ class StartStop(FakeRoot):
         self.write_config("q2_0", port=port, delay=1.5)
         res, err = self.call("strata_start", {"wait_seconds": 30})
         self.assertFalse(err, res)
-        self.assertIn("PolyStrata is running", res["summary"])
+        self.assertIn("Puddle is running", res["summary"])
         pid = res["server"]["pid"]
 
         st, _ = self.call("strata_status", {"hardware": False})
@@ -505,7 +498,7 @@ class StartStop(FakeRoot):
 
         res, err = self.call("strata_stop", {})
         self.assertFalse(err, res)
-        self.assertIn("PolyStrata stopped", res["summary"])
+        self.assertIn("Puddle stopped", res["summary"])
         self.assertEqual(res["engine_unloaded"], "unloaded")
         self.assertEqual((self.root / "unloaded.txt").read_text().split(), [str(port)])
         ident = M.proc_identity(pid)
@@ -513,7 +506,7 @@ class StartStop(FakeRoot):
         st, _ = self.call("strata_status", {"hardware": False})
         self.assertEqual(st["running"], [])
         res, _ = self.call("strata_stop", {})
-        self.assertEqual(res["summary"], "PolyStrata is not running")
+        self.assertEqual(res["summary"], "Puddle is not running")
 
     def test_start_reports_a_crash(self):
         self.write_config("q2_0", port=free_port(), crash=True)
@@ -566,7 +559,7 @@ class StartStop(FakeRoot):
         self.strata.save_state("server", {"pid": other.pid, "ident": "win:1" if M.WIN else "linux:1",
                                           "port": free_port(), "model": "q2_0"})
         res, _ = self.call("strata_stop", {})
-        self.assertEqual(res["summary"], "PolyStrata is not running")
+        self.assertEqual(res["summary"], "Puddle is not running")
         self.assertFalse(M.proc_terminate(other.pid, "linux:1"))
         time.sleep(0.3)
         self.assertIsNone(other.poll())
@@ -600,7 +593,7 @@ class Helpers(unittest.TestCase):
     def test_progress_from_setup_output(self):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "setup.log"
-            f.write_text("=== Step 4: the PolyStrata engine ===\n  [ok] engine\n=== Step 5: downloading X ===\n"
+            f.write_text("=== Step 4: the Puddle engine ===\n  [ok] engine\n=== Step 5: downloading X ===\n"
                          "\r  a.gguf:   1.00 / 50.00 GB (2%)   \r  a.gguf:  25.00 / 50.00 GB (50%)   \n")
             p = M.install_progress(M.read_tail(f, 50))
         self.assertEqual(p["step"], "5/7: downloading X")
@@ -611,60 +604,39 @@ class Helpers(unittest.TestCase):
         s = M.Strata(HERE.parent)
         S = s.setup_module()
         self.assertIsNotNone(S, "the repository's setup.py did not import")
-        self.assertEqual(list(S.MODELS), list(M.FALLBACK_MODELS))
-        for m, d in S.MODELS.items():
-            for k in ("download_gb", "ram_gb", "arena_gb"):
-                self.assertEqual(d[k], M.FALLBACK_MODELS[m][k], f"{m} {k}")
-            for k in ("experimental", "vision"):
-                self.assertEqual(d.get(k), M.FALLBACK_MODELS[m].get(k), f"{m} {k}")
-            self.assertEqual(d.get("families", ("qwen", "swift")), M.FALLBACK_MODELS[m].get("families", ("qwen", "swift")))
         self.assertEqual(list(S.FAMILIES), list(M.FALLBACK_FAMILIES))
         for f, d in S.FAMILIES.items():
-            self.assertEqual(d["tag"], M.FALLBACK_FAMILIES[f]["tag"])
-            self.assertEqual((d.get("vision"), d["about"]), (M.FALLBACK_FAMILIES[f].get("vision"),
-                                                              M.FALLBACK_FAMILIES[f]["about"]), f)
-            own = M.FALLBACK_FAMILIES[f].get("models", {})
-            self.assertEqual(list(d.get("models", {})), list(own), f)
-            for m, size in d.get("models", {}).items():
-                for k in ("about", "download_gb", "ram_gb", "arena_gb"):
-                    self.assertEqual(size[k], own[m][k], f"{f} {m} {k}")
-        self.assertEqual(list(S.CONTEXTS), M.FALLBACK_CONTEXTS)
-
-    def test_unsloth_sizes(self):
-        """0.1.39: UD-IQ4_XS is a regular size, listed first; MODEL-UPDATE Phase 2: UD-Q4_K_XL is no longer experimental,
-        and UD-Q5_K_XL, UD-Q6_K_XL and Q8_0 follow by size."""
-        s = M.Strata(HERE.parent)
-        for models in (s.tables()[0], M.FALLBACK_MODELS):
-            self.assertEqual(s.sizes_of(models, "unsloth"), ["UD-IQ4_XS", "UD-Q4_K_XL", "UD-Q5_K_XL", "UD-Q6_K_XL", "Q8_0"])
-            self.assertFalse(models["UD-IQ4_XS"].get("experimental"))
-            self.assertFalse(models["UD-Q4_K_XL"].get("experimental"))
-        self.assertEqual(s.sizes_of(M.FALLBACK_MODELS, "qwen"), ["Q2_0", "IQ2_XS", "IQ3_XXS", "IQ3_S"])
-        fam = next(f for f in s.model_table({"ram_gb": 63.7, "gpus": []}) if f["family"] == "unsloth")
-        self.assertFalse(fam["experimental"])
-        self.assertTrue(fam["images"])
-        by = {x["model"]: x for x in fam["sizes"]}
-        self.assertEqual((by["UD-IQ4_XS"]["experimental"], by["UD-IQ4_XS"]["images"]), (False, True))
-        self.assertEqual((by["UD-Q4_K_XL"]["experimental"], by["UD-Q4_K_XL"]["images"]), (False, True))   # #967
-        self.assertFalse(by["UD-IQ4_XS"]["on_this_pc"].startswith("experimental"))
-        self.assertIn("read from the SSD", by["UD-Q4_K_XL"]["on_this_pc"])      # 64 GB: the RAM budget
-        fam = next(f for f in s.model_table({"ram_gb": 127.8, "gpus": []}) if f["family"] == "unsloth")
-        by = {x["model"]: x for x in fam["sizes"]}
-        self.assertEqual(by["UD-Q4_K_XL"]["on_this_pc"], "fits (all of its experts in RAM)")
-        self.assertIn("read from the SSD", by["Q8_0"]["on_this_pc"])
+            own = M.FALLBACK_FAMILIES[f]
+            for k in ("title", "tag", "about", "vision", "experimental", "windows"):
+                self.assertEqual(d.get(k), own.get(k), f"{f} {k}")
+            self.assertEqual(list(d["models"]), list(own["models"]), f)
+            for m, size in d["models"].items():
+                for k in ("about", "download_gb", "ram_gb", "arena_gb", "vram_beside_gb"):
+                    self.assertEqual(size.get(k), own["models"][m].get(k), f"{f} {m} {k}")
+        self.assertEqual(list(S.POLY_CONTEXTS), M.FALLBACK_CONTEXTS)
 
     def test_recommendation_follows_ram(self):
+        """setup's own rules: the first family whose preselected size fits (setup's estimate for the card)."""
         s = M.Strata(HERE.parent)
         gpu = [{"index": 0, "name": "x", "vram_gb": 24.0, "usable": True, "vendor": "nvidia"}]
-        cases = {96: ("qwen", "IQ3_XXS", 131072), 48: ("qwen", "Q2_0", 131072), 32: ("coder", "IQ1_M", 131072)}
+        cases = {96: ("laguna-s", "UD-Q3_K_XL", 32768), 48: ("laguna-s", "UD-Q3_K_XL", 32768),
+                 32: ("laguna-xs", "Q4_K_M", 32768)}
         for ram, want in cases.items():
             r = s.recommend({"ram_gb": ram, "gpus": gpu, "cpu": {"avx2": True}})
             self.assertEqual((r["family"], r["model"], r["context"]), want, ram)
         r = s.recommend({"ram_gb": 16, "gpus": [{**gpu[0], "vram_gb": 8.0}], "cpu": {"avx2": True}})
+        self.assertEqual((r["family"], r["model"]), ("gemma4", "UD-Q3_K_M"))   # an 8 GB card and 16 GB of RAM
+        r = s.recommend({"ram_gb": 8, "gpus": [{**gpu[0], "vram_gb": 8.0}], "cpu": {"avx2": True}})
         self.assertIsNone(r["model"])
+        self.assertIn("wants the least", r["why"])
         r = s.recommend({"ram_gb": 64, "gpus": [], "cpu": {"avx2": True}})
         self.assertIsNone(r["model"])
-        r = s.recommend({"ram_gb": 64, "gpus": [{**gpu[0], "vram_gb": 12.0}], "cpu": {"avx2": True}})
-        self.assertEqual(r["context"], 32768)
+
+    def test_the_settings_file_and_the_data_folder_are_puddles(self):
+        s = M.Strata(HERE.parent)
+        self.assertEqual(s.settings_path().parent.name.lower(), "puddle")
+        with mock.patch.object(M.Strata, "settings_path", lambda self: Path(self.root) / "no-such-settings.json"):
+            self.assertEqual(s.data_dir().name, "Puddle-data")
 
 
 TablesMatch = Helpers

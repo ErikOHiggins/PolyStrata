@@ -181,15 +181,6 @@ PY_PACKAGES = ["numpy", "jinja2", "regex", "pyyaml", "tqdm", "requests", "cmake"
 REQUIREMENTS = ROOT / "requirements.txt"   # the same packages and their dependencies, pinned (#214)
 
 
-MODELS = {}             # the Qwen engine's sizes are gone (phase 1b); every family names its own ("models")
-# Contexts past 262144 (the model's trained length) extend it by rope scaling: for the context it will
-# serve the setup resolves the method (yarn, or one question when interactive) and derives the factor
-# from the final context (final / 262144, at least 1) itself (below), keeps an explicit
-# --rope-scaling/--rope-scale, and refuses an explicit --rope-scaling none there - the stock angles past
-# the trained range are out of spec.
-# 204800 (200K) sits between 128K and 256K: it is inside the trained 262144, so it needs no rope scaling and
-# costs ~2.8 GB of 8-bit KV with IQ3_S (vs ~3.6 GB at 256K) - a middle step for PCs that cannot hold 256K.
-CONTEXTS = [8192, 32768, 65536, 131072, 204800, 262144, 393216, 524288]
 # The model families Puddle offers: each runs on strata-poly and has sizes of its own ("models").
 FAMILIES = {
     # Laguna-S 2.1 (poolside): 48 layers, 12 of them full attention (8 KV heads of 128), 36 sliding (a 512-token
@@ -1099,19 +1090,17 @@ def choose_gpus(a, found) -> list:
 
 
 def family_models(family: str) -> dict:
-    """A family's sizes, each name with what MODELS says of a size.  A family may name its own ("models")."""
-    fam = FAMILIES[family]
-    return fam["models"] if "models" in fam else \
-        {m: d for m, d in MODELS.items() if family in d.get("families", ("qwen", "swift"))}
+    """A family's sizes ("models"), each name with what the family says of it."""
+    return FAMILIES[family]["models"]
 
 
 def model_file(fam: dict, model: str, i: int) -> str:
     """Shard i's file name: the family's pattern, or the model's own (#621: UD-IQ4_XS has three shards, not four)."""
-    return fam.get("models", MODELS).get(model, {}).get("file", fam["file"]).format(q=model, i=i)
+    return fam["models"].get(model, {}).get("file", fam["file"]).format(q=model, i=i)
 
 
 def model_shards(fam: dict, model: str) -> int:
-    return fam.get("models", MODELS).get(model, {}).get("shards", fam.get("shards", 2))
+    return fam["models"].get(model, {}).get("shards", fam.get("shards", 2))
 
 
 def gpu_info(pick=None):
@@ -1501,23 +1490,6 @@ def verify_poly_download(s: Path, size: int, sha: str, family: str) -> None:
              "to run your own file, move it to a folder of its own and run setup with --gguf-dir <that folder>; "
              "to download setup's file instead, delete it and run setup again")
     verify_sha256(s, size, sha)
-
-
-# MODEL-UPDATE Phase 2: Unsloth's files keep every expert in RAM (a pinned arena, as ISTA's files do) where the experts
-# and this much more fit the PC's RAM; the RAM budget (--resident-budget-gib: the hottest experts in RAM, the rest read
-# from the GGUF in place) only below that.  The rule and the 16 GiB are sergqwer's fork (sergqwer/strata-nvfp4,
-# 0.1.42-nvfp4.2, MIT): there, on 128 GB with an RTX 5090, UD-Q4_K_XL decoded at 169 tokens/s and read a 32K prompt in
-# 4.9 s with every expert in RAM, against 118 tokens/s and 30 s in the budget mode.
-UNSLOTH_RESIDENT_BESIDE_GB = 16
-
-
-def unsloth_budget(model, ram, gpu=None, asked=None) -> bool:
-    """Does setup write the RAM-budget mode (--resident-budget-gib) for this Unsloth file: asked for (--resident-budget-gib
-    N), a unified-memory APU (#1715: there the budget and the GPU's cache are the same RAM, and the all-in-RAM mode was
-    measured on discrete cards only), or its experts with UNSLOTH_RESIDENT_BESIDE_GB beside them do not fit this PC's RAM
-    (GiB, ram_gb()).  Else every expert is kept in RAM, as for ISTA's files."""
-    return asked is not None or bool((gpu or {}).get("uma")) or \
-        ram < MODELS[model]["arena_gb"] / 1.073741824 + UNSLOTH_RESIDENT_BESIDE_GB
 
 
 def check_shards(shards):
@@ -2910,21 +2882,6 @@ DATA_FOLDER_NAME = "Puddle-data"
 INSTALL_PREFIX = "puddle"                  # the folders other_installs() looks at: Puddle's, never PolyStrata's
 
 
-LOW_RAM_HEADROOM_GB = 10   # RAM beside the experts: the OS, the engine's other buffers, the server
-
-
-def low_ram_needed(model, ram) -> bool:
-    """The model's experts do not fit this PC's RAM with room left for the rest: they are then mapped from the pack's
-    experts.bin instead of copied into RAM (the low-RAM mode)."""
-    return ram < MODELS[model]["arena_gb"] + LOW_RAM_HEADROOM_GB
-
-
-def low_ram_fits(model, ram, vram_gb) -> bool:
-    """In the low-RAM mode: the experts the GPU does not hold fit the RAM left beside the rest (as file cache)."""
-    arena = MODELS[model]["arena_gb"]
-    return ram - 6 + max(0.0, vram_gb - 5) >= arena
-
-
 def confirm_risk(msg, explicit, yes, stop, hint=None, question="  Go on anyway?", default="n") -> None:
     """The owner's rule: setup recommends, it never forces.  A choice setup expects to fail or run badly is said
     plainly (msg), then asked (default n; `default` keeps an older question's own default), or with --yes taken as
@@ -3525,11 +3482,6 @@ def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_
     for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
                                            break_on_hyphens=False)):   # #564: what this start uses
         say(("  " if n == 0 else "    ") + line)
-    if not WIN and os.environ.get("STRATA_EXECV"):
-        # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
-        # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
-        # answer the engine with QUIT. Normal Linux starts keep spawning the server as a child.
-        os.execv(cmd[0], cmd)
     return subprocess.call(cmd)
 
 
@@ -3589,7 +3541,7 @@ def poly_config(cfg: dict) -> bool:
     return Path(str(cfg.get("exe", ""))).name in (POLY_EXE, OLD_POLY_EXE)
 
 
-# The estimates below take a size's entry: what MODELS, or a family's own "models", says of it (family_models()).
+# The estimates below take a size's entry: what its family's "models" says of it (family_models()).
 def poly_beside_gb(d) -> float:
     """The GiB of VRAM a size takes before any expert, at a 32K context."""
     return d.get("vram_beside_gb", GLM_VRAM_BESIDE_GB)
@@ -4380,8 +4332,8 @@ def resolve_custom_gguf(path_str: str) -> tuple[str, str, list[Path]]:
         return fam_model[0], fam_model[1], files
 
     if kind == "family":
-        from strata_inspect import PREVIEW_ARCHS, POLY_ARCHS
-        title = PREVIEW_ARCHS.get(fp["arch"], "") or POLY_ARCHS.get(fp["arch"], "")
+        from strata_inspect import family_title
+        title = family_title(fp)
         fam, models_dict = next(((k, v["models"]) for k, v in FAMILIES.items() if v.get("title") == title),
                                 (None, None))
         if not fam:

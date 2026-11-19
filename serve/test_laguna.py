@@ -26,7 +26,7 @@ class PreTokenizer(unittest.TestCase):
         # llama.cpp's LLAMA_VOCAB_PRE_TYPE_LAGUNA: [^\n]+|[\n]+ first, then Qwen 2's pattern in each piece.  The
         # spaces before a newline stay with their line; Qwen 2's pattern alone takes them with the newline.
         self.assertEqual(self.pieces("laguna", "a  \nb"), ["a", "  ", "\n", "b"])
-        self.assertEqual(self.pieces("kolibri1", "a  \nb"), ["a", "  \n", "b"])
+        self.assertEqual(self.pieces("qwen2", "a  \nb"), ["a", "  \n", "b"])
         self.assertEqual(self.pieces("laguna", "x\n\n\n    return y"), ["x", "\n\n\n", "   ", " return", " y"])
 
     def test_digits_one_at_a_time_and_contractions_apart(self):

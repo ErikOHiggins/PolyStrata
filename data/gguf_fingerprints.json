@@ -1,227 +1,221 @@
 {
- "qwen/Q2_0": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 66412853760,
+ "laguna-s/UD-Q3_K_XL": {
+  "arch": "laguna",
+  "layers": 48,
+  "tensors": 814,
+  "bytes": 54090085376,
   "expert_bytes": {
-   "Q2_0": 33973862400
+   "IQ3_XXS": 28361883648,
+   "IQ4_XS": 20107493376,
+   "Q6_K": 1321205760
   },
-  "experts_bpw": 2.25,
-  "bpw": 3.003,
+  "experts_bpw": 3.508,
+  "bpw": 3.681,
   "files": [
-   "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
-   "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf"
+   "UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf",
+   "UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00002-of-00003.gguf",
+   "UD-Q3_K_XL/Laguna-S-2.1-UD-Q3_K_XL-00003-of-00003.gguf"
   ],
-  "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/unsloth/Laguna-S-2.1-GGUF/resolve/750f92f90cf54159c4d7a610cb7b3e74498e75c6/UD-Q3_K_XL/"
  },
- "qwen/IQ2_XS": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 68015068160,
+ "laguna-s/UD-Q4_K_XL": {
+  "arch": "laguna",
+  "layers": 48,
+  "tensors": 814,
+  "bytes": 73391436800,
   "expert_bytes": {
-   "IQ1_M": 1101004800,
-   "IQ2_S": 18271436800,
-   "IQ2_XXS": 4757913600,
-   "Q2_0": 11324620800
+   "Q4_K": 41674604544,
+   "Q5_K": 26021462016,
+   "Q6_K": 1321205760
   },
-  "experts_bpw": 2.348,
-  "bpw": 3.075,
+  "experts_bpw": 4.863,
+  "bpw": 4.994,
   "files": [
-   "IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
-   "IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf"
+   "UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00001-of-00003.gguf",
+   "UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00002-of-00003.gguf",
+   "UD-Q4_K_XL/Laguna-S-2.1-UD-Q4_K_XL-00003-of-00003.gguf"
   ],
-  "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/unsloth/Laguna-S-2.1-GGUF/resolve/750f92f90cf54159c4d7a610cb7b3e74498e75c6/UD-Q4_K_XL/"
  },
- "qwen/IQ3_XXS": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 75828974080,
+ "laguna-s/Q4_K_M": {
+  "arch": "laguna",
+  "layers": 48,
+  "tensors": 814,
+  "bytes": 96028095488,
   "expert_bytes": {
-   "IQ2_S": 5373952000,
-   "IQ2_XS": 4849664000,
-   "IQ2_XXS": 3892838400,
-   "IQ3_S": 9371648000,
-   "IQ3_XXS": 3853516800,
-   "IQ4_NL": 8493465600,
-   "Q2_0": 7077888000
+   "BF16": 38654705664,
+   "Q4_K": 52999225344
   },
-  "experts_bpw": 2.842,
-  "bpw": 3.428,
+  "experts_bpw": 6.457,
+  "bpw": 6.535,
   "files": [
-   "IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf",
-   "IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00002-of-00002.gguf"
+   "laguna-s-2.1-Q4_K_M.gguf"
   ],
-  "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/poolside/Laguna-S-2.1-GGUF/resolve/19036076775e9ba6758595f78af99cb976ef8ff0/"
  },
- "qwen/IQ3_S": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 83606638080,
+ "laguna-xs/Q4_K_M": {
+  "arch": "laguna",
+  "layers": 40,
+  "tensors": 678,
+  "bytes": 20270574592,
   "expert_bytes": {
-   "IQ2_S": 10747904000,
-   "IQ3_S": 7208960000,
-   "IQ3_XXS": 10918297600,
-   "IQ4_NL": 18402508800,
-   "IQ4_XS": 891289600,
-   "Q2_0": 2123366400
+   "Q4_K": 14797504512,
+   "Q6_K": 4183818240
   },
-  "experts_bpw": 3.331,
-  "bpw": 3.78,
+  "experts_bpw": 4.835,
+  "bpw": 4.849,
   "files": [
-   "IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf",
-   "IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf"
+   "Laguna-XS-2.1-Q4_K_M.gguf"
   ],
-  "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/poolside/Laguna-XS-2.1-GGUF/resolve/1a37c0a5fb8c7a18e6106decb6be6327d1b63fa6/"
  },
- "swift/Q2_0": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 66538928640,
+ "occamy/APEX-Quality": {
+  "arch": "qwen35moe",
+  "layers": 40,
+  "tensors": 733,
+  "bytes": 22808412672,
   "expert_bytes": {
-   "Q2_0": 33973862400
+   "IQ4_XS": 8556380160,
+   "Q5_K": 5536481280,
+   "Q6_K": 6606028800
   },
-  "experts_bpw": 2.25,
-  "bpw": 3.008,
+  "experts_bpw": 5.141,
+  "bpw": 5.264,
   "files": [
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf"
+   "occamy-1.0-APEX-Quality.gguf"
   ],
-  "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/Accio-Lab/occamy-1.0-APEX-GGUF/resolve/7c731908b05f5cbd19002b23d421aa102c0dd0de/"
  },
- "swift/IQ2_XS": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 68141143040,
+ "occamy/APEX-I-Compact": {
+  "arch": "qwen35moe",
+  "layers": 40,
+  "tensors": 733,
+  "bytes": 16527862272,
   "expert_bytes": {
-   "IQ1_M": 1101004800,
-   "IQ2_S": 18271436800,
-   "IQ2_XXS": 4757913600,
-   "Q2_0": 11324620800
+   "Q3_K": 10380902400,
+   "Q4_K": 4529848320
   },
-  "experts_bpw": 2.348,
-  "bpw": 3.081,
+  "experts_bpw": 3.703,
+  "bpw": 3.815,
   "files": [
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf"
+   "occamy-1.0-APEX-I-Compact.gguf"
   ],
-  "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/Accio-Lab/occamy-1.0-APEX-GGUF/resolve/7c731908b05f5cbd19002b23d421aa102c0dd0de/"
  },
- "swift/IQ3_XXS": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 75955048960,
+ "occamy/APEX-Balanced": {
+  "arch": "qwen35moe",
+  "layers": 40,
+  "tensors": 733,
+  "bytes": 25324995072,
   "expert_bytes": {
-   "IQ2_S": 5373952000,
-   "IQ2_XS": 4849664000,
-   "IQ2_XXS": 3892838400,
-   "IQ3_S": 9371648000,
-   "IQ3_XXS": 3853516800,
-   "IQ4_NL": 8493465600,
-   "Q2_0": 7077888000
+   "Q5_K": 16609443840,
+   "Q6_K": 6606028800
   },
-  "experts_bpw": 2.842,
-  "bpw": 3.434,
+  "experts_bpw": 5.766,
+  "bpw": 5.845,
   "files": [
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf",
-   "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00002-of-00002.gguf"
+   "occamy-1.0-APEX-Balanced.gguf"
   ],
-  "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+  "url": "https://huggingface.co/Accio-Lab/occamy-1.0-APEX-GGUF/resolve/7c731908b05f5cbd19002b23d421aa102c0dd0de/"
  },
- "coder/IQ1_M": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 58397560320,
+ "gemma4/UD-Q3_K_M": {
+  "arch": "gemma4",
+  "layers": 30,
+  "tensors": 658,
+  "bytes": 12712673216,
   "expert_bytes": {
-   "IQ2_S": 5373952000,
-   "IQ3_S": 3604480000,
-   "IQ3_XXS": 5459148800,
-   "IQ4_NL": 9201254400,
-   "IQ4_XS": 445644800,
-   "Q2_0": 1061683200
+   "F32": 15360,
+   "IQ3_XXS": 5634162688,
+   "IQ4_NL": 4139384832,
+   "IQ4_XS": 269615104,
+   "Q8_0": 269615104
   },
-  "experts_bpw": 3.331,
-  "bpw": 4.01,
+  "experts_bpw": 3.613,
+  "bpw": 4.03,
   "files": [
-   "IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf",
-   "IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00002-of-00002.gguf"
+   "gemma-4-26B-A4B-it-UD-Q3_K_M.gguf"
   ],
-  "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF"
+  "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/c099eb48e663fd284577b04978a94ffccb261841/"
  },
- "unsloth/UD-IQ4_XS": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 93671559680,
+ "gemma4/UD-Q2_K_XL": {
+  "arch": "gemma4",
+  "layers": 30,
+  "tensors": 658,
+  "bytes": 10531109568,
   "expert_bytes": {
-   "IQ3_S": 33882112000,
-   "IQ4_NL": 20289945600,
-   "IQ4_XS": 891289600,
-   "Q8_0": 4456448000
+   "F32": 15360,
+   "IQ2_XS": 4254367744,
+   "IQ3_XXS": 194281472,
+   "IQ4_NL": 4282122240
   },
-  "experts_bpw": 3.942,
-  "bpw": 4.235,
+  "experts_bpw": 3.058,
+  "bpw": 3.339,
   "files": [
-   "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
-   "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf",
-   "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"
+   "gemma-4-26B-A4B-it-UD-Q2_K_XL.gguf"
   ],
-  "repo": "unsloth/Qwen3.8-Flash-Next-GGUF"
+  "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/c099eb48e663fd284577b04978a94ffccb261841/"
  },
- "unsloth/UD-Q4_K_XL": {
-  "arch": "qwen4exp",
-  "tensors": 1224,
-  "bytes": 111323630080,
+ "gemma4/UD-Q4_K_M": {
+  "arch": "gemma4",
+  "layers": 30,
+  "tensors": 658,
+  "bytes": 16931717056,
   "expert_bytes": {
-   "Q4_K": 44354764800,
-   "Q5_1": 27053260800,
-   "Q5_K": 1153433600,
-   "Q8_0": 4456448000
+   "F32": 15360,
+   "Q4_K": 8564244480,
+   "Q5_1": 5519179776,
+   "Q8_0": 269615104
   },
-  "experts_bpw": 5.101,
-  "bpw": 5.033,
+  "experts_bpw": 5.028,
+  "bpw": 5.368,
   "files": [
-   "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
-   "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf",
-   "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf",
-   "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"
+   "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
   ],
-  "repo": "unsloth/Qwen3.8-Flash-Next-GGUF"
+  "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/c099eb48e663fd284577b04978a94ffccb261841/"
+ },
+ "gemma4/QAT-UD-Q4_K_XL": {
+  "arch": "gemma4",
+  "layers": 30,
+  "tensors": 658,
+  "bytes": 14233223104,
+  "expert_bytes": {
+   "F32": 15360,
+   "Q4_0": 12846366720
+  },
+  "experts_bpw": 4.5,
+  "bpw": 4.513,
+  "files": [
+   "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf"
+  ],
+  "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/7b92b5b28818151e8669af2e45e88d6086f490dd/"
  },
  "_roles": {
   "blk.N.attn_gate.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q2_0",
-   "Q3_K",
    "Q4_K",
-   "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
   "blk.N.attn_k.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q3_K",
+   "Q4_0",
    "Q4_K",
-   "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
   "blk.N.attn_k_norm.weight": [
    "F32"
   ],
+  "blk.N.attn_norm.weight": [
+   "F32"
+  ],
   "blk.N.attn_output.weight": [
-   "IQ3_S",
-   "IQ4_XS",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
   "blk.N.attn_q.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q2_0",
-   "Q3_K",
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
@@ -231,162 +225,132 @@
    "F32"
   ],
   "blk.N.attn_qkv.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q2_0",
-   "Q3_K",
    "Q4_K",
-   "Q5_K",
-   "Q6_K",
-   "Q8_0"
+   "Q6_K"
   ],
   "blk.N.attn_v.weight": [
-   "IQ4_XS",
-   "Q3_K",
+   "Q4_0",
    "Q4_K",
-   "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
+  "blk.N.exp_probs_b.bias": [
+   "F32"
+  ],
+  "blk.N.ffn_down.weight": [
+   "Q4_0",
+   "Q6_K",
+   "Q8_0"
+  ],
+  "blk.N.ffn_down_exps.scale": [
+   "F32"
+  ],
   "blk.N.ffn_down_exps.weight": [
+   "BF16",
    "IQ4_NL",
-   "Q2_0",
+   "IQ4_XS",
+   "Q3_K",
+   "Q4_0",
+   "Q4_K",
    "Q5_1",
+   "Q5_K",
+   "Q6_K",
    "Q8_0"
   ],
   "blk.N.ffn_down_shexp.weight": [
-   "IQ4_NL",
-   "Q2_0",
+   "Q4_K",
+   "Q6_K",
+   "Q8_0"
+  ],
+  "blk.N.ffn_gate.weight": [
    "Q4_0",
-   "Q5_0",
+   "Q4_K",
+   "Q5_K",
+   "Q6_K",
    "Q8_0"
   ],
   "blk.N.ffn_gate_exps.weight": [
-   "IQ1_M",
-   "IQ2_S",
-   "IQ2_XS",
-   "IQ2_XXS",
-   "IQ3_S",
+   "BF16",
    "IQ3_XXS",
    "IQ4_XS",
-   "Q2_0",
+   "Q3_K",
    "Q4_K",
-   "Q5_K"
+   "Q5_K",
+   "Q6_K"
+  ],
+  "blk.N.ffn_gate_inp.scale": [
+   "F32"
   ],
   "blk.N.ffn_gate_inp.weight": [
-   "BF16",
    "F32"
   ],
   "blk.N.ffn_gate_inp_shexp.weight": [
-   "BF16",
    "F32"
   ],
   "blk.N.ffn_gate_shexp.weight": [
-   "IQ3_S",
+   "Q4_K",
+   "Q6_K",
+   "Q8_0"
+  ],
+  "blk.N.ffn_gate_up_exps.weight": [
+   "IQ2_XS",
+   "IQ3_XXS",
    "IQ4_XS",
-   "Q2_0",
-   "Q3_K",
+   "Q4_0",
+   "Q4_K"
+  ],
+  "blk.N.ffn_norm.weight": [
+   "F32"
+  ],
+  "blk.N.ffn_up.weight": [
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
    "Q8_0"
   ],
   "blk.N.ffn_up_exps.weight": [
-   "IQ1_M",
-   "IQ2_S",
-   "IQ2_XS",
-   "IQ2_XXS",
-   "IQ3_S",
+   "BF16",
    "IQ3_XXS",
    "IQ4_XS",
-   "Q2_0",
-   "Q4_K",
-   "Q5_K"
-  ],
-  "blk.N.ffn_up_shexp.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q2_0",
    "Q3_K",
    "Q4_K",
    "Q5_K",
+   "Q6_K"
+  ],
+  "blk.N.ffn_up_shexp.weight": [
+   "Q4_K",
    "Q6_K",
    "Q8_0"
   ],
-  "blk.N.hc_attn_down.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "blk.N.hc_attn_inject.weight": [
-   "BF16",
+  "blk.N.layer_output_scale.weight": [
    "F32"
   ],
-  "blk.N.hc_attn_norm.weight": [
+  "blk.N.post_attention_norm.weight": [
    "F32"
   ],
-  "blk.N.hc_attn_up.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "blk.N.hc_ffn_down.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "blk.N.hc_ffn_inject.weight": [
-   "BF16",
+  "blk.N.post_ffw_norm.weight": [
    "F32"
   ],
-  "blk.N.hc_ffn_norm.weight": [
+  "blk.N.post_ffw_norm_1.weight": [
    "F32"
   ],
-  "blk.N.hc_ffn_up.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "blk.N.indexer.k_norm.weight": [
+  "blk.N.post_ffw_norm_2.weight": [
    "F32"
   ],
-  "blk.N.indexer.k_proj.weight": [
-   "BF16"
-  ],
-  "blk.N.indexer.q_norm.weight": [
+  "blk.N.pre_ffw_norm_2.weight": [
    "F32"
-  ],
-  "blk.N.indexer.q_proj.weight": [
-   "BF16"
-  ],
-  "blk.N.ple_conv1d.weight": [
-   "F16",
-   "F32"
-  ],
-  "blk.N.ple_key.weight": [
-   "BF16",
-   "Q2_0",
-   "Q8_0"
-  ],
-  "blk.N.ple_norm_conv.weight": [
-   "F32"
-  ],
-  "blk.N.ple_norm_key.weight": [
-   "F32"
-  ],
-  "blk.N.ple_norm_query.weight": [
-   "F32"
-  ],
-  "blk.N.ple_value.weight": [
-   "BF16",
-   "Q8_0"
   ],
   "blk.N.ssm_a": [
    "F32"
   ],
   "blk.N.ssm_alpha.weight": [
-   "BF16",
-   "F32"
+   "Q4_K",
+   "Q6_K"
   ],
   "blk.N.ssm_beta.weight": [
-   "BF16",
-   "F32"
+   "Q4_K",
+   "Q6_K"
   ],
   "blk.N.ssm_conv1d.weight": [
    "F32"
@@ -398,38 +362,24 @@
    "F32"
   ],
   "blk.N.ssm_out.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q3_K",
+   "Q4_K",
+   "Q6_K"
+  ],
+  "output.weight": [
+   "Q6_K",
+   "Q8_0"
+  ],
+  "output_norm.weight": [
+   "F32"
+  ],
+  "rope_freqs.weight": [
+   "F32"
+  ],
+  "token_embd.weight": [
+   "Q4_0",
    "Q4_K",
    "Q5_K",
    "Q6_K",
-   "Q8_0"
-  ],
-  "output.weight": [
-   "IQ4_XS",
-   "Q5_K",
-   "Q6_K",
-   "Q8_0"
-  ],
-  "output_hc_down.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "output_hc_norm.weight": [
-   "F32"
-  ],
-  "output_hc_up.weight": [
-   "BF16",
-   "Q8_0"
-  ],
-  "per_layer_token_embd.weight": [
-   "IQ4_NL"
-  ],
-  "token_embd.weight": [
-   "IQ3_S",
-   "IQ4_XS",
-   "Q3_K",
    "Q8_0"
   ]
  }

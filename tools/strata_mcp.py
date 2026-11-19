@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""tools/strata_mcp.py - an MCP server that lets an AI assistant install, start, check and stop PolyStrata.
+"""tools/strata_mcp.py - an MCP server that lets an AI assistant install, start, check and stop Puddle.
 
-    claude mcp add strata -- python /path/to/PolyStrata/tools/strata_mcp.py
+    claude mcp add strata -- python /path/to/Puddle/tools/strata_mcp.py
 
 Add it to Claude Code, Claude Desktop, Cursor, VS Code, Codex ... (docs/MCP_SERVER.md has every client's snippet) and
-ask your AI "install PolyStrata for this PC", "start PolyStrata", "is PolyStrata running?".  It speaks MCP (JSON-RPC 2.0, one
+ask your AI "install Puddle for this PC", "start Puddle", "is Puddle running?".  It speaks MCP (JSON-RPC 2.0, one
 message per line) over stdin/stdout, uses the Python standard library only (it runs before setup made .venv; Python
 3.10 or newer), and offers a fixed set of tools: strata_status, strata_models, strata_install, strata_start,
 strata_stop, strata_logs, strata_benchmark, strata_connect_info.
 
 Safety: no tool takes a shell command or a free path.  Every argument is checked against setup.py's own choices
-(models, families, contexts ...); the only path argument (install's data_dir) must be the PolyStrata data folder, a folder
-inside the PolyStrata folder, or a new folder named PolyStrata* outside the system folders.  Setup and the model run as
+(models, families, contexts ...); the only path argument (install's data_dir) must be the Puddle data folder, a folder
+inside the Puddle folder, or a new folder named Puddle* outside the system folders.  Setup and the model run as
 background processes this server starts itself; it keeps their process id and start time in .strata-mcp/ and only
-ever stops a process it started (a PolyStrata started elsewhere, e.g. from its own window, is only asked over its API to
+ever stops a process it started (a Puddle started elsewhere, e.g. from its own window, is only asked over its API to
 unload the model).
 
-Not to be confused with serve/mcp.py: that is PolyStrata's MCP *client* (the model calling your tools from the chat page).
+Not to be confused with serve/mcp.py: that is Puddle's MCP *client* (the model calling your tools from the chat page).
 This file is an MCP *server* for the AI assistant you already use.
 """
 from __future__ import annotations
@@ -44,185 +44,102 @@ VERSION = "0.1.0"
 WIN = os.name == "nt"
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PORT = 8080
-STATE_DIR = ".strata-mcp"                             # in the PolyStrata folder (git-ignored)
+STATE_DIR = ".strata-mcp"                             # in the Puddle folder (git-ignored)
 
-# What setup.py offers, used only when setup.py cannot be imported (the numbers are setup's MODELS / FAMILIES /
-# CONTEXTS; tools/test_strata_mcp.py checks they still match).
-FALLBACK_MODELS = {
-    "Q2_0": {"about": "2-bit, the fastest", "download_gb": 66.4, "ram_gb": 48, "arena_gb": 34.0, "families": ("qwen",)},
-    "IQ2_XS": {"about": "2-bit i-quant, a little better quality, close in speed", "download_gb": 68.0, "ram_gb": 48,
-               "arena_gb": 35.5},
-    "IQ3_XXS": {"about": "3-bit i-quant, better quality, slower (more CPU work per token)", "download_gb": 75.8,
-                "ram_gb": 60, "arena_gb": 42.9},
-    "IQ3_S": {"about": "3.5-bit i-quant, the best quality (matches the full model), the slowest; needs a 64 GB PC "
-                       "with little else running", "download_gb": 83.6, "ram_gb": 62, "arena_gb": 50.3},
-    "IQ1_M": {"about": "the Coder's only size: half the experts, stored like IQ3_S (3.5 bits)", "download_gb": 58.4,
-              "ram_gb": 32, "arena_gb": 23.4, "families": ("coder",)},
-    "UD-IQ4_XS": {"about": "~4-bit i-quant (Unsloth Dynamic), between IQ3_S and UD-Q4_K_XL in quality; on a PC with "
-                           "less than ~80 GB of RAM part of its experts are read from the SSD",
-                  "download_gb": 93.7, "ram_gb": 48, "arena_gb": 59.5, "families": ("unsloth",), "budget": True,
-                  "vision": True},
-    "3.0BIT": {"about": "the whole model: 3-bit GSQ-RCO experts, Q4_K attention", "download_gb": 113.6,
-               "ram_gb": 96, "arena_gb": 107.2, "families": ("glm",)},
-    "UD-IQ2_XXS": {"about": "the whole model at about 2 bits (Unsloth): less RAM, reads faster, writes slower",
-                   "download_gb": 101.8, "ram_gb": 82, "arena_gb": 92.5, "families": ("glm",)},
-    "REAP50-Q3_K_M": {"about": "half the routed experts (REAP50), 3-bit K-quant: less RAM", "download_gb": 78.8,
-                      "ram_gb": 60, "arena_gb": 72.1, "families": ("glm",)},
-    "UD-Q4_K_XL": {"about": "4-bit (Unsloth Dynamic): K-quant experts, between UD-IQ4_XS and UD-Q5_K_XL in quality",
-                   "download_gb": 111.3, "ram_gb": 48, "arena_gb": 77.0, "families": ("unsloth",), "budget": True,
-                   "vision": True},                       # #967: images allowed (setup warns: untested with this file)
-    "UD-Q5_K_XL": {"about": "5-bit (Unsloth Dynamic): Q5_K experts with Q8_0 downs, close to Q8_0 in quality",
-                   "download_gb": 158.3, "ram_gb": 108, "arena_gb": 98.4, "families": ("unsloth",), "budget": True,
-                   "vision": True},
-    "UD-Q6_K_XL": {"about": "6-bit (Unsloth Dynamic): Q6_K experts with Q8_0 downs",
-                   "download_gb": 169.2, "ram_gb": 118, "arena_gb": 109.2, "families": ("unsloth",), "budget": True,
-                   "vision": True},
-    "Q8_0": {"about": "8-bit, the reference quality (every expert Q8_0); for a 192 GB PC",
-             "download_gb": 188.2, "ram_gb": 136, "arena_gb": 128.3, "families": ("unsloth",), "budget": True,
-             "vision": True},
-    "NVFP4": {"about": "4-bit NVFP4 experts, GPTQ (sergqwer's strata-nvfp4 pack); RTX 50 has FP4 tensor cores, other "
-                       "NVIDIA cards run it at 8-bit precision", "download_gb": 128.0, "ram_gb": 80, "arena_gb": 68.0,
-              "families": ("nvfp4",), "vision": True},
-    "NVFP4-NVIDIA": {"about": "NVIDIA's own NVFP4 checkpoint (plain rounding), converted by sergqwer; the same size "
-                              "and speed as NVFP4", "download_gb": 128.0, "ram_gb": 80, "arena_gb": 68.0,
-                     "families": ("nvfp4",), "vision": True},
-}
-FALLBACK_FAMILIES = {
-    "qwen": {"title": "Qwen3.8-Flash-Next", "about": "the original model", "tag": ""},
-    "swift": {"title": "Swift 1.5", "about": "thinks much shorter (-63% thinking tokens, 1.8x sooner answers by its "
-                                             "authors' numbers)", "tag": "swift-"},
-    "coder": {"title": "Qwen3.8-Flash-Next Coder", "about": "half the experts (code, tools, images kept): needs ~32 GB "
-                                                            "of RAM, faster; weaker outside coding", "tag": "coder-"},
-    "unsloth": {"title": "Qwen3.8-Flash-Next (Unsloth)", "about": "UD-IQ4_XS, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL or Q8_0 "
-                                                                  "(94 to 188 GB downloads): every expert in RAM from "
-                                                                  "~80 GB (UD-IQ4_XS) to ~136 GB (Q8_0) of RAM, else "
-                                                                  "part of them read from the SSD",
-                "tag": "unsloth-", "vision": True},
-    "nvfp4": {"title": "Qwen3.8-Flash-Next (NVFP4)", "about": "4-bit NVFP4 experts, NVIDIA cards; a 128 GB download, "
-                                                              "~80 GB of RAM to keep every expert in RAM",
-              "tag": "nvfp4-"},
-    "glm": {"title": "GLM 5.3 Flash", "about": "another model, with its own engine: Linux, one NVIDIA card (run on "
-                                               "32 GB), 64-128 GB of RAM", "tag": "glm-", "engine": "poly",
-            "vision": False, "experimental": True},
-    "deepseek": {"title": "DeepSeek V4 Flash", "about": "another model on GLM's engine: Linux, one NVIDIA card (run on "
-                                                       "32 GB), ~72 GB of RAM beside it; a 91 GB download, no images",
-                 "tag": "dsv4-", "engine": "poly", "vision": False, "experimental": True,
-                 "models": {"UD-IQ2_XXS": {"about": "2-bit i-quant experts (Unsloth Dynamic), 3-bit and MXFP4 where "
-                                                    "they write", "download_gb": 90.9, "ram_gb": 72, "arena_gb": 83.9}}},
-    "lfm25": {"title": "LFM2.5-24B-A2B", "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a "
-                                                   "15 GB file, ~20 GB of RAM beside an 8 GB card; four other sizes "
-                                                   "too, no images",
-              "tag": "lfm25-", "engine": "poly", "vision": False, "experimental": True,
-              "models": {"UD-Q4_K_XL": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                        "download_gb": 14.9, "ram_gb": 20, "arena_gb": 14.0},
-                         "UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the least RAM",
-                                        "download_gb": 10.9, "ram_gb": 16, "arena_gb": 10.2},
-                         "QAD-Q4_0": {"about": "Liquid AI's 4-bit file, trained for that quantization",
-                                      "download_gb": 13.6, "ram_gb": 18, "arena_gb": 12.9},
-                         "UD-Q6_K_XL": {"about": "6-bit experts, 8-bit where they write",
-                                        "download_gb": 21.9, "ram_gb": 27, "arena_gb": 20.9},
-                         "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                  "download_gb": 25.5, "ram_gb": 31, "arena_gb": 24.4}}},
-    "flint": {"title": "Flint 40B-A2.5B", "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a "
-                                                    "25 GB file, ~29 GB of RAM beside an 8 GB card; three other sizes "
-                                                    "too, no images",
-              "tag": "flint-", "engine": "poly", "vision": False, "experimental": True,
-              "models": {"UD-Q4_K_XL": {"about": "4- and 5-bit experts (Unsloth Dynamic)",
-                                        "download_gb": 25.1, "ram_gb": 29, "arena_gb": 23.1},
-                         "UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the least RAM",
-                                        "download_gb": 18.5, "ram_gb": 22, "arena_gb": 16.5},
-                         "UD-Q6_K_XL": {"about": "6-bit experts, 8-bit where they write",
-                                        "download_gb": 36.3, "ram_gb": 40, "arena_gb": 34.2},
-                         "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                  "download_gb": 42.3, "ram_gb": 46, "arena_gb": 40.2}}},
-    "kolibri": {"title": "Kolibri 1",
-                "about": "on the strata-poly engine, with the kolibri1 patch: Linux or Windows, one or two NVIDIA cards "
-                         "(run on 32 GB, and on 12 GB under Windows); a 48 GB file, ~52 GB of RAM beside an 8 GB "
-                         "card; two other sizes too, no images",
-                "tag": "kolibri1-", "engine": "poly", "vision": False, "experimental": True,
-                "models": {"Q4_K_M": {"about": "4-bit: Q4_K gate/up, Q6_K down on half the layers",
-                                      "download_gb": 47.5, "ram_gb": 52, "arena_gb": 45.7},
-                           "Q2_K": {"about": "2-bit, the fastest: the least RAM",
-                                    "download_gb": 28.6, "ram_gb": 33, "arena_gb": 26.9},
-                           "Q3_K_M": {"about": "3-bit: the least RAM that still reads well",
-                                      "download_gb": 37.5, "ram_gb": 42, "arena_gb": 35.8}}},
-    # a family with sizes of its own ("models"): two of these have a size of one name
-    "qwen36": {"title": "Qwen3.6-35B-A3B", "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a "
-                                                     "17 GB file, ~21 GB of RAM beside an 8 GB card; a smaller and a "
-                                                     "larger size too",
-               "tag": "qwen36-", "engine": "poly", "vision": True, "experimental": True,
-               "models": {"UD-Q3_K_M": {"about": "3-bit experts (Unsloth Dynamic), its draft block in the file",
-                                        "download_gb": 17.1, "ram_gb": 21, "arena_gb": 14.6},
-                          "UD-Q2_K_XL": {"about": "2- and 3-bit i-quant experts (Unsloth Dynamic): the least RAM",
-                                         "download_gb": 12.6, "ram_gb": 17, "arena_gb": 10.8},
-                          "UD-Q4_K_M": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                        "download_gb": 22.7, "ram_gb": 27, "arena_gb": 20.1}}},
-    "clover": {"title": "Clover-35B-A3B-Preview", "about": "on the strata-poly engine: one NVIDIA card, Linux or "
-                                                            "Windows; a 17 GB file, ~20 GB of RAM beside an 8 GB card; "
-                                                            "a smaller and a larger size too, no images",
-               "tag": "clover-", "engine": "poly", "vision": False, "experimental": True,
-               "models": {"Q3_K_M": {"about": "3-bit experts, 4- and 5-bit where they write",
-                                     "download_gb": 16.8, "ram_gb": 20, "arena_gb": 15.3},
-                          "APEX-I-NANOPLUS": {"about": "2- and 3-bit experts (APEX): the least RAM",
-                                              "download_gb": 12.6, "ram_gb": 16, "arena_gb": 10.8},
-                          "Q4_K_M": {"about": "4-bit experts, 6-bit where they write",
-                                     "download_gb": 21.2, "ram_gb": 25, "arena_gb": 19.5}}},
-    "ornith": {"title": "Ornith 1.5 35B-A3B", "about": "Qwen3.6-35B-A3B's architecture, other weights; a 17 GB file, "
-                                                        "~22 GB of RAM beside an 8 GB card; a smaller and a larger "
-                                                        "size too", "tag": "ornith-",
-               "engine": "poly", "vision": True, "experimental": True,
-               "models": {"APEX-I-COMPACT": {"about": "3- and 4-bit K-quant experts (APEX), its draft block in the "
-                                                      "file", "download_gb": 17.4, "ram_gb": 22, "arena_gb": 15.8},
-                          "APEX-I-MINI": {"about": "2- and 3-bit experts (APEX): the least RAM",
-                                          "download_gb": 14.4, "ram_gb": 18, "arena_gb": 12.9},
-                          "APEX-I-QUALITY": {"about": "4- to 6-bit experts (APEX)",
-                                             "download_gb": 23.7, "ram_gb": 28, "arena_gb": 21.6}}},
-    "gemma4": {"title": "Gemma 4 26B-A4B", "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB "
-                                                     "card; a smaller and a larger size too", "tag": "gemma4-",
-               "engine": "poly", "vision": True, "experimental": True,
-               "models": {"UD-Q3_K_M": {"about": "3-bit experts (Unsloth Dynamic), and Google's draft model for it",
-                                        "download_gb": 13.2, "ram_gb": 18, "arena_gb": 10.3},
-                          "UD-Q2_K_XL": {"about": "2-bit i-quant experts (Unsloth Dynamic): the least RAM; the same "
-                                                  "draft model", "download_gb": 11.0, "ram_gb": 15, "arena_gb": 8.7},
-                          "UD-Q4_K_M": {"about": "4- and 5-bit experts (Unsloth Dynamic); the same draft model",
-                                        "download_gb": 17.4, "ram_gb": 21, "arena_gb": 14.3},
-                          "QAT-UD-Q4_K_XL": {"about": "Google's QAT weights, 4-bit (Unsloth Dynamic), with their own "
-                                                      "draft model", "download_gb": 14.7, "ram_gb": 19, "arena_gb": 12.8}}},
-    "tiel": {"title": "Tiel Coder 35B-A3B", "about": "Ornith 1.5 quantized for coding, with the Sharp chat template; a "
-                                                    "17 GB file, ~21 GB of RAM beside an 8 GB card; a smaller and a "
-                                                    "larger size too", "tag": "tiel-",
-             "engine": "poly", "vision": True, "experimental": True,
-             "models": {"UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write; its draft block in "
-                                                "the file", "download_gb": 17.2, "ram_gb": 21, "arena_gb": 14.6},
-                        "UD-IQ3_XXS": {"about": "2-bit i-quant experts, 3-bit where they write: the least RAM",
-                                       "download_gb": 13.6, "ram_gb": 18, "arena_gb": 11.5},
-                        "UD-Q4_K_XL": {"about": "4-bit experts, 5- and 6-bit where they write",
-                                       "download_gb": 22.7, "ram_gb": 27, "arena_gb": 20.0}}},
-    "minicpmv": {"title": "MiniCPM-V 4.7 35B-A3B", "about": "Qwen3.6-35B-A3B's architecture, OpenBMB's weights, and it "
-                                                            "reads pictures too; a 22 GB file, ~25 GB of RAM beside an "
-                                                            "8 GB card; a smaller and a larger size too",
-                 "tag": "minicpmv-", "engine": "poly", "vision": True, "experimental": True,
-                 "models": {"Q4_K_M": {"about": "4-bit experts (K-quant), 5- and 6-bit where they write",
-                                       "download_gb": 21.2, "ram_gb": 25, "arena_gb": 19.5},
-                            "mix_q3gud_im": {"about": "3- and 4-bit experts (imatrix mix): the least RAM",
-                                             "download_gb": 15.5, "ram_gb": 19, "arena_gb": 13.8},
-                            "Q6_K": {"about": "6-bit experts (K-quant)",
-                                     "download_gb": 28.5, "ram_gb": 31, "arena_gb": 26.4}}},
-    "ornith122": {"title": "Ornith 1.5 122B",
-                  "about": "on the strata-poly engine: one NVIDIA card, Linux or Windows; a 60 GB file, ~47 GB of RAM beside a 24 GB card; 5 sizes, images",
-                  "tag": "ornith122-", "engine": "poly", "vision": True, "experimental": True,
-                  "models": {"UD-Q3_K_XL": {"about": "3-bit i-quant experts, 4-bit where they write: the daily choice",
-                                            "download_gb": 59.8, "ram_gb": 47, "arena_gb": 53.3},
-                             "UD-Q2_K_XL": {"about": "2-bit i-quant experts (Unsloth Dynamic): the least RAM",
-                                            "download_gb": 44.5, "ram_gb": 32, "arena_gb": 38.5},
-                             "UD-IQ3_XXS": {"about": "2- and 3-bit i-quant experts: less RAM than UD-Q3_K_XL",
-                                            "download_gb": 49.5, "ram_gb": 37, "arena_gb": 43.2},
-                             "UD-Q4_K_XL": {"about": "4-bit experts (Unsloth Dynamic), 5- and 6-bit where they write",
-                                            "download_gb": 79.7, "ram_gb": 66, "arena_gb": 73.0},
-                             "Q8_0": {"about": "8-bit throughout: the closest to the model as trained",
-                                      "download_gb": 132.6, "ram_gb": 119, "arena_gb": 125.8}}},
-}
-FALLBACK_CONTEXTS = [8192, 32768, 65536, 131072, 204800, 262144, 393216, 524288]
+# What setup.py offers, used only when setup.py cannot be imported: the keys this server reads of setup's
+# FAMILIES and its POLY_CONTEXTS (tools/test_strata_mcp.py checks they still match).
+FALLBACK_FAMILIES = {'laguna-s': {'title': 'Laguna S 2.1',
+              'by': 'poolside; quantized by Unsloth',
+              'about': 'a 54 GB file, ~51 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti 16 GB at 262K; two '
+                       'larger sizes too',
+              'tag': 'laguna-s21-',
+              'engine': 'poly',
+              'experimental': True,
+              'models': {'UD-Q3_K_XL': {'about': 'IQ3_XXS gate/up and IQ4_XS down experts (Unsloth Dynamic); the '
+                                                 'one run every day',
+                                        'download_gb': 54.1,
+                                        'ram_gb': 51,
+                                        'arena_gb': 49.8,
+                                        'vram_beside_gb': 8.0},
+                         'UD-Q4_K_XL': {'about': 'Q4_K gate/up and Q5_K down experts (Unsloth Dynamic): higher '
+                                                 'quality; not run yet',
+                                        'download_gb': 73.4,
+                                        'ram_gb': 71,
+                                        'arena_gb': 69.0,
+                                        'vram_beside_gb': 8.1},
+                         'Q4_K_M': {'about': "poolside's own file: Q4_K experts, 8 layers of them BF16 (those run "
+                                             'on the CPU), a 1M-token rope; not run yet',
+                                    'download_gb': 96.0,
+                                    'ram_gb': 93,
+                                    'arena_gb': 91.7,
+                                    'vram_beside_gb': 8.1}}},
+ 'laguna-xs': {'title': 'Laguna XS 2.1',
+               'by': 'poolside',
+               'about': 'the small Laguna: a 20 GB file, ~17 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti '
+                        '16 GB at 262K',
+               'tag': 'laguna-xs21-',
+               'engine': 'poly',
+               'experimental': True,
+               'models': {'Q4_K_M': {'about': "poolside's own file: Q4_K gate/up, Q4_K and Q6_K down experts",
+                                     'download_gb': 20.3,
+                                     'ram_gb': 17,
+                                     'arena_gb': 19.0,
+                                     'vram_beside_gb': 5.0}}},
+ 'occamy': {'title': 'Occamy 1.0 35B-A3B',
+            'by': 'Accio-Lab; APEX quantization',
+            'about': "Qwen3.6-35B-A3B's architecture, reads pictures; a 23 GB file, ~18 GB of RAM beside a 16 GB "
+                     'card; runs on 2x RTX 5060 Ti 16 GB with images',
+            'tag': 'occamy-',
+            'engine': 'poly',
+            'vision': True,
+            'experimental': True,
+            'models': {'APEX-Quality': {'about': 'IQ4_XS, Q5_K and Q6_K experts (APEX); the one run every day',
+                                        'download_gb': 22.8,
+                                        'ram_gb': 18,
+                                        'arena_gb': 20.7,
+                                        'vram_beside_gb': 4.4},
+                       'APEX-I-Compact': {'about': 'Q3_K and Q4_K experts (APEX): the least RAM; not run yet',
+                                          'download_gb': 16.5,
+                                          'ram_gb': 12,
+                                          'arena_gb': 14.9,
+                                          'vram_beside_gb': 4.2},
+                       'APEX-Balanced': {'about': 'Q5_K and Q6_K experts (APEX): higher quality; not run yet',
+                                         'download_gb': 25.3,
+                                         'ram_gb': 21,
+                                         'arena_gb': 23.2,
+                                         'vram_beside_gb': 4.4}}},
+ 'gemma4': {'title': 'Gemma 4 26B-A4B',
+            'by': 'Google; quantized by Unsloth',
+            'about': 'on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller '
+                     'and a larger size too',
+            'tag': 'gemma4-',
+            'engine': 'poly',
+            'vision': True,
+            'experimental': True,
+            'windows': True,
+            'models': {'UD-Q3_K_M': {'about': "3-bit experts (Unsloth Dynamic), and Google's draft model for it",
+                                     'download_gb': 13.2,
+                                     'ram_gb': 18,
+                                     'arena_gb': 10.3,
+                                     'vram_beside_gb': 5.8},
+                       'UD-Q2_K_XL': {'about': '2-bit i-quant experts (Unsloth Dynamic): the least RAM; the same '
+                                               'draft model',
+                                      'download_gb': 11.0,
+                                      'ram_gb': 15,
+                                      'arena_gb': 8.7,
+                                      'vram_beside_gb': 4.6},
+                       'UD-Q4_K_M': {'about': '4- and 5-bit experts (Unsloth Dynamic); the same draft model',
+                                     'download_gb': 17.4,
+                                     'ram_gb': 21,
+                                     'arena_gb': 14.3,
+                                     'vram_beside_gb': 5.3},
+                       'QAT-UD-Q4_K_XL': {'about': "Google's QAT weights, 4-bit (Unsloth Dynamic), with their own "
+                                                   'draft model',
+                                          'download_gb': 14.7,
+                                          'ram_gb': 19,
+                                          'arena_gb': 12.8,
+                                          'vram_beside_gb': 4.1}}}}
+FALLBACK_CONTEXTS = [8192, 32768, 65536, 131072]
 BENCH_PROMPT = ("Write a short story (about 300 words) about a lighthouse keeper who finds a message in a bottle. "
                 "Plain prose, no title.")
 
@@ -526,9 +443,9 @@ def system_folders() -> list[Path]:
                               "/sys", "/usr", "/var", "/snap")]
 
 
-# ------------------------------------------------------------------------------------------------ PolyStrata
+# ------------------------------------------------------------------------------------------------ Puddle
 class Strata:
-    """One PolyStrata folder: what is installed there, the PC, and the processes this server started."""
+    """One Puddle folder: what is installed there, the PC, and the processes this server started."""
 
     def __init__(self, root: Path | str = DEFAULT_ROOT):
         self.root = Path(root).resolve()
@@ -556,7 +473,7 @@ class Strata:
                     spec.loader.exec_module(mod)
                 finally:
                     sys.stdout = real
-                if all(hasattr(mod, a) for a in ("MODELS", "FAMILIES", "CONTEXTS")):
+                if all(hasattr(mod, a) for a in ("FAMILIES", "POLY_CONTEXTS", "poly_default", "poly_fits")):
                     mod.out = lambda cmd: run_quiet(cmd, 60)
                     self._setup = mod
             except (Exception, SystemExit) as e:        # noqa: BLE001 - any failure: the built-in tables
@@ -564,28 +481,22 @@ class Strata:
         return self._setup
 
     def tables(self):
+        """(setup's FAMILIES, its context choices, where they came from)."""
         s = self.setup_module()
         if s is not None:
-            return s.MODELS, s.FAMILIES, list(s.CONTEXTS), "setup.py"
-        return FALLBACK_MODELS, FALLBACK_FAMILIES, FALLBACK_CONTEXTS, "built-in table (setup.py not importable)"
-
-    @staticmethod
-    def sizes_of(models, family) -> list:
-        """The family's sizes as setup lists them: an experimental one last (never the default)."""
-        return sorted((m for m in models if family in models[m].get("families", ("qwen", "swift"))),
-                      key=lambda m: bool(models[m].get("experimental")))
+            return s.FAMILIES, list(s.POLY_CONTEXTS), "setup.py"
+        return FALLBACK_FAMILIES, FALLBACK_CONTEXTS, "built-in table (setup.py not importable)"
 
     def sizes(self, family) -> dict:
-        """A family's sizes, each with what the tables say of it: its own ("models"), else the ones that name it."""
-        models, families, _ctx, _src = self.tables()
-        own = families[family].get("models")
-        return own if own is not None else {m: models[m] for m in self.sizes_of(models, family)}
+        """A family's sizes, each with what the tables say of it."""
+        families, _ctx, _src = self.tables()
+        return families[family]["models"]
 
     # ---- paths
     def settings_path(self) -> Path:
         if WIN:
-            return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "PolyStrata" / "settings.json"
-        return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "polystrata" / "settings.json"
+            return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "Puddle" / "settings.json"
+        return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "puddle" / "settings.json"
 
     def data_dir(self) -> Path:
         try:
@@ -593,7 +504,7 @@ class Strata:
         except (OSError, ValueError):
             s = {}
         d = s.get("data_dir") if isinstance(s, dict) else None
-        return Path(d) if d else self.root.parent / "PolyStrata-data"
+        return Path(d) if d else self.root.parent / "Puddle-data"
 
     def allowed_roots(self) -> list[Path]:
         return [norm(self.root), norm(self.data_dir())]
@@ -657,7 +568,6 @@ class Strata:
                 "kv": val("--kv"), "images": ("gpu" if vis.get("gpu") else "cpu") if isinstance(vis, dict) else "off",
                 "port": cfg.get("port", DEFAULT_PORT), "host": cfg.get("host", "127.0.0.1"),
                 "gpu": cfg.get("gpu"), "api_key_set": bool(cfg.get("api_key")),
-                "low_ram": "--resident-experts" in a or "--mmap-experts" in a,
                 "start_script": script.name if script.exists() else None,
                 "ready": not missing and bool(cfg), "missing_files": missing[:3],
                 "last_used": time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime))}
@@ -793,99 +703,88 @@ class Strata:
         hw["nvidia_smi"] = bool(shutil.which("nvidia-smi"))
         return hw
 
+    @staticmethod
+    def ram_need(S, d, vram) -> float:
+        """The RAM a size wants beside this card: setup's estimate (poly_ram_need), else the size's own figure."""
+        return S.poly_ram_need(d, vram) if S else float(d["ram_gb"])
+
     def recommend(self, hw: dict) -> dict:
-        """setup.py's own rules: the size it preselects (IQ3_XXS from 60 GB of RAM, else the first, Q2_0), the
-        Coder below the full model's RAM (setup's RAM table), the low-RAM mode when the GPU makes up for the RAM, and
-        the context it preselects for the card's VRAM (32K under 14 GB, 64K under 20 GB, else 128K)."""
-        models, families, _ctx, _src = self.tables()
+        """setup.py's own rules: the first family of its menu (Laguna-S) whose preselected size (poly_default) fits this
+        PC by its estimate (poly_fits), else none (with the size that wants the least RAM named); the context setup
+        preselects (32K, the one the sizes were measured with)."""
+        families, _ctx, _src = self.tables()
         S = self.setup_module()
         usable = [g for g in hw.get("gpus", []) if g.get("usable")]
         ram = hw.get("ram_gb") or 0
         if not usable:
-            why = ("no NVIDIA RTX 20-series-or-newer GPU found (nvidia-smi did not list one)"
-                   + ("; AMD cards run on Linux only" if WIN and any(
-                       "amd" in str(a.get("name", "")).lower() or "radeon" in str(a.get("name", "")).lower()
-                       for a in hw.get("display_adapters", [])) else ""))
-            return {"family": None, "model": None, "why": why}
+            return {"family": None, "model": None,
+                    "why": "no usable GPU found (an NVIDIA RTX 20 series or newer, or a supported AMD card)"}
         best = max(usable, key=lambda g: (round(g["vram_gb"]), -g.get("index", 0)))
         vram = best["vram_gb"]
         backend = "hip" if best.get("vendor") == "amd" else "cuda"
-
-        def low_fits(m):
-            try:
-                return S.low_ram_fits(m, ram, vram) if S else ram - 6 + max(0.0, vram - 5) >= models[m]["arena_gb"]
-            except Exception:                           # noqa: BLE001
-                return False
+        pick = None
+        for fam, fd in families.items():
+            sizes = fd["models"]
+            model = S.poly_default(sizes, ram, vram) if S else next(iter(sizes))
+            d = sizes[model]
+            fits = S.poly_fits(d, ram, vram, backend == "hip") if S else ram >= d["ram_gb"]
+            if fits:
+                pick = (fam, model, f"{ram:.0f} GB of RAM and {vram:.0f} GB of VRAM: setup's own pick of "
+                                    f"{fd['title']} fits (~{self.ram_need(S, d, vram):.0f} GB of RAM by its estimate)")
+                break
+        if pick is None:                                # setup with --yes alone stops there too
+            fam, model = min(((f_, m) for f_, fd in families.items() for m in fd["models"]),
+                             key=lambda x: self.ram_need(S, families[x[0]]["models"][x[1]], vram))
+            need = self.ram_need(S, families[fam]["models"][model], vram)
+            return {"family": None, "model": None,
+                    "why": f"{ram:.0f} GB of RAM and {vram:.0f} GB of VRAM: no size fits by setup's estimate; the one "
+                           f"that wants the least is {families[fam]['title']} {model} (~{need:.0f} GB of RAM)"}
+        fam, model, why = pick
+        ctx = 32768
         notes = []
-        if ram >= 60:
-            fam, model, why = "qwen", "IQ3_XXS", f"{ram:.0f} GB of RAM: setup's own pick from 60 GB (better quality)"
-        elif ram >= models["Q2_0"]["ram_gb"] - 4:
-            fam, model, why = "qwen", "Q2_0", f"{ram:.0f} GB of RAM: the full model's fastest size fits"
-        elif ram >= models["IQ1_M"]["ram_gb"] - 4:
-            fam, model, why = "coder", "IQ1_M", (f"{ram:.0f} GB of RAM: the full model needs ~48 GB; the Coder "
-                                                 "(half the experts, best for code) needs ~32 GB")
-        elif low_fits("IQ1_M"):
-            fam, model, why = "coder", "IQ1_M", (f"{ram:.0f} GB of RAM is below the Coder's 32 GB, but the GPU's "
-                                                 f"{vram:.0f} GB make up for it (setup's low-RAM mode: slower)")
-        else:
-            return {"family": None, "model": None, "why": f"{ram:.0f} GB of RAM: Qwen3.8-Flash-Next needs 32 GB or "
-                                                          "more (its smallest, the Coder, keeps ~23 GB of experts in "
-                                                          "RAM); the 11-24 GB models (family qwen36, ornith, "
-                                                          "gemma4 or tiel: experimental) want 15-28 GB"}
-        ctx = 32768 if vram < 14 else 65536 if vram < 20 else 131072
-        if vram < 11:
-            notes.append("less than 12 GB of VRAM: it runs, but slowly (most experts stay on the CPU)")
         if hw.get("cpu", {}).get("avx2") is False:      # #623: a warning, not a stop (setup compiles for it)
-            notes.append("this CPU has no AVX2: EXPERIMENTAL and slow - setup compiles the engine on this PC for the "
-                         "older CPU (10-20 minutes), and the CPU's share of the experts runs a few times slower")
+            notes.append("this CPU has no AVX2: EXPERIMENTAL and slow - the CPU's share of the experts runs a few "
+                         "times slower")
         if backend == "hip":
-            notes.append("AMD (experimental, Linux): the engine is compiled during setup; no images")
+            notes.append("AMD (experimental): the engine is compiled during setup; no images")
         cmd = (("START-HERE.bat --setup" if WIN else "./setup.sh --setup") +
                f" --yes --family {fam} --model {model} --context {ctx}" + (" --backend hip" if backend == "hip" else ""))
         return {"family": fam, "model": model, "title": families[fam]["title"] + " " + model, "context": ctx,
                 "backend": backend, "gpu": {k: best.get(k) for k in ("index", "name", "vram_gb")},
-                "download_gb": models[model]["download_gb"], "why": why, "notes": notes, "setup_command": cmd}
+                "download_gb": families[fam]["models"][model]["download_gb"], "why": why, "notes": notes,
+                "setup_command": cmd}
 
     def model_table(self, hw: dict | None) -> list:
-        models, families, _ctx, _src = self.tables()
+        families, _ctx, _src = self.tables()
         S = self.setup_module()
         ram = (hw or {}).get("ram_gb")
         usable = [g for g in (hw or {}).get("gpus", []) if g.get("usable")]
         vram = max((g["vram_gb"] for g in usable), default=0.0)
+        hip = any(g.get("vendor") == "amd" for g in usable)
         have = {c.stem[len("strata-"):] for c in self.configs()}
         out = []
         for f, fd in families.items():
             sizes = []
-            for m, d in self.sizes(f).items():
+            for m, d in fd["models"].items():
                 tag = (fd.get("tag", "") + m).lower()
                 verdict = None
                 if ram is not None:
-                    verdict = "fits" if ram >= d["ram_gb"] else "tight" if ram >= d["ram_gb"] - 8 else "does not fit"
                     try:
-                        if d.get("budget") and S and hasattr(S, "unsloth_budget") and not S.unsloth_budget(m, ram):
-                            verdict = ("experimental: " if d.get("experimental") else "") + "fits (all of its experts in RAM)"
-                        elif d.get("budget"):
-                            verdict = (("experimental: " if d.get("experimental") else "")
-                                       + "part of its experts in RAM, the rest read from the SSD"
-                                       if ram >= d["ram_gb"] else
-                                       "slow here: part of its experts in RAM, the rest read from the SSD (setup "
-                                       "asks first)" if ram >= 48 else "does not fit")
-                        elif S and m in models and S.low_ram_needed(m, ram) and S.low_ram_fits(m, ram, vram):
-                            verdict = "fits in the low-RAM mode (slower: the GPU holds part of the experts)"
+                        verdict = S.poly_verdict(d, ram, vram, hip, bool(fd.get("windows"))) if S else (
+                            "fits" if ram >= d["ram_gb"] else "tight" if ram >= d["ram_gb"] - 8 else "does not fit")
                     except Exception:                   # noqa: BLE001
                         pass
                 sizes.append({"model": m, "about": d["about"], "download_gb": d["download_gb"],
-                              "experimental": bool(d.get("experimental")),
-                              "images": d.get("vision", fd.get("vision", True)) is not False,
-                              "ram_needed_gb": d["ram_gb"], "experts_gb": d.get("arena_gb"),
-                              "on_this_pc": verdict, "installed": tag in have, "id": tag})
+                              "experimental": bool(d.get("experimental", fd.get("experimental"))),
+                              "images": bool(fd.get("vision")),
+                              "ram_needed_gb": round(self.ram_need(S, d, vram)) if usable else d["ram_gb"],
+                              "experts_gb": d.get("arena_gb"), "on_this_pc": verdict, "installed": tag in have,
+                              "id": tag})
             out.append({"family": f, "title": fd["title"], "about": fd.get("about"),
-                        "experimental": bool(fd.get("experimental")),
-                        "images": any(x["images"] for x in sizes) if sizes else fd.get("vision", True) is not False,
+                        "experimental": bool(fd.get("experimental")), "images": bool(fd.get("vision")),
                         "sizes": sizes})
         return out
 
-    # ---- the running server
     def ports(self, port: int | None) -> list[int]:
         if port:
             return [port]
@@ -904,14 +803,14 @@ class Strata:
         return None
 
     def probe(self, port: int, deep=True) -> dict | None:
-        """What answers on 127.0.0.1:port: a PolyStrata server's facts, {"other": True} for something else, None for
+        """What answers on 127.0.0.1:port: a Puddle server's facts, {"other": True} for something else, None for
         nothing."""
         base = f"http://127.0.0.1:{port}"
         st, health = http_json(base + "/health", timeout=self.health_timeout)
         if st == 0:
             return None
         if st != 200 or not isinstance(health, dict) or health.get("service") != "strata":
-            return {"port": port, "other": True, "note": "something else answers on this port (not a PolyStrata server)"}
+            return {"port": port, "other": True, "note": "something else answers on this port (not a Puddle server)"}
         info = {"port": port, "url": base, "model": health.get("model"), "context": health.get("max_context"),
                 "images": health.get("images"), "loaded": health.get("loaded"),
                 "api_key_required": bool(health.get("api_key"))}
@@ -1082,16 +981,17 @@ GPUS_PATTERN = r"all|\d{1,2}(,\d{1,2}){1,7}"
 MODEL_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,48}"
 
 
-def tool_defs(models: dict, families: dict, contexts: list) -> list:
+def tool_defs(families: dict, contexts: list) -> list:
     port = {"type": "integer", "minimum": 1024, "maximum": 65535,
             "description": "the server's port (default: the installed model's port, usually 8080)"}
     installed_model = {"type": "string", "pattern": MODEL_ID_PATTERN, "maxLength": 49,
-                       "description": "an installed model's id as strata_status lists it (e.g. 'q2_0', "
-                                      "'coder-iq1_m', 'swift-iq3_xxs'); default: the most recently used one"}
+                       "description": "an installed model's id as strata_status lists it (e.g. "
+                                      "'laguna-s21-ud-q3_k_xl', 'occamy-apex-quality'); default: the most recently "
+                                      "used one"}
     ro = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
     return [
-        {"name": "strata_status", "title": "PolyStrata status",
-         "description": "Is PolyStrata (the local AI model server) running, and what is installed? Reports the running "
+        {"name": "strata_status", "title": "Puddle status",
+         "description": "Is Puddle (the local AI model server) running, and what is installed? Reports the running "
                         "server (model, engine version, context, busy or idle, VRAM/RAM in use), the installed models "
                         "and data folder, an install in progress, this PC's hardware (OS, CPU, RAM, GPUs, free disk) "
                         "and the model size setup recommends for this PC. Read-only; call it first.",
@@ -1100,21 +1000,16 @@ def tool_defs(models: dict, families: dict, contexts: list) -> list:
              "hardware": {"type": "boolean", "description": "include the hardware check and the recommendation "
                                                             "(default true; takes a second or two)"}}},
          "annotations": ro},
-        {"name": "strata_models", "title": "PolyStrata models",
-         "description": "The models and sizes PolyStrata's setup offers (families: qwen = Qwen3.8-Flash-Next, swift = "
-                        "Swift 1.5, coder = the Coder, unsloth = Unsloth's ~4-bit, glm = GLM 5.3 Flash, another "
-                        "model with its own engine, deepseek = DeepSeek V4 Flash on that engine, lfm25 = LFM2.5-24B-A2B, "
-                        "flint = Flint 40B-A2.5B, kolibri = Kolibri 1, qwen36 = Qwen3.6-35B-A3B, ornith = Ornith 1.5, "
-                        "gemma4 = Gemma 4 26B-A4B and tiel = Tiel "
-                        "Coder 35B-A3B, 11-25 GB models on that engine), with "
-                        "download size, RAM needed, "
-                        "whether each fits this PC, which are installed, the context lengths, and the recommendation. "
-                        "Read-only.",
+        {"name": "strata_models", "title": "Puddle models",
+         "description": "The models and sizes Puddle's setup offers (families: laguna-s = Laguna S 2.1, laguna-xs = Laguna XS 2.1, occamy = Occamy 1.0 35B-A3B, gemma4 = Gemma 4 26B-A4B), with "
+                        "download size, RAM needed, whether each fits this PC, which are installed, the context "
+                        "lengths, and the recommendation. Read-only.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
          "annotations": ro},
-        {"name": "strata_install", "title": "Install PolyStrata",
-         "description": "Install a PolyStrata model on this PC by running PolyStrata's setup non-interactively in the "
-                        "background (Python packages, the engine, a 13-114 GB model download, preparation, start "
+        {"name": "strata_install", "title": "Install Puddle",
+         "description": "Install a Puddle model on this PC by running Puddle's setup non-interactively in the "
+                        "background (Python packages, the engine compiled here, an 11-96 GB model download, "
+                        "preparation, start "
                         "script). Without confirm=true it only returns the plan (what would be downloaded, disk "
                         "space): show it to the user and call again with confirm=true once they agree. Returns at "
                         "once; call it again (no arguments needed) to see the progress, or with cancel=true to stop "
@@ -1122,52 +1017,33 @@ def tool_defs(models: dict, families: dict, contexts: list) -> list:
                         "After it finishes, start the model with strata_start.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
              "family": {"type": "string", "enum": list(families),
-                        "description": "qwen = Qwen3.8-Flash-Next (the original), swift = Swift 1.5 (thinks "
-                                       "shorter), coder = the Coder (half the experts, ~32 GB RAM, for code), "
-                                       "unsloth = Unsloth's 4- to 8-bit files (UD-IQ4_XS, UD-Q4_K_XL, UD-Q5_K_XL, "
-                                       "UD-Q6_K_XL, Q8_0): every expert in RAM where they fit, else part of them read "
-                                       "from the SSD, glm = GLM 5.3 "
-                                       "Flash (another model: Linux, one NVIDIA card, 64-128 GB of RAM, a 79 or "
-                                       "114 GB download, no images), deepseek = DeepSeek V4 Flash (GLM's "
-                                       "engine: Linux, one NVIDIA card, ~72 GB of RAM beside a 32 GB card, a 91 "
-                                       "GB download, no images), lfm25 = LFM2.5-24B-A2B, flint = Flint 40B-A2.5B, "
-                                       "kolibri = Kolibri 1 (Linux or Windows, one NVIDIA card, ~52 GB of RAM "
-                                       "beside an 8 GB card, a 48 GB download, no images), qwen36 = "
-                                       "Qwen3.6-35B-A3B, ornith = Ornith 1.5, gemma4 = Gemma 4 26B-A4B, tiel = "
-                                       "Tiel Coder 35B-A3B (GLM's engine: one NVIDIA card, an 11-25 GB download, "
-                                       "15-31 GB of RAM beside an 8 GB card by setup's estimate; images with "
-                                       "vision except LFM2.5 and Flint)"},
-             "model": {"type": "string", "enum": list(dict.fromkeys(
-                           [*models, *(m for f in families.values() for m in f.get("models", ()))])),
+                        "description": "laguna-s = Laguna S 2.1, laguna-xs = Laguna XS 2.1, occamy = Occamy 1.0 35B-A3B, gemma4 = Gemma 4 26B-A4B: see strata_models"},
+             "model": {"type": "string", "enum": list(dict.fromkeys(m for f in families.values() for m in f["models"])),
                        "description": "the size (quantization): see strata_models"},
              "context": {"type": "integer", "enum": contexts,
                          "description": "context length in tokens (more needs more VRAM)"},
              "vision": {"type": "string", "enum": ["no", "yes", "gpu", "cpu"],
                         "description": "let the model read images (yes = the encoder on the GPU; ~0.9 GB more "
                                        "download); default no"},
-             "kv": {"type": "string", "enum": ["int8", "q4_0", "k8v4"],
-                    "description": "KV cache precision above 8K context (default int8)"},
              "gpu": {"type": "integer", "minimum": 0, "maximum": 63,
                      "description": "one GPU, as nvidia-smi numbers them (default: the one with the most VRAM)"},
              "gpus": {"type": "string", "pattern": GPUS_PATTERN, "maxLength": 40,
                       "description": "several GPUs sharing the model: '0,2' or 'all' (experimental)"},
              "backend": {"type": "string", "enum": ["auto", "cuda", "hip"],
-                         "description": "auto (default), cuda = NVIDIA, hip = AMD on Linux (experimental)"},
-             "low_ram": {"type": "string", "enum": ["auto", "on", "off", "resident", "mmap"],
-                         "description": "setup's low-RAM mode (default auto)"},
+                         "description": "auto (default), cuda = NVIDIA, hip = AMD (experimental)"},
              "port": {**port, "description": "the port the model will listen on (default 8080)"},
              "data_dir": {"type": "string", "maxLength": 260,
-                          "description": "where the model files go (default: the PolyStrata-data folder next to the "
-                                         "PolyStrata folder). Only the current data folder, a folder inside the PolyStrata "
-                                         "folder, or a new absolute path whose last folder is named PolyStrata... "
-                                         "(e.g. D:\\PolyStrata-data) outside system folders"},
+                          "description": "where the model files go (default: the Puddle-data folder next to the "
+                                         "Puddle folder). Only the current data folder, a folder inside the Puddle "
+                                         "folder, or a new absolute path whose last folder is named Puddle... "
+                                         "(e.g. D:\\Puddle-data) outside system folders"},
              "confirm": {"type": "boolean", "description": "true = really start the install (after the user agreed "
                                                            "to the plan and the download size)"},
              "cancel": {"type": "boolean", "description": "true = stop the install in progress"}}},
          "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
                          "openWorldHint": True}},
-        {"name": "strata_start", "title": "Start PolyStrata",
-         "description": "Start an installed PolyStrata model in the background (as its start script does, without "
+        {"name": "strata_start", "title": "Start Puddle",
+         "description": "Start an installed Puddle model in the background (as its start script does, without "
                         "opening a browser) and wait until it answers. Loading takes 1-3 minutes and the PC can be "
                         "slow meanwhile; if it is not ready within wait_seconds this returns 'loading' - check again "
                         "with strata_status. The model keeps running until strata_stop.",
@@ -1180,9 +1056,9 @@ def tool_defs(models: dict, families: dict, contexts: list) -> list:
                                              "a tool call after 60 s)"}}},
          "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
                          "openWorldHint": False}},
-        {"name": "strata_stop", "title": "Stop PolyStrata",
-         "description": "Stop the PolyStrata model: the engine is unloaded through the server's own API (it frees its "
-                        "VRAM and RAM itself), then the server this tool started is ended. A PolyStrata started "
+        {"name": "strata_stop", "title": "Stop Puddle",
+         "description": "Stop the Puddle model: the engine is unloaded through the server's own API (it frees its "
+                        "VRAM and RAM itself), then the server this tool started is ended. A Puddle started "
                         "elsewhere (e.g. its own window) is only unloaded - close its window to end it. Refuses while "
                         "a request is running unless force=true.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
@@ -1190,8 +1066,8 @@ def tool_defs(models: dict, families: dict, contexts: list) -> list:
              "force": {"type": "boolean", "description": "stop even while a request is running"}}},
          "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True,
                          "openWorldHint": False}},
-        {"name": "strata_logs", "title": "PolyStrata logs",
-         "description": "The last lines of a PolyStrata log: 'server' (the model server this tool started: loading, "
+        {"name": "strata_logs", "title": "Puddle logs",
+         "description": "The last lines of a Puddle log: 'server' (the model server this tool started: loading, "
                         "requests, errors), 'engine' (the engine's own log for a model), 'setup' (the install). "
                         "Default: the setup log while an install runs, else the server log. Read-only.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
@@ -1199,16 +1075,16 @@ def tool_defs(models: dict, families: dict, contexts: list) -> list:
              "model": installed_model,
              "lines": {"type": "integer", "minimum": 1, "maximum": 500, "description": "default 80"}}},
          "annotations": ro},
-        {"name": "strata_benchmark", "title": "PolyStrata speed test",
-         "description": "A short fixed request (greedy, thinking off) through the running PolyStrata server; reports "
+        {"name": "strata_benchmark", "title": "Puddle speed test",
+         "description": "A short fixed request (greedy, thinking off) through the running Puddle server; reports "
                         "the output speed (tokens/s) and prompt speed. Takes 10-60 s. Refuses while the model is "
                         "busy.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
              "port": port,
              "max_tokens": {"type": "integer", "minimum": 16, "maximum": 512, "description": "default 200"}}},
          "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}},
-        {"name": "strata_connect_info", "title": "Connect to PolyStrata",
-         "description": "How to point other apps at the local PolyStrata server: the OpenAI and Anthropic base URLs, "
+        {"name": "strata_connect_info", "title": "Connect to Puddle",
+         "description": "How to point other apps at the local Puddle server: the OpenAI and Anthropic base URLs, "
                         "the model id, whether an API key is needed, and ready-to-paste settings for Claude Code, "
                         "Codex CLI, the OpenAI SDK, curl, Cursor/Continue/Open WebUI. Read-only.",
          "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"port": port}},
@@ -1221,7 +1097,7 @@ class Tools:
         self.s = strata
 
     def defs(self) -> list:
-        return tool_defs(*self.s.tables()[:3])
+        return tool_defs(*self.s.tables()[:2])
 
     def call(self, name: str, args) -> dict:
         defs = {d["name"]: d for d in self.defs()}
@@ -1261,13 +1137,13 @@ class Tools:
             out["ports_used_by_other_programs"] = others
         if running:
             r = running[0]
-            summary = (f"PolyStrata is running on port {r['port']}: {r.get('model')}"
+            summary = (f"Puddle is running on port {r['port']}: {r.get('model')}"
                        + (", busy" if r.get("busy") else ", idle")
                        + ("" if r.get("loaded", True) else " (model unloaded; the next request loads it)"))
         elif "loading" in out:
-            summary = f"PolyStrata is loading {out['loading']['model']} (port {out['loading']['port']})"
+            summary = f"Puddle is loading {out['loading']['model']} (port {out['loading']['port']})"
         else:
-            summary = "PolyStrata is not running"
+            summary = "Puddle is not running"
         inst = s.installed()
         job = s.install_job()
         if job:
@@ -1289,14 +1165,14 @@ class Tools:
     def strata_models(self) -> dict:
         s = self.s
         hw = s.hardware()
-        _m, _f, contexts, src = s.tables()
+        _f, contexts, src = s.tables()
         rec = s.recommend(hw)
         return {"summary": "Model families and sizes setup offers" + (
                     f"; recommended for this PC: {rec['title']}, {rec['context'] // 1024}K context"
                     if rec.get("model") else f"; no model fits this PC: {rec['why']}"),
                 "families": s.model_table(hw), "contexts": contexts,
-                "context_note": "longer contexts need more VRAM (fewer experts fit on the GPU); past 262144 setup adds "
-                                "rope scaling (experimental)",
+                "context_note": "longer contexts need more VRAM (fewer experts fit on the GPU); setup's --context "
+                                "takes up to 1048576 tokens",
                 "recommendation": rec, "source": src,
                 "this_pc": {"ram_gb": hw.get("ram_gb"),
                             "gpus": [{k: g.get(k) for k in ("index", "name", "vram_gb", "usable")}
@@ -1309,17 +1185,17 @@ class Tools:
             raise ToolError("data_dir: network (UNC) paths are not allowed; use a local drive")
         p = Path(os.path.expandvars(raw)).expanduser()
         if not p.is_absolute():
-            raise ToolError("data_dir must be an absolute path (e.g. D:\\PolyStrata-data or /mnt/big/PolyStrata-data)")
+            raise ToolError("data_dir must be an absolute path (e.g. D:\\Puddle-data or /mnt/big/Puddle-data)")
         if ".." in p.parts:
             raise ToolError("data_dir must not contain '..'")
         n = norm(p)
         current = norm(s.data_dir())
-        if n == current or is_inside(n, norm(s.root)) or n == norm(s.root.parent / "PolyStrata-data"):
+        if n == current or is_inside(n, norm(s.root)) or n == norm(s.root.parent / "Puddle-data"):
             pass
         else:
-            if not p.name.lower().startswith("polystrata"):
-                raise ToolError(f"data_dir {raw!r}: a new data folder must be named PolyStrata... (e.g. "
-                                f"{Path(p.anchor or '/') / 'PolyStrata-data'}), so that no other folder is filled with "
+            if not p.name.lower().startswith("puddle"):
+                raise ToolError(f"data_dir {raw!r}: a new data folder must be named Puddle... (e.g. "
+                                f"{Path(p.anchor or '/') / 'Puddle-data'}), so that no other folder is filled with "
                                 "model files")
             if not p.parent.is_dir():
                 raise ToolError(f"data_dir {raw!r}: its parent folder {p.parent} does not exist")
@@ -1329,8 +1205,8 @@ class Tools:
                 raise ToolError(f"data_dir {raw!r} is a file")
         return p
 
-    def strata_install(self, family=None, model=None, context=None, vision=None, kv=None, gpu=None, gpus=None,
-                       backend=None, low_ram=None, port=None, data_dir=None, confirm=False, cancel=False) -> dict:
+    def strata_install(self, family=None, model=None, context=None, vision=None, gpu=None, gpus=None,
+                       backend=None, port=None, data_dir=None, confirm=False, cancel=False) -> dict:
         s = self.s
         with s.lock:
             job = s.install_job()
@@ -1352,7 +1228,7 @@ class Tools:
                                       if job.get("download") else ""),
                         "install": job, "follow": "call strata_install again for progress, or strata_logs "
                                                   "source=setup for the full output"}
-            given = [x for x in (family, model, context, vision, kv, gpu, gpus, backend, low_ram, port, data_dir)
+            given = [x for x in (family, model, context, vision, gpu, gpus, backend, port, data_dir)
                      if x is not None]
             if job and not given and not confirm:
                 return {"summary": f"the last install {job['result']}" + (f": {job['error']}" if job.get("error") else ""),
@@ -1360,11 +1236,10 @@ class Tools:
                         "next": "strata_start" if job.get("exit_code") == 0 else
                                 "fix the problem above and call strata_install again with confirm=true (finished "
                                 "steps are skipped)"}
-            plan, args = self.install_plan(family, model, context, vision, kv, gpu, gpus, backend, low_ram, port,
-                                           data_dir)
+            plan, args = self.install_plan(family, model, context, vision, gpu, gpus, backend, port, data_dir)
             tracked = s.tracked_server()
             if tracked and not tracked.get("ended"):
-                raise ToolError("PolyStrata is running (started by strata_start): stop it first with strata_stop - setup "
+                raise ToolError("Puddle is running (started by strata_start): stop it first with strata_stop - setup "
                                 "may update the engine files it uses")
             if not confirm:
                 return {"summary": f"Plan: install {plan['title']} ({plan['download_gb']:.0f} GB download"
@@ -1375,65 +1250,44 @@ class Tools:
                 raise ToolError(plan["disk_short"])
             return self.launch_install(plan, args)
 
-    def install_plan(self, family, model, context, vision, kv, gpu, gpus, backend, low_ram, port, data_dir):
+    def install_plan(self, family, model, context, vision, gpu, gpus, backend, port, data_dir):
         s = self.s
-        models, families, contexts, _src = s.tables()
+        families, contexts, _src = s.tables()
         if gpu is not None and gpus is not None:
             raise ToolError("give gpu (one card) or gpus (several), not both")
-        if backend == "hip" and WIN:
-            raise ToolError("the AMD (hip) backend runs on Linux only; on Windows PolyStrata needs an NVIDIA RTX 20 "
-                            "series or newer card")
         if sys.version_info < (3, 10) or (WIN and sys.maxsize <= 2**32):
-            raise ToolError("this Python is too old or 32-bit: PolyStrata's setup needs 64-bit Python 3.10+; run "
+            raise ToolError("this Python is too old or 32-bit: Puddle's setup needs 64-bit Python 3.10+; run "
                             + ("START-HERE.bat" if WIN else "./setup.sh") + " once instead (it installs Python)")
         hw = s.hardware()
         rec = s.recommend(hw)
+        S = s.setup_module()
         if model is None and family is None:
             if not rec.get("model"):
                 raise ToolError("no model was given and none fits this PC: " + rec["why"])
             family, model = rec["family"], rec["model"]
-            context = context or rec["context"]
         elif model is None:
             sizes = s.sizes(family)
-            model = rec["model"] if rec.get("family") == family else ("IQ3_XXS" if "IQ3_XXS" in sizes and
-                                                                     hw.get("ram_gb", 0) >= 60 else next(iter(sizes)))
-            S = s.setup_module()
-            if families[family].get("engine") == "poly" and S and hw.get("ram_gb"):   # setup's own pick for this PC
-                cards = [g["vram_gb"] for g in hw.get("gpus", []) if g.get("usable")]
-                model = S.poly_default(sizes, hw["ram_gb"], max(cards, default=0.0))
+            cards = [g["vram_gb"] for g in hw.get("gpus", []) if g.get("usable")]
+            model = S.poly_default(sizes, hw["ram_gb"], max(cards, default=0.0)) if S and hw.get("ram_gb") \
+                else next(iter(sizes))                  # setup's own pick for this PC
         elif family is None:
             fams = [f for f in families if model in s.sizes(f)]
-            if len(fams) > 1:                   # a family's own size yields to MODELS' (Tiel's UD-Q4_K_XL)
-                fams = [f for f in fams if "models" not in families[f]] or fams
-            if len(fams) > 1 and "qwen" not in fams:
+            if len(fams) > 1:
                 raise ToolError(f"{model} is a size of " + " and of ".join(families[f]["title"] for f in fams)
                                 + ": give family too (" + " or ".join(fams) + ")")
-            family = "qwen" if "qwen" in fams else fams[0]
+            if not fams:
+                raise ToolError(f"no family has a size {model}: see strata_models")
+            family = fams[0]
         sizes = s.sizes(family)
         if model not in sizes:
             raise ToolError(f"{families[family]['title']} has no {model}; its sizes: {', '.join(sizes)}")
         d = sizes[model]
         if context is None:
-            usable = [g for g in hw.get("gpus", []) if g.get("usable")]
-            vram = max((g["vram_gb"] for g in usable), default=12)
-            context = 32768 if vram < 14 else 65536 if vram < 20 else 131072
-            if d.get("budget") and (not hasattr(s.setup_module(), "unsloth_budget") or
-                                                s.setup_module().unsloth_budget(model, hw.get("ram_gb") or 0.0)):
-                context = 8192 if vram < 14 else 32768
-            if families[family].get("engine") == "poly":
-                context = 32768                         # the one it was measured with, setup's own default
-        if vision in ("yes", "gpu", "cpu") and d.get("vision", families[family].get("vision")) is False:
-            raise ToolError(f"images are not available with {families[family]['title']} {model} yet: use vision=no")
-        if vision is not None and backend == "hip" and vision != "no":
-            # setup.py's hip_vision rules (#990): the AMD backend has no GPU image encoder, but --vision cpu reads
-            # images on the CPU beside it (Linux; the ready-made Windows AMD engine has no encoder)
-            if vision == "cpu" and not WIN:
-                pass
-            elif vision == "cpu":
-                raise ToolError("images on the CPU with an AMD card are Linux-only for now: use vision=no")
-            else:
-                raise ToolError("the AMD backend has no GPU image encoder yet: use vision=cpu (images on the CPU, "
-                                "Linux) or vision=no")
+            context = 32768                             # the one the sizes were measured with, setup's own default
+        if vision in ("yes", "gpu", "cpu") and not families[family].get("vision"):
+            raise ToolError(f"{families[family]['title']} does not read images: use vision=no")
+        if vision in ("yes", "gpu", "cpu") and backend == "hip":
+            raise ToolError("the image encoder is a CUDA program: with an AMD card images are off (use vision=no)")
         target = self.check_data_dir(data_dir) if data_dir else s.data_dir()
         tag = (families[family].get("tag", "") + model)
         have_dir = target / "models" / tag
@@ -1443,12 +1297,10 @@ class Tools:
         short = None
         if free is not None and free < need:
             short = (f"not enough free disk space for {model}: about {need:.0f} GB needed at {target}, "
-                     f"{free:.0f} GB free; free some space or choose data_dir on a bigger drive (e.g. D:\\PolyStrata-data)")
+                     f"{free:.0f} GB free; free some space or choose data_dir on a bigger drive (e.g. D:\\Puddle-data)")
         args = ["--yes", "--no-start", "--family", family, "--model", model, "--context", str(context),
                 "--vision", vision or "no"]
-        if family in ("qwen", "coder"):
-            args += ["--experimental-speed-projection", "off"]
-        for flag, v in (("--kv", kv), ("--gpu", gpu), ("--gpus", gpus), ("--low-ram", low_ram), ("--port", port),
+        for flag, v in (("--gpu", gpu), ("--gpus", gpus), ("--port", port),
                         ("--data-dir", str(target) if data_dir else None)):
             if v is not None:
                 args += [flag, str(v)]
@@ -1457,8 +1309,10 @@ class Tools:
         fit = None
         ram = hw.get("ram_gb")
         if ram is not None:
-            need_ram = d["ram_gb"]
-            fit = "fits" if ram >= need_ram else f"needs ~{need_ram} GB of RAM, this PC has {ram:.0f} GB"
+            usable = [g for g in hw.get("gpus", []) if g.get("usable")]
+            vram = max((g["vram_gb"] for g in usable), default=0.0)
+            need_ram = s.ram_need(S, d, vram)
+            fit = "fits" if ram >= need_ram - 4 else f"wants ~{need_ram:.0f} GB of RAM, this PC has {ram:.0f} GB"
         installed = (s.root / f"strata-{tag.lower()}.json").exists()
         plan = {"title": f"{families[family]['title']} {model}", "family": family, "model": model,
                 "context": context, "images": vision or "no", "download_gb": d["download_gb"],
@@ -1522,21 +1376,21 @@ class Tools:
             tracked = s.tracked_server()
             if tracked and not tracked.get("ended"):
                 info = s.probe(tracked["port"])
-                return {"summary": f"PolyStrata is already {'running' if info else 'loading'} ({tracked.get('model')}, "
+                return {"summary": f"Puddle is already {'running' if info else 'loading'} ({tracked.get('model')}, "
                                    f"port {tracked['port']}, started by this MCP server)"
                                    + ("" if tracked.get("model") == desc["model"] else
                                       ": stop it first (strata_stop) to start another model"),
                         "server": info}
             info = s.probe(port, deep=False)
             if info and not info.get("other"):
-                return {"summary": f"a PolyStrata server already runs on port {port} ({info.get('model')}), started "
+                return {"summary": f"a Puddle server already runs on port {port} ({info.get('model')}), started "
                                    "outside this MCP server; stop it (close its window) or use another port",
                         "server": info}
             if info or not port_free(port):
                 raise ToolError(f"port {port} is used by another program; choose another port (port=...)")
             py = s.run_python()
             if not Path(py).exists():
-                raise ToolError("PolyStrata's Python environment (.venv) is missing: run the install again")
+                raise ToolError("Puddle's Python environment (.venv) is missing: run the install again")
             cmd = [py, str(s.root / "serve" / "server.py"), "--engine", "strata", "--config", str(cfg_path),
                    "--port", str(port)]
             if gpu is not None:
@@ -1568,15 +1422,15 @@ class Tools:
                 tail = read_tail(log_path, 15)
                 end_group_leftovers(p.pid)
                 s.save_state("server", None)
-                raise ToolError(f"PolyStrata stopped while starting (exit code {p.poll()}). Its last output:\n"
+                raise ToolError(f"Puddle stopped while starting (exit code {p.poll()}). Its last output:\n"
                                 + "\n".join(tail))
             info = s.probe(port)
             if info and not info.get("other"):
-                return {"summary": f"PolyStrata is running: {info.get('model')} on http://127.0.0.1:{port}/v1 "
+                return {"summary": f"Puddle is running: {info.get('model')} on http://127.0.0.1:{port}/v1 "
                                    "(OpenAI and Anthropic APIs; chat page at http://127.0.0.1:" + str(port) + "/)",
                         "server": {**info, "pid": p.pid}}
             if time.time() >= end:
-                return {"summary": f"PolyStrata is loading {desc['model']} (this takes 1-3 minutes; the PC may be slow "
+                return {"summary": f"Puddle is loading {desc['model']} (this takes 1-3 minutes; the PC may be slow "
                                    "meanwhile). Check with strata_status in a minute.",
                         "loading": {"pid": p.pid, "port": port,
                                     "last_log_line": (read_tail(log_path, 1) or [None])[-1]}}
@@ -1595,12 +1449,12 @@ class Tools:
                 key = s.api_key_for(port)
                 st, body = http_json(f"http://127.0.0.1:{port}/status", api_key=key, timeout=3)
                 if st == 200 and isinstance(body, dict) and body.get("busy") and not force:
-                    raise ToolError("a request is running on PolyStrata right now; wait for it, or call strata_stop "
+                    raise ToolError("a request is running on Puddle right now; wait for it, or call strata_stop "
                                     "with force=true to stop anyway")
                 st, body = http_json(f"http://127.0.0.1:{port}/unload", "POST", api_key=key, timeout=120)
                 unloaded = (body or {}).get("status") if isinstance(body, dict) else None
                 if st == 409 and not force:
-                    raise ToolError("PolyStrata is busy (a request is running or queued); call again with force=true "
+                    raise ToolError("Puddle is busy (a request is running or queued); call again with force=true "
                                     "to stop anyway")
                 proc_terminate(tracked["pid"], tracked["ident"])   # POSIX: SIGTERM = the server's own Ctrl+C path
                 clean = wait_gone(tracked["pid"], tracked["ident"], 30)
@@ -1612,7 +1466,7 @@ class Tools:
                 if gone:
                     end_group_leftovers(tracked["pid"])
                     s.save_state("server", None)
-                return {"summary": "PolyStrata stopped" + ("" if gone else " - but its process still runs; see strata_logs")
+                return {"summary": "Puddle stopped" + ("" if gone else " - but its process still runs; see strata_logs")
                                    + (" (the engine unloaded itself first)" if unloaded == "unloaded" else ""),
                         "model": tracked.get("model"), "port": port, "engine_unloaded": unloaded,
                         "ended_cleanly": clean}
@@ -1623,16 +1477,16 @@ class Tools:
                     st, body = http_json(f"http://127.0.0.1:{p}/unload", "POST", api_key=key, timeout=120)
                     r = body.get("status") if isinstance(body, dict) else None
                     if st == 409:
-                        raise ToolError("PolyStrata is busy (a request is running); try again when it is done")
+                        raise ToolError("Puddle is busy (a request is running); try again when it is done")
                     if st == 401:
-                        raise ToolError("PolyStrata (started outside this MCP server) wants an API key this folder's "
+                        raise ToolError("Puddle (started outside this MCP server) wants an API key this folder's "
                                         "configs do not have; close its window to stop it")
-                    return {"summary": f"PolyStrata on port {p} was started outside this MCP server (its own window or a "
+                    return {"summary": f"Puddle on port {p} was started outside this MCP server (its own window or a "
                                        f"service), so only its model was unloaded ({r}): its VRAM and RAM are free, "
                                        "but the server still listens and loads the model again on the next request. "
                                        "Close its window to end it completely.",
                             "port": p, "engine_unloaded": r}
-            return {"summary": "PolyStrata is not running"}
+            return {"summary": "Puddle is not running"}
 
     # ---- strata_logs
     def strata_logs(self, source=None, model=None, lines=80) -> dict:
@@ -1651,7 +1505,7 @@ class Tools:
                 raise ToolError(f"{cfg.name} names no engine log")
             path = Path(raw)
             if not s.allowed(path):
-                raise ToolError(f"{cfg.name}'s log {raw} is outside the PolyStrata folder and its data folder: not shown")
+                raise ToolError(f"{cfg.name}'s log {raw} is outside the Puddle folder and its data folder: not shown")
         if not path.exists():
             return {"summary": f"no {source} log yet ({path})", "log": str(path), "lines": []}
         tail = read_tail(path, lines)
@@ -1667,12 +1521,12 @@ class Tools:
                 target = info
                 break
         if target is None:
-            raise ToolError("PolyStrata is not running: start it first (strata_start)")
+            raise ToolError("Puddle is not running: start it first (strata_start)")
         p = target["port"]
         key = s.api_key_for(p)
         st, stat = http_json(f"http://127.0.0.1:{p}/status", api_key=key, timeout=3)
         if st == 200 and isinstance(stat, dict) and (stat.get("busy") or stat.get("queued")):
-            raise ToolError("PolyStrata is busy with a request; run the speed test when it is idle")
+            raise ToolError("Puddle is busy with a request; run the speed test when it is idle")
         body = {"model": target.get("model") or "strata", "max_tokens": max_tokens, "temperature": 0,
                 "reasoning_effort": "none", "stream": False,
                 "messages": [{"role": "user", "content": BENCH_PROMPT}]}
@@ -1718,19 +1572,19 @@ class Tools:
         key = "<your api_key from strata-<model>.json>" if key_needed else "none"
         base = f"http://127.0.0.1:{port}"
         return {
-            "summary": (f"PolyStrata {'runs' if target else 'will run'} at {base}: OpenAI base URL {base}/v1, Anthropic "
+            "summary": (f"Puddle {'runs' if target else 'will run'} at {base}: OpenAI base URL {base}/v1, Anthropic "
                         f"base URL {base}" + (" (an API key is required)" if key_needed else " (any API key works)")),
             "running": bool(target), "openai_base_url": f"{base}/v1", "anthropic_base_url": base,
             "anthropic_messages_endpoint": f"{base}/v1/messages", "chat_page": base + "/", "model": model,
-            "api_key": ("required: the \"api_key\" value in the PolyStrata folder's strata-<model>.json"
+            "api_key": ("required: the \"api_key\" value in the Puddle folder's strata-<model>.json"
                         if key_needed else "not required (send any value)"),
             "examples": {
                 "claude_code": {"env": {"ANTHROPIC_BASE_URL": base, "ANTHROPIC_AUTH_TOKEN": key,
                                         "ANTHROPIC_MODEL": "claude-sonnet-4-5"},
-                                "note": "Claude Code needs a Claude model name it knows; PolyStrata ignores the name"},
+                                "note": "Claude Code needs a Claude model name it knows; Puddle ignores the name"},
                 "codex_cli": {"file": "~/.codex/config.toml",
                               "toml": f'model = "{model}"\nmodel_provider = "strata"\n\n[model_providers.strata]\n'
-                                      f'name = "PolyStrata"\nbase_url = "{base}/v1"\nwire_api = "chat"'},
+                                      f'name = "Puddle"\nbase_url = "{base}/v1"\nwire_api = "chat"'},
                 "openai_python": (f'from openai import OpenAI\nclient = OpenAI(base_url="{base}/v1", api_key="{key}")\n'
                                   f'r = client.chat.completions.create(model="{model}", messages=[{{"role": "user", '
                                   f'"content": "Hello!"}}])\nprint(r.choices[0].message.content)'),
@@ -1747,9 +1601,10 @@ class Tools:
 
 
 # ------------------------------------------------------------------------------------------------ MCP over stdio
-INSTRUCTIONS = ("PolyStrata runs a large AI model (Qwen3.8-Flash-Next, a mixture of experts) locally on this PC's GPU and "
-                "RAM, with an OpenAI- and Anthropic-compatible server on http://127.0.0.1:8080. Call strata_status "
-                "first. To install: strata_install (it returns a plan; get the user's OK for the 58-111 GB download, "
+INSTRUCTIONS = ("Puddle runs a large AI model (Laguna, Occamy or Gemma 4, mixtures of experts) locally on this PC's "
+                "GPU and RAM, with an OpenAI- and Anthropic-compatible server on http://127.0.0.1:8080. Call "
+                "strata_status first. To install: strata_install (it returns a plan; get the user's OK for the 11-96 GB "
+                "download, "
                 "then call it with confirm=true; it runs in the background - call it again for progress). Then "
                 "strata_start, strata_stop, strata_logs for problems, strata_connect_info to point other apps at it.")
 
@@ -1792,7 +1647,7 @@ class McpServer:
             self.protocol = asked if asked in PROTOCOLS else PROTOCOL
             return self.result(rid, {"protocolVersion": self.protocol,
                                      "capabilities": {"tools": {"listChanged": False}},
-                                     "serverInfo": {"name": "strata", "title": "PolyStrata", "version": VERSION},
+                                     "serverInfo": {"name": "strata", "title": "Puddle", "version": VERSION},
                                      "instructions": INSTRUCTIONS})
         if method == "ping":
             return self.result(rid, {})
@@ -1884,7 +1739,7 @@ def install_job(spec_path: str) -> int:
                 print("strata-mcp: .venv has no pip (an earlier run stopped half-way): making it again", flush=True)
                 shutil.rmtree(venv, ignore_errors=True)
             if not py.exists():
-                print(f"strata-mcp: creating PolyStrata's Python environment in {venv} ...", flush=True)
+                print(f"strata-mcp: creating Puddle's Python environment in {venv} ...", flush=True)
                 r = subprocess.run([spec["base_python"], "-m", "venv", str(venv)])
                 if r.returncode or not py.exists():
                     print("\n  [X]  could not create the Python environment (.venv)", flush=True)
@@ -1907,9 +1762,9 @@ def install_job(spec_path: str) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="PolyStrata's MCP server (stdio): install, start, check and stop PolyStrata "
+    ap = argparse.ArgumentParser(description="Puddle's MCP server (stdio): install, start, check and stop Puddle "
                                              "from an AI assistant. See docs/MCP_SERVER.md.")
-    ap.add_argument("--root", help="the PolyStrata folder (default: the one this file is in)")
+    ap.add_argument("--root", help="the Puddle folder (default: the one this file is in)")
     ap.add_argument("--install-job", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.install_job:
@@ -1919,12 +1774,12 @@ def main(argv=None) -> int:
         return 2
     root = Path(a.root).expanduser().resolve() if a.root else DEFAULT_ROOT
     if not (root / "setup.py").is_file() or not (root / "serve" / "server.py").is_file():
-        log(f"{root} is not a PolyStrata folder (no setup.py / serve/server.py)")
+        log(f"{root} is not a Puddle folder (no setup.py / serve/server.py)")
         return 2
     out = sys.stdout.buffer
     sys.stdout = sys.stderr                             # stray prints must never corrupt the protocol stream
     server = McpServer(Strata(root), out)
-    log(f"ready (PolyStrata folder {root})")
+    log(f"ready (Puddle folder {root})")
     try:
         server.serve(sys.stdin.buffer)
     except KeyboardInterrupt:

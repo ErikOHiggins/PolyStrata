@@ -53,31 +53,27 @@ class ResearchRun(unittest.TestCase):
                                       "--json", str(out), *extra])
         return code, json.loads(out.read_text(encoding="utf-8")), buf.getvalue()
 
-    def test_split_run_names_the_prefix_and_reports_every_question(self):
+    def test_a_split_run_reports_every_question(self):
         self.engine.samplings.clear()
-        code, out, text = self.go("--prefix", "on")
+        code, out, text = self.go()
         self.assertEqual(code, 0, text)
         self.assertEqual([q["q"] for q in out["questions"]], [0, 1, 2])          # the blank line is skipped
         self.assertTrue(all(q["text"] for q in out["questions"]))
         self.assertEqual(len(self.engine.samplings), 3)
-        for s in self.engine.samplings:
-            self.assertEqual(s["strata_prefix"]["tokens"] > 0, True)               # resolved by the server
+        self.assertTrue(all("strata_prefix" not in s for s in self.engine.samplings))
         self.assertIn("median first token", text)
 
-    def test_prefix_off_and_the_joined_layout(self):
+    def test_the_joined_layout(self):
         self.engine.samplings.clear()
-        self.go("--prefix", "off")
-        self.assertTrue(all("strata_prefix" not in s for s in self.engine.samplings))
-        self.engine.samplings.clear()
-        code, out, _ = self.go("--prefix", "on", "--layout", "joined", "--parallel", "2")
+        code, out, _ = self.go("--layout", "joined", "--parallel", "2")
         self.assertEqual(code, 0)
-        self.assertTrue(all(s["strata_prefix"]["tokens"] > 0 for s in self.engine.samplings))
+        self.assertEqual(len(self.engine.samplings), 3)
 
     def test_compare(self):
         d = Path(self.dir.name)
-        self.go("--prefix", "off")
+        self.go()
         (d / "a.json").write_text((d / "out.json").read_text(encoding="utf-8"), encoding="utf-8")
-        self.go("--prefix", "on")
+        self.go("--layout", "joined")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             code = research_run.main(["--compare", str(d / "a.json"), str(d / "out.json")])

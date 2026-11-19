@@ -1,16 +1,15 @@
-"""Which PolyStrata model a GGUF is - and whether PolyStrata can run it - from its header alone.
+"""Which Puddle model a GGUF is - and whether Puddle can run it - from its header alone.
 
 Reads only the files' headers (a few MB each, by HTTP range requests for a remote file) with quantscope, prints the
 real storage of every weight group (bits per weight, quantization types), then compares the routed experts and the
 sizes with the files setup installs (data/gguf_fingerprints.json):
 
-    python tools/strata_inspect.py ms:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF          # list the variants
-    python tools/strata_inspect.py ms:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF IQ3_S    # one variant
-    python tools/strata_inspect.py ms:unsloth/Qwen3.8-Flash-Next-GGUF UD-Q2_K_XL
-    python tools/strata_inspect.py D:/models/my-copy-00001-of-00002.gguf                  # a local file or folder
-    python tools/strata_inspect.py https://example.com/x-00001-of-00002.gguf              # one URL (that shard only)
+    python tools/strata_inspect.py hf:Accio-Lab/occamy-1.0-APEX-GGUF                      # list the variants
+    python tools/strata_inspect.py hf:Accio-Lab/occamy-1.0-APEX-GGUF APEX-Quality         # one variant
+    python tools/strata_inspect.py D:/models/my-copy-00001-of-00003.gguf                  # a local file or folder
+    python tools/strata_inspect.py https://example.com/x.gguf                             # one URL
 
-ms: is ModelScope, hf: Hugging Face (HF_ENDPOINT is honoured).  setup.py --inspect runs the same.
+hf: is Hugging Face (HF_ENDPOINT is honoured), ms: ModelScope.  setup.py --inspect runs the same.
     python tools/strata_inspect.py --fingerprints data/gguf_fingerprints.json             # remake the table
 """
 from __future__ import annotations
@@ -28,27 +27,29 @@ sys.path.insert(0, str(ROOT / "tools"))
 import quantscope as qs  # noqa: E402
 
 FINGERPRINTS = ROOT / "data" / "gguf_fingerprints.json"
-ARCH = "qwen4exp"                                       # Qwen3.8-Flash-Next's general.architecture
-PREVIEW_ARCHS = {"qwen35moe": "Qwen3.6-35B-A3B"}         # model families PolyStrata knows but does not run yet (T0)
-# strata-poly engine architectures: general.architecture -> FAMILIES[family]["title"] from setup.py
-# (setup.py's POLY_GGUF_ARCHS lists the arch set; keep these values byte-identical to those titles so
-# resolve_custom_gguf can map a "family" verdict back to --family/--model)
-POLY_ARCHS = {"gemma4": "Gemma 4 26B-A4B", "glm5-next": "GLM 5.3 Flash", "glm5next": "GLM 5.3 Flash",
-              "deepseek4": "DeepSeek V4 Flash", "lfm2moe": "LFM2.5-24B-A2B", "flint": "Flint 40B-A2.5B"}
+# the architectures strata-poly runs for Puddle's families -> FAMILIES[family]["title"] in setup.py (resolve_custom_gguf
+# maps a "family" verdict back to --family / --model by that title).  Laguna-S and Laguna-XS share one architecture:
+# their layer count tells them apart.
+POLY_ARCHS = {"laguna": {48: "Laguna S 2.1", 40: "Laguna XS 2.1"}, "qwen35moe": "Occamy 1.0 35B-A3B",
+              "gemma4": "Gemma 4 26B-A4B"}
 
-# the files setup installs: (family, model, ModelScope repository, file name prefix) - for --fingerprints
-KNOWN = [
-    ("qwen", "Q2_0", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "Q2_0/"),
-    ("qwen", "IQ2_XS", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "IQ2_XS/"),
-    ("qwen", "IQ3_XXS", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "IQ3_XXS/"),
-    ("qwen", "IQ3_S", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "IQ3_S/"),
-    ("swift", "Q2_0", "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "Swift-Qwen3.8-Flash-Next-GSQ-RCO-Q2_0"),
-    ("swift", "IQ2_XS", "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS"),
-    ("swift", "IQ3_XXS", "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF", "Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS"),
-    ("coder", "IQ1_M", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF", "IQ1_M/"),
-    ("unsloth", "UD-IQ4_XS", "unsloth/Qwen3.8-Flash-Next-GGUF", "UD-IQ4_XS/"),
-    ("unsloth", "UD-Q4_K_XL", "unsloth/Qwen3.8-Flash-Next-GGUF", "UD-Q4_K_XL/"),
-]
+
+def family_title(fp: dict) -> str:
+    """The title of the family a GGUF's architecture (and layer count) belongs to, "" for none."""
+    t = POLY_ARCHS.get(fp.get("arch"), "")
+    return t.get(fp.get("layers"), "") if isinstance(t, dict) else t
+
+
+def known_files():
+    """The files setup installs: (family, model, [Source of each shard at its pinned revision]) - for --fingerprints."""
+    sys.path.insert(0, str(ROOT))
+    import setup as S
+    for fam, d in S.FAMILIES.items():
+        for model, size in d["models"].items():
+            base = size.get("hf", d["hf"])
+            sha = {**d["sha256"], **size.get("sha256", {})}
+            names = [S.model_file(d, model, i) for i in range(1, S.model_shards(d, model) + 1)]
+            yield fam, model, [qs.Source(n, sha[n.split("/")[-1]][0], url=base + n) for n in names]
 
 
 def read_headers(files: list) -> tuple[str | None, list[dict]]:
@@ -59,6 +60,12 @@ def read_headers(files: list) -> tuple[str | None, list[dict]]:
         arch = arch or meta.get("general.architecture")
         tensors += ts
     return arch, tensors
+
+
+def layers(tensors: list[dict]) -> int | None:
+    """How many blocks the tensors are of (blk.0 ... blk.N-1; a draft block after them counts too)."""
+    ids = {int(m.group(1)) for t in tensors if (m := re.match(r"^blk\.(\d+)\.", t["name"]))}
+    return max(ids) + 1 if ids else None
 
 
 def role(name: str) -> str:
@@ -84,7 +91,8 @@ def fingerprint(arch: str | None, tensors: list[dict]) -> dict:
         if qs.category(t["name"]) == "routed experts":
             experts[t["type"]] += t["bytes"]
             exp_e += t["elements"]
-    return {"arch": arch, "tensors": n, "bytes": total_b, "expert_bytes": dict(sorted(experts.items())),
+    return {"arch": arch, "layers": layers(tensors), "tensors": n, "bytes": total_b,
+            "expert_bytes": dict(sorted(experts.items())),
             "experts_bpw": round(8 * sum(experts.values()) / exp_e, 3) if exp_e else None,
             "bpw": round(8 * total_b / total_e, 3) if total_e else None, "roles": roles(tensors)}
 
@@ -94,22 +102,17 @@ def load_fingerprints(path: Path = FINGERPRINTS) -> dict:
 
 
 def verdict(fp: dict, table: dict) -> tuple[str, str]:
-    """(kind, sentence): kind is "known" (a file setup installs, under any name), "family" (another family PolyStrata
-    runs on its own engine path - Qwen3.6 on its CUDA/HIP path, or a strata-poly model such as Gemma 4, GLM,
-    DeepSeek, LFM, Flint), "layout" (the same routed-expert
-    layout as one: a fine-tune made with the same recipe, untested), "no" (PolyStrata cannot run it) or "untested"
-    (naming the tensors whose quantization no file PolyStrata runs has for them)."""
+    """(kind, sentence): kind is "known" (a file setup installs, under any name), "layout" (the same routed-expert
+    layout as one: a fine-tune made with the same recipe, untested), "family" (another GGUF of an architecture a
+    family of Puddle's has: it runs as that family, its estimates are that family's), "no" (Puddle cannot run it)."""
     known = {k: v for k, v in table.items() if not k.startswith("_")}
-    if fp["arch"] in PREVIEW_ARCHS:
-        return "family", (f"{PREVIEW_ARCHS[fp['arch']]} (architecture {fp['arch']!r}): PolyStrata runs it on its own "
-                          "engine path in the NVIDIA (CUDA) and AMD (HIP) builds, not yet on Intel Arc (SYCL); setup "
-                          "installs it with --family qwen36-strata, and with --family qwen36 on the strata-poly "
-                          "engine")
-    if fp["arch"] in POLY_ARCHS:
-        return "family", (f"{POLY_ARCHS[fp['arch']]} (architecture {fp['arch']!r}): PolyStrata runs it on the "
-                          "strata-poly engine; give its folder with --gguf-dir")
-    if fp["arch"] != ARCH:
-        return "no", f"not Qwen3.8-Flash-Next (architecture {fp['arch']!r}): PolyStrata runs only that model"
+    title = family_title(fp)
+    if fp["arch"] not in POLY_ARCHS:
+        return "no", (f"not a model Puddle runs (architecture {fp['arch']!r}): its strata-poly engine runs "
+                      + ", ".join(POLY_ARCHS) + " (Laguna, Occamy, Gemma 4)")
+    if not title:
+        return "no", (f"a {fp['arch']} model of {fp.get('layers')} layers: Puddle has no family of that size "
+                      "(Laguna-S has 48, Laguna-XS 40)")
     exact = [k for k, v in known.items() if v["expert_bytes"] == fp["expert_bytes"] and v["bytes"] == fp["bytes"]
              and v["tensors"] == fp["tensors"]]
     if exact:
@@ -120,30 +123,15 @@ def verdict(fp: dict, table: dict) -> tuple[str, str]:
         return "layout", ("the routed experts are stored exactly as in " + " / ".join(same) +
                           ", but the file is not one setup knows (a fine-tune with the same recipe?): it may run as "
                           "that size; not tested")
-    runs = set().union(*(v["expert_bytes"] for v in known.values()))
-    other = sorted(set(fp["expert_bytes"]) - runs)
-    if other:
-        return "no", ("its routed experts use " + ", ".join(other) + ", a quantization no file PolyStrata runs uses "
-                      "(PolyStrata's expert kernels cover " + ", ".join(sorted(runs)) + ")")
-    seen = table.get("_roles", {})
-    new = [f"{r} {'/'.join(t for t in ts if t not in seen.get(r, []))}" for r, ts in fp.get("roles", {}).items()
-           if any(t not in seen.get(r, []) for t in ts)]
-    head = ("its routed experts use only quantizations PolyStrata runs (" + ", ".join(fp["expert_bytes"]) +
-            "), but this file is not one setup installs: not tested (and setup still refuses the GGUF names "
-            "it lists as unsupported, such as UD-Q2_K_XL: this is a header reading, not a promise that it runs)")
-    if new:
-        return "untested", head + ". Stored differently from every file PolyStrata runs: " + ", ".join(new)
-    return "untested", head + "; every tensor uses a quantization some file PolyStrata runs has for it"
+    return "family", (f"{title} (architecture {fp['arch']!r}): Puddle runs it on the strata-poly engine as that "
+                      "family, a file setup does not offer: not tested; give its folder with --gguf-dir")
 
 
 def make_fingerprints(out: Path) -> None:
-    listing, table = {}, {}
-    for fam, model, repo, prefix in KNOWN:
-        if repo not in listing:
-            listing[repo] = qs.list_hub("ms", repo)
-        files = sorted((f for f in listing[repo] if f.name.startswith(prefix) and f.name.endswith(".gguf")),
-                       key=lambda f: f.name)
-        table[f"{fam}/{model}"] = {**fingerprint(*read_headers(files)), "files": [f.name for f in files], "repo": repo}
+    table = {}
+    for fam, model, files in known_files():
+        table[f"{fam}/{model}"] = {**fingerprint(*read_headers(files)), "files": [f.name for f in files],
+                                   "url": files[0].url.rsplit("/", 1)[0] + "/"}
         print(f"{fam}/{model}: experts {table[f'{fam}/{model}']['experts_bpw']} bits/weight", file=sys.stderr)
     union: dict[str, set] = defaultdict(set)
     for v in table.values():
@@ -184,7 +172,7 @@ def main() -> None:
     qs.summarize(name, tensors)
     fp = fingerprint(arch, tensors)
     kind, sentence = verdict(fp, load_fingerprints())
-    print(f"\nStrata: {sentence}")
+    print(f"\nPuddle: {sentence}")
     sys.exit(0 if kind in ("known", "layout") else 2 if kind == "no" else 0)
 
 

@@ -39,11 +39,11 @@ class CustomGgufTests(unittest.TestCase):
         If table is None, use the real data/gguf_fingerprints.json. Otherwise use the given dict.
         """
         m = types.ModuleType("strata_inspect")
-        m.read_headers = lambda sources: (fp_dict.get("arch", "qwen4exp"), [])
+        m.read_headers = lambda sources: (fp_dict.get("arch", "laguna"), [])
         m.fingerprint = lambda arch, tensors: fp_dict
         m.verdict = lambda fp, t: (kind, f"mock verdict: {kind}")
-        m.PREVIEW_ARCHS = {}
-        m.POLY_ARCHS = {}
+        m.TITLES = {}                              # arch -> family title (family_title())
+        m.family_title = lambda fp: m.TITLES.get(fp.get("arch"), "")
         if table is None:
             _real_path = Path(_ROOT) / "data" / "gguf_fingerprints.json"
             m.load_fingerprints = lambda path=None: json.loads(_real_path.read_text(encoding="utf-8"))
@@ -54,7 +54,7 @@ class CustomGgufTests(unittest.TestCase):
     def test_known_verdict(self):
         """A single .gguf whose fp matches exactly one fingerprint entry → (family, model, [shard])."""
         with tempfile.TemporaryDirectory() as tmp:
-            p = Path(tmp) / "qwen36-model.gguf"
+            p = Path(tmp) / "laguna-model.gguf"
             _write_gguf(p)
 
             # Use the first real entry from the fingerprints file to guarantee a match
@@ -82,7 +82,7 @@ class CustomGgufTests(unittest.TestCase):
             _write_gguf(p)
 
             # Craft a table where two keys map to identical fp values → multi-match
-            fake_fp = {"arch": "qwen4exp", "tensors": 100, "bytes": 1000,
+            fake_fp = {"arch": "laguna", "tensors": 100, "bytes": 1000,
                        "expert_bytes": {}, "experts_bpw": None, "bpw": None, "roles": {}}
             table = {"fam_a/m1": fake_fp, "fam_b/m2": fake_fp}
 
@@ -196,8 +196,8 @@ class CustomGgufTests(unittest.TestCase):
                        "expert_bytes": {}, "experts_bpw": None, "bpw": None, "roles": {}}
             stub = self._make_stub(fp_dict=fp_dict, kind="family")
 
-            # Patch PREVIEW_ARCHS to map our arch to a family title in FAMILIES
-            stub.PREVIEW_ARCHS = {"some_preview_arch": setup.FAMILIES["gemma4"]["title"]}
+            # map our arch to a family title in FAMILIES
+            stub.TITLES = {"some_preview_arch": setup.FAMILIES["gemma4"]["title"]}
 
             with ExitStack() as stack:
                 stack.enter_context(mock.patch.dict(sys.modules, {"strata_inspect": stub}))
@@ -220,7 +220,7 @@ class CustomGgufTests(unittest.TestCase):
             fp_dict = {"arch": "apex_arch", "tensors": 0, "bytes": 0,
                        "expert_bytes": {}, "experts_bpw": None, "bpw": None, "roles": {}}
             stub = self._make_stub(fp_dict=fp_dict, kind="family")
-            stub.PREVIEW_ARCHS = {"apex_arch": "An APEX family"}
+            stub.TITLES = {"apex_arch": "An APEX family"}
             apex = {"title": "An APEX family", "models": {"APEX-I-MINI": {}, "APEX-I-COMPACT": {}}}
 
             with ExitStack() as stack:
