@@ -28,11 +28,9 @@ EDITABLE = [
                             "answering 400 (the system prompt and the last turn stay)"),
     ("truncate_middle", "bool", "Trim the middle of an oversized text prompt, keeping its beginning and ending"),
     ("preserve_thinking", "bool", "Keep the thinking of earlier turns in the prompt (templates that support it: "
-                                  "Qwen3.6, Ornith, Tiel Coder)"),
+                                  "Laguna, Occamy)"),
     ("anthropic_thinking", ("enum", ["model", "on_request"]),
      "Anthropic requests that do not ask for thinking: think as the model does (model) or not (on_request)"),
-    ("effort_position", ("enum", ["start", "end"]),
-     "Where a non-default reasoning effort goes: start (the default) or end (keeps the cache when it changes)"),
     ("aliases", "names", "Other model names the server lists and answers to (comma-separated)"),
     ("idle_unload_s", "num>=0", "Unload the model after this many seconds without requests (0 or empty: never)"),
     ("lazy_load", "bool", "Start without loading the model; the first request loads it (text only)"),

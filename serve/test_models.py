@@ -145,7 +145,7 @@ class Switch(unittest.TestCase):
         self.svc.config_path, self.svc.models_root = str(self.a), self.root
         self.new = Stopped(self.tok, "Hi.")
         patches = [mock.patch.object(S, "load_tokenizer", lambda p: self.tok),
-                   mock.patch.object(S, "start_model", lambda cfg, tok, lazy=False: (self.new, None, {"top_k": 5}, None, []))]
+                   mock.patch.object(S, "start_model", lambda cfg, tok, lazy=False: (self.new, None, {"top_k": 5}, []))]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -197,14 +197,14 @@ class Switch(unittest.TestCase):
 
         def start(cfg, tok, lazy=False):
             started.append(cfg)
-            return Stopped(tok, "Hi."), None, S.sampling_defaults_from_config(cfg), None, []
+            return Stopped(tok, "Hi."), None, S.sampling_defaults_from_config(cfg), []
         p = mock.patch.object(S, "start_model", start)
         p.start()
         self.addCleanup(p.stop)
         return started
 
     def test_the_new_model_brings_its_own_settings(self):
-        """#37: a switch used to keep the first model's settings except sampling, aliases and effort_position."""
+        """#37: a switch used to keep the first model's settings except sampling and aliases."""
         self.fresh_engines()
         self.configure(self.b, drop_oldest=True, truncate_middle=True, preserve_thinking=True, reasoning_effort="low",
                        reasoning_budget_tokens=512, anthropic_thinking="on_request", tool_call_recovery=True,
@@ -290,12 +290,9 @@ class Switch(unittest.TestCase):
 
     def test_what_belonged_to_the_old_model_is_left_behind(self):
         self.fresh_engines()
-        saved = self.root / "image-job.session"
-        saved.write_bytes(b"alpha's conversation")
-        self.svc.restore_after_load, self.svc.vision_held, self.svc.warm_ids = str(saved), True, [1, 2, 3]
+        self.svc.warm_ids, self.svc.last_image_at = [1, 2, 3], 5.0
         self.svc.switch_model("beta")
-        self.assertEqual((self.svc.restore_after_load, self.svc.vision_held, self.svc.warm_ids), (None, False, None))
-        self.assertFalse(saved.exists())
+        self.assertEqual((self.svc.warm_ids, self.svc.last_image_at), (None, 0.0))
 
     def test_idle_unload_starts_with_the_first_model_that_has_it(self):
         self.fresh_engines()
@@ -379,7 +376,7 @@ class OnRequest(unittest.TestCase):
             if cfg["model_name"] in self.fails:
                 raise RuntimeError("no VRAM")
             self.started.append((cfg["model_name"], time.time()))
-            return Stopped(tok, f"x</think>\n\nI am {cfg['model_name']}."), None, {}, None, []
+            return Stopped(tok, f"x</think>\n\nI am {cfg['model_name']}."), None, {}, []
         for p in (mock.patch.object(S, "load_tokenizer", lambda p: self.tok), mock.patch.object(S, "start_model", start)):
             p.start()
             self.addCleanup(p.stop)
@@ -598,7 +595,7 @@ class Start(unittest.TestCase):
                                                  *argv]), \
                     mock.patch.object(S, "load_tokenizer", lambda p: tok), \
                     mock.patch.object(S, "start_model", lambda cfg, tok, lazy=False:
-                                      (Stopped(tok), None, S.sampling_defaults_from_config(cfg), None, None)), \
+                                      (Stopped(tok), None, S.sampling_defaults_from_config(cfg), None)), \
                     mock.patch.object(S, "serve", serve_it), \
                     mock.patch.object(S.time, "sleep", sleep), mock.patch.object(S.signal, "signal"), \
                     contextlib.redirect_stdout(out):

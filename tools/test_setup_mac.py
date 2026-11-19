@@ -250,8 +250,15 @@ class Menu(unittest.TestCase):
 
     def test_the_menu_offers_every_family_and_hands_the_choice_on(self):
         said, chosen = [], []
-        with tempfile.TemporaryDirectory() as tmp,                 mock.patch.object(M, "mac_configs", return_value=[]),                 mock.patch.object(M, "mac_info", return_value={"chip": "M1 Pro", "ram_gb": 32, "macos": "27.0",
-                                                               "arm64": True, "clt": "/tools", "perf_cores": 8}),                 mock.patch.object(setup, "data_folder", return_value=(Path(tmp), [])),                 mock.patch.object(setup, "free_gb", return_value=1000),                 mock.patch.object(M, "setup_poly", side_effect=lambda a, *_: chosen.append(a.family) or 0),                 mock.patch.object(setup, "say", side_effect=lambda *a, **k: said.append(" ".join(map(str, a)))),                 mock.patch.object(setup, "ok"), mock.patch.object(setup, "step"), mock.patch.object(setup, "warn"):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(M, "mac_configs", return_value=[]), \
+                mock.patch.object(M, "mac_info", return_value={"chip": "M1 Pro", "ram_gb": 32, "macos": "27.0",
+                                                               "arm64": True, "clt": "/tools", "perf_cores": 8}), \
+                mock.patch.object(setup, "data_folder", return_value=(Path(tmp), [])), \
+                mock.patch.object(setup, "free_gb", return_value=1000), \
+                mock.patch.object(M, "setup_poly", side_effect=lambda a, *_: chosen.append(a.family) or 0), \
+                mock.patch.object(setup, "say", side_effect=lambda *a, **k: said.append(" ".join(map(str, a)))), \
+                mock.patch.object(setup, "ok"), mock.patch.object(setup, "step"), mock.patch.object(setup, "warn"):
             self.assertEqual(M.main(["--yes", "--no-start"]), 0)
         self.assertEqual(chosen, [M.MAC_POLY_FAMILIES[0]])
         for family in M.MAC_POLY_FAMILIES:

@@ -388,7 +388,8 @@ class EngineLaunchEnv(unittest.TestCase):
             eng = self.engine(Path(t))
             probe = eng / ("strata-device.exe" if setup.WIN else "strata-device")
             probe.write_text("x")
-            with mock.patch.object(setup.subprocess, "run", fake_run),                     mock.patch.object(setup, "hip_runtime_beside_exe", lambda d: None):
+            with mock.patch.object(setup.subprocess, "run", fake_run), \
+                    mock.patch.object(setup, "hip_runtime_beside_exe", lambda d: None):
                 found = setup.hip_devices(probe)
             self.assertEqual(found[0]["arch"], "gfx1100")
             self.assertEqual(seen["env"]["PATH"].split(setup.os.pathsep)[0], str(eng / "rocm" / "bin"))

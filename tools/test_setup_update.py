@@ -70,7 +70,9 @@ class Update(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "strata-iq3_s.json"
             p.write_text(json.dumps({"exe": str(Path(d) / "strata"), "args": []}), encoding="utf-8")
-            with mock.patch.object(setup, "update_poly_engine", side_effect=AssertionError("engine")),                     mock.patch("subprocess.call", side_effect=AssertionError("started")),                     contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
+            with mock.patch.object(setup, "update_poly_engine", side_effect=AssertionError("engine")), \
+                    mock.patch("subprocess.call", side_effect=AssertionError("started")), \
+                    contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
                 setup.start(p, None, open_browser=False, yes=True)
         self.assertIn("for an engine Puddle does not have", out.getvalue())
 

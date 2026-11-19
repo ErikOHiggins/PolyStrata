@@ -148,14 +148,6 @@ class FakeEngine:
         self.calls.append(("vram", reserve))
         return {"vram_free_mib": 9000}
 
-    def session_file(self, action, path):
-        self.calls.append((action, os.path.basename(path)))
-        if action == "save":
-            Path(path).write_bytes(b"kv")
-        else:
-            assert Path(path).read_bytes() == b"kv"
-        return {"tokens": 123, "bytes": 2, "ms": 1.0}
-
     def generate(self, ids, max_new, sampling, cancel, embeddings=None):
         return iter(())
 
@@ -186,7 +178,8 @@ class Policy(unittest.TestCase):
                 self.assertEqual(images_api.resolve_policy(svc, gen, 15000), "keep")
             self.assertEqual(images_api.resolve_policy(make_svc(MockEngine(ByteTokenizer(), "x")), gen, 1), "keep")
 
-    def test_unload_saves_and_the_next_start_restores(self):
+    def test_unload_and_the_next_start(self):
+        # strata-poly keeps no disk sessions: the model unloads, and the next request reads its prompt again
         with tempfile.TemporaryDirectory() as d:
             gen = images_api.ImageServer(image_cfg(d, gpu_policy="unload"))
             eng = FakeEngine()
@@ -198,13 +191,10 @@ class Policy(unittest.TestCase):
                 self.assertTrue(svc.status["busy"])
             self.assertFalse(svc.fifo.locked())
             self.assertFalse(svc.status["busy"])
-            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls], ["save", "unload"])
-            self.assertTrue(svc.restore_after_load)
+            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls], ["unload"])
             with svc.fifo:
-                svc.ensure_loaded()                          # the next request: start, then the conversation back
-            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls],
-                             ["save", "unload", "restart", "restore"])
-            self.assertIsNone(svc.restore_after_load)
+                svc.ensure_loaded()                          # the next request starts the engine again
+            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls], ["unload", "restart"])
             self.assertEqual(list(Path(gen.dir).glob("llm-session-*")), [])
 
     def test_eager_reload(self):
@@ -214,8 +204,7 @@ class Policy(unittest.TestCase):
             svc = make_svc(eng)
             with images_api.gpu_turn(svc, gen, {"width": 512, "height": 512}):
                 pass
-            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls],
-                             ["save", "unload", "restart", "restore"])
+            self.assertEqual([c if isinstance(c, str) else c[0] for c in eng.calls], ["unload", "restart"])
             self.assertTrue(eng.up)
 
     def test_shrink_gives_the_cache_back(self):

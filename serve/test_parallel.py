@@ -233,7 +233,6 @@ class PickSlot(unittest.TestCase):
         e.slot_held = [[] for _ in range(n)]
         e.slot_used = [0.0] * n
         e.slot_live = [None] * n
-        e.slot_group = [0] * n
         return e
 
     def test_the_slot_that_holds_the_conversation(self):
@@ -278,20 +277,6 @@ class PickSlot(unittest.TestCase):
         e.slot_held = [held_a, held_b + [T, 1, 2]]
         self.assertEqual(e.pick_slot(held_b + [T, 1, 2, 3, 4]), 1)
 
-    def test_batch_groups_spread_requests_over_the_groups(self):
-        # #1249: with --batch-groups 2 over 4 slots (groups {0,1} and {2,3}) a second request goes to the other group,
-        # and a short held prefix does not pull it back into the busy one
-        e = self.engine(4)
-        e.slot_groups = 2
-        e.slot_group = [0, 0, 1, 1]
-        e.slot_busy[0] = True
-        e.slot_held[1] = [1, 2, 3]
-        self.assertEqual(e.pick_slot([1, 2, 3, 4, 5]), 2)
-        e.slot_held[1] = list(range(1, 601))                       # a long prefix is worth the unbalanced group
-        self.assertEqual(e.pick_slot(list(range(1, 700))), 1)
-        e.slot_groups, e.slot_group = 1, [0] * 4                   # without groups: any held prefix, as before
-        e.slot_held[1] = [1, 2, 3]
-        self.assertEqual(e.pick_slot([1, 2, 3, 4, 5]), 1)
 
     def test_slots_view(self):
         e = self.engine(2)
@@ -400,26 +385,6 @@ class ParallelService(unittest.TestCase):
         self.assertEqual(self.engine.batch, 2)
         self.assertEqual(self.get("/v1/status")["concurrency"]["serving"], 2)
 
-    def test_batch_groups_auto_follows_the_engine(self):
-        """--batch-groups auto: the engine picks the groups and says so (INFO batch_groups=G); the server spreads the
-        requests over those groups, and a plain number is read as before."""
-        self.start(8, says_groups=4, more=["--batch-groups", "auto"])
-        e = self.engine
-        self.assertEqual((e.batch, e.slot_groups), (8, 4))
-        self.assertEqual(e.slot_group, [0, 0, 1, 1, 2, 2, 3, 3])
-        self.assertEqual(e.slot_order[:4], [0, 2, 4, 6])
-        self.tearDown(); self.httpd = self.engine = self.tmp = None
-        self.start(8, more=["--batch-groups", "auto"])          # an engine that reports none: one group
-        self.assertEqual(self.engine.slot_groups, 1)
-        self.tearDown(); self.httpd = self.engine = self.tmp = None
-        self.start(8, more=["--batch-groups", "2"])
-        self.assertEqual(self.engine.slot_groups, 2)
-        self.tearDown(); self.httpd = self.engine = self.tmp = None
-        self.start(8, says_groups=4)                           # 0.1.41: no flag on a layer split = the engine's choice
-        self.assertEqual(self.engine.slot_groups, 4)
-        self.tearDown(); self.httpd = self.engine = self.tmp = None
-        self.start(8, says_groups=4, more=["--batch-groups", "1"])   # the opt-out
-        self.assertEqual(self.engine.slot_groups, 1)
 
     def test_a_burst_of_connections_is_not_reset(self):
         """30-40 clients at once got "connection reset by peer" with the listen backlog of 5 (4 x R9700 burst): the

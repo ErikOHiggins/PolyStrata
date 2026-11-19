@@ -26,7 +26,7 @@ from serve.server import (CTX_SLACK, ByteTokenizer, EngineDied, EngineNonFinite,
                           PP_DONE_TAIL, Service,
                           StrataEngine, api_key_of, engine_args, key_matches, layer_split_value, prompt_progress,
                           prompt_tokens_seen,
-                          request_stats, request_timings, serve, start_failure_hint)
+                          request_stats, request_timings, serve)
 from types import SimpleNamespace  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -327,30 +327,6 @@ class ImageMarkers(unittest.TestCase):
                     self.assertIn("<|image_pad|> marks" if "docs" in text else "plain", tok.decode(ids))
             svc.embeddings.path.unlink(missing_ok=True)
 
-    def test_pictures_are_keyed_by_their_bytes_for_the_engine(self):
-        """#2228: each picture's key (its normalized bytes' hash: the encoder's file name) goes to the engine as
-        img_keys=, in prompt order, so the conversation cache does not depend on the embedding floats."""
-        import tempfile
-        tok = ByteTokenizer()
-        with tempfile.TemporaryDirectory() as d:
-            class Keyed(self.FakeVision):
-                def encode(self, source):
-                    p = self.dir / ("0123456789abcdef0123456789abcdef.sve" if source == "a.png" else
-                                    "fedcba9876543210fedcba9876543210.sve")
-                    p.write_bytes(b"rows")
-                    return p, 3
-            svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"),
-                          vision=Keyed(d))
-            msgs = [{"role": "user", "content": [{"type": "image", "source": "b.png"}, {"type": "text", "text": "and"},
-                                                 {"type": "image", "source": "a.png"}]}]
-            svc.prepare(msgs, None, {})
-            self.assertEqual(svc.embeddings.keys, ["fedcba9876543210", "0123456789abcdef"])
-            svc.embeddings.path.unlink(missing_ok=True)
-        keys = StrataEngine.sampling_keys({"strata_img_keys": ["fedcba9876543210", "0123456789abcdef"]})
-        self.assertEqual(keys, " img_keys=fedcba9876543210,0123456789abcdef")
-        for bad in ([], ["XYZ"], ["ab cd"], "abc", [3]):   # never sent malformed: the engine falls back to the embeddings
-            with self.subTest(bad=bad):
-                self.assertNotIn("img_keys", StrataEngine.sampling_keys({"strata_img_keys": bad}))
 
     def test_anthropic_tool_result_image(self):
         """Claude Code's Read of a picture returns it inside a tool_result: it reaches the encoder, in place."""
@@ -747,112 +723,6 @@ class LiteralControlTokens(unittest.TestCase):
         tokens = [b2u[b] for b in range(256)] + ["<think>", "</think>", "<|im_end|>"]
         self.assertEqual(ST.Tokenizer(tokens, [], [1] * 256 + [4, 4, 3]).control_tokens, ["<|im_end|>"])
         self.assertEqual(ThinkTokenizer().control_tokens, ByteTokenizer.SPECIALS)
-
-
-class EffortAtTheEnd(unittest.TestCase):
-    """#458 (opt-in "effort_position": "end"): a non-default effort goes in a system turn right before the answer, so
-    a request that changes only the effort keeps the cached conversation.  The engine's checkpoint rule is simulated
-    on the token ids (src/program/generate.cpp: the last <|im_start|>, and with --tail-role-token the one in front
-    of a trailing system turn); the default prompt does not change."""
-
-    TURN = 256                                       # the byte tokenizer's <|im_start|>
-    ROLE = ord("s")                                  # "system"'s first byte stands for its token
-
-    def setUp(self):
-        self.tok = ByteTokenizer()
-        self.svc = Service(MockEngine(self.tok, "ok", max_context=1 << 20), self.tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
-
-    def ids(self, messages, end, **kw):
-        self.svc.effort_end = end
-        return self.svc.encode_prompt(messages, None, kw)
-
-    def checkpoint(self, ids, tail, resume=0):
-        """Where the engine checkpoints a prompt (the tokens before it), as generate.cpp's serve loop does."""
-        turn_at = next((i for i in range(len(ids) - 1, resume, -1) if ids[i] == self.TURN), -1)
-        if turn_at > 0 and tail:
-            i = next((i for i in range(turn_at - 1, resume, -1) if ids[i] == self.TURN), None)
-            if i is not None and ids[i + 1] == self.ROLE:
-                turn_at = i
-        return ids[:turn_at]
-
-    def session(self, requests, end, tail):
-        """The reused tokens of each request after the first: the longest earlier checkpoint it starts with."""
-        checks, reused = [], []
-        for messages, kw in requests:
-            ids = self.ids(messages, end, **kw)
-            reused.append(max([len(c) for c in checks if ids[:len(c)] == c], default=0))
-            checks.append(self.checkpoint(ids, tail))
-        return reused[1:]
-
-    CHAT = [{"role": "system", "content": "You are a careful assistant. " * 40},
-            {"role": "user", "content": "Explain the conversation cache. " * 20}]
-    REPLY = {"role": "assistant", "content": "It keeps the prompt's state. " * 20, "reasoning_content": "ok"}
-    NEXT = {"role": "user", "content": "And the checkpoints?"}
-
-    def test_the_default_prompt_is_unchanged(self):
-        for kw in ({}, {"reasoning_effort": "xhigh"}):
-            self.assertEqual(self.ids(self.CHAT, True, **kw), self.ids(self.CHAT, False, **kw))
-            self.assertEqual(self.ids(self.CHAT, True, **kw),
-                             self.tok.encode(self.svc.template.render(self.CHAT, **kw), parse_special=True))
-        for kw in ({"reasoning_effort": "low"}, {"reasoning_effort": "medium"}, {"enable_thinking": False}):
-            self.assertEqual(self.ids(self.CHAT, False, **kw),        # off: every effort renders as before
-                             self.tok.encode(self.svc.template.render(self.CHAT, **kw), parse_special=True))
-
-    def test_the_trailing_turn(self):
-        text = self.tok.decode(self.ids(self.CHAT, True, reasoning_effort="low"))
-        self.assertTrue(text.endswith("<|im_end|>\n<|im_start|>system\nReasoning effort is set to low. Keep your "
-                                      "thinking brief and focused, moving directly to the conclusion without "
-                                      "unnecessary elaboration.<|im_end|>\n<|im_start|>assistant\n<think>\n"), text[-300:])
-        self.assertIn("Reasoning effort is set to xhigh", text)          # the top stays the default's
-        text = self.tok.decode(self.ids(self.CHAT, True, enable_thinking=False))
-        self.assertTrue(text.endswith("<|im_start|>assistant\n<think>\n\n</think>\n\n"))
-        self.assertNotIn("<|im_start|>system\nReasoning effort", text[-200:])
-        default = self.ids(self.CHAT, True)
-        for kw in ({"reasoning_effort": "low"}, {"reasoning_effort": "medium"}, {"enable_thinking": False}):
-            ids = self.ids(self.CHAT, True, **kw)
-            head = len(self.checkpoint(default, False))                       # all before the answer's turn
-            self.assertEqual(ids[:head], default[:head], kw)                 # the same prompt up to the answer
-
-    def test_changing_the_effort_keeps_the_conversation(self):
-        efforts = [{}, {"reasoning_effort": "low"}, {"enable_thinking": False}, {"reasoning_effort": "medium"}, {}]
-        history = len(self.checkpoint(self.ids(self.CHAT, False), False))
-        # at the top (the default): another effort differs a few tokens in, and the whole prompt is read again
-        self.assertEqual(self.session([(self.CHAT, kw) for kw in efforts], False, False)[:2], [0, 0])
-        # at the end, with the engine's rule: every request reuses the whole conversation
-        self.assertEqual(self.session([(self.CHAT, kw) for kw in efforts], True, True), [history] * 4)
-
-    def test_the_next_turn_reuses_the_checkpoint(self):
-        turn1, turn2 = self.CHAT, self.CHAT + [self.REPLY, self.NEXT]
-        low = {"reasoning_effort": "low"}
-        first = len(self.checkpoint(self.ids(turn1, True, **low), True))
-        # the engine's rule: the next turn (the same effort) reuses the first turn's whole conversation
-        self.assertEqual(self.session([(turn1, low), (turn2, low)], True, True), [first])
-        # without it the checkpoint held the effort turn and the next turn reused nothing (what #458 measured)
-        self.assertEqual(self.session([(turn1, low), (turn2, low)], True, False), [0])
-
-    def test_the_config(self):
-        from serve.server import effort_end_args
-
-        class Tok:
-            def encode(self, text, parse_special=False):
-                return [8678] if text == "system" else [1, 2]
-
-        with tempfile.TemporaryDirectory() as d:
-            new, old = Path(d) / "new.exe", Path(d) / "old.exe"
-            new.write_bytes(b"...  --tail-role-token ID --serve: ...")
-            old.write_bytes(b"... --turn-token ID ...")
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                self.assertIsNone(effort_end_args({}, str(new), Tok()))
-                self.assertIsNone(effort_end_args({"effort_position": "start"}, str(new), Tok()))
-                self.assertEqual(effort_end_args({"effort_position": "end"}, str(new), Tok()),
-                                 ["--tail-role-token", "8678"])
-                self.assertIsNone(effort_end_args({"effort_position": "end"}, str(old), Tok()))
-                self.assertIsNone(effort_end_args({"effort_position": "end"}, str(new), ByteTokenizer()))
-            self.assertIn("needs engine 0.1.39 or newer", out.getvalue())
-            with self.assertRaises(ValueError):
-                effort_end_args({"effort_position": "middle"}, str(new), Tok())
 
 
 class StatusNeedsTheKey(unittest.TestCase):
@@ -1593,32 +1463,6 @@ class SamplingKeys(unittest.TestCase):
         for bad in (-1, True, 2.5, "20"):
             self.assertFalse([k for k in self.keys(temperature=0.7, top_k=bad) if k.startswith("top_k=")], bad)
 
-    def test_tune_keys(self):
-        k = self.keys(temperature=0, strata_tune={"pcie_frac": 0.2, "spec_min_p": 0.7})
-        self.assertIn("pcie_frac=0.2", k)
-        self.assertIn("spec_min_p=0.7", k)
-        bad = self.keys(strata_tune={"pcie_frac": 3, "spec_min_p": True, "pool_workers": 2})
-        self.assertFalse([x for x in bad if x.split("=")[0] in ("pcie_frac", "spec_min_p", "pool_workers")])
-
-    def test_tune_prefill_pipe(self):
-        self.assertIn("pipe=1536.0", self.keys(temperature=0, strata_tune={"prefill_pipe": 1536}))
-        self.assertIn("pipe=0.0", self.keys(temperature=0, strata_tune={"prefill_pipe": 0}))
-        for bad in (-1, True, "800", 1e9):
-            self.assertFalse([x for x in self.keys(temperature=0, strata_tune={"prefill_pipe": bad})
-                              if x.startswith("pipe=")], bad)
-
-    def test_tune_aux_cpus(self):
-        for val, want in ((True, "aux_cpus=1"), (1, "aux_cpus=1"), (False, "aux_cpus=0"), (0, "aux_cpus=0"),
-                          (1.0, "aux_cpus=1"), (0.0, "aux_cpus=0")):
-            self.assertIn(want, self.keys(strata_tune={"aux_cpus": val}), val)
-        for bad in (2, -1, 0.5, "1", None, "auto"):
-            self.assertFalse([x for x in self.keys(strata_tune={"aux_cpus": bad}) if x.startswith("aux_cpus=")], bad)
-        self.assertFalse([x for x in self.keys(temperature=0) if x.startswith("aux_cpus=")])
-
-    def test_checkpoint_key(self):
-        self.assertIn("ckpt=0", self.keys(temperature=0, strata_checkpoint=False))
-        for absent in ({}, {"strata_checkpoint": True}, {"strata_checkpoint": 0}, {"cache_prompt": False}):
-            self.assertNotIn("ckpt=0", self.keys(**absent), absent)
 
     def test_a_clients_turn_at_is_not_sent(self):
         self.assertFalse([k for k in self.keys(turn_at=120) if k.startswith("turn_at=")])   # StrataEngine.turn_key
@@ -1627,75 +1471,6 @@ class SamplingKeys(unittest.TestCase):
         self.assertIn("penalty_last_n=64", self.keys(presence_penalty=1.5))
         self.assertIn("penalty_last_n=4096", self.keys(repetition_penalty=1.1, penalty_last_n=4096))
         self.assertFalse([k for k in self.keys(temperature=0.7) if k.startswith("penalty")])
-
-
-class SharedPrefix(unittest.TestCase):
-    """R1: "strata_prefix" marks the first messages as a shared prefix; the engine gets pin=N."""
-
-    @classmethod
-    def setUpClass(cls):
-        tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
-        cls.tok = tok
-
-    def keys(self, **sampling):
-        return StrataEngine.sampling_keys(sampling).split()
-
-    MSGS = [{"role": "system", "content": "You answer questions about the document."},
-            {"role": "user", "content": "DOC " * 40},
-            {"role": "user", "content": "Which word repeats?"}]
-
-    def test_pin_key(self):
-        self.assertIn("pin=1234", self.keys(strata_prefix={"tokens": 1234}))
-        for absent in ({}, {"strata_prefix": {}}, {"strata_prefix": {"messages": 2}}, {"strata_prefix": {"tokens": 0}},
-                       {"strata_prefix": {"tokens": True}}, {"strata_prefix": "x"}):
-            self.assertFalse([k for k in self.keys(**absent) if k.startswith("pin=")], absent)
-
-    def test_messages_resolve_to_the_boundary_token(self):
-        req = {"strata_prefix": {"messages": 2}}
-        ids, _, _ = self.svc.prepare(self.MSGS, None, {}, 16, req=req)
-        n = req["strata_prefix"]["tokens"]
-        text = self.tok.decode(ids[:n], errors="replace")
-        self.assertTrue(text.endswith("DOC<|im_end|>\n"), text[-40:])   # right where the next message's turn starts
-        self.assertEqual(self.tok.decode(ids[n:n + 1]), "<|im_start|>")
-        head = self.svc.encode_prompt(self.MSGS[:2], None, {"add_generation_prompt": False})
-        self.assertEqual(ids[:n], head[:n])
-
-    def test_tokens_and_unusable_prefixes(self):
-        ids, _, _ = self.svc.prepare(self.MSGS, None, {}, 16)
-        req = {"strata_prefix": {"tokens": 100}}
-        self.svc.prepare(self.MSGS, None, {}, 16, req=req)
-        self.assertEqual(req["strata_prefix"], {"tokens": 100})
-        for spec in ({"messages": 3}, {"messages": 9}, {"tokens": len(ids)},       # leaves no last message / no suffix
-                     {"message": 1, "chars": 5000}, {"message": 7, "chars": 3}):   # more text than the message has
-            req = {"strata_prefix": spec}
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.svc.prepare(self.MSGS, None, {}, 16, req=req)
-            self.assertEqual(req["strata_prefix"], {}, spec)                     # said in the log, never a refusal
-        for bad in ({"messages": 0}, {"messages": "2"}, {"messages": True}, {"tokens": 1.5}, {"x": 1},
-                    {"messages": 1, "tokens": 2}, {"message": 1}, {"chars": 3}, {"message": -1, "chars": 3}, [], "pin", {}):
-            with self.assertRaises(ValueError, msg=bad):
-                self.svc.prepare(self.MSGS, None, {}, 16, req={"strata_prefix": bad})
-
-    def test_chars_end_inside_a_message(self):
-        # a document and its question in ONE message: the prefix is the first 160 characters of it
-        text = "DOC " * 40 + "Which word repeats?"
-        msgs = [{"role": "user", "content": text}]
-        req = {"strata_prefix": {"message": 0, "chars": 160}}
-        ids, _, _ = self.svc.prepare(msgs, None, {}, 16, req=req)
-        n = req["strata_prefix"]["tokens"]
-        self.assertEqual(self.tok.decode(ids[:n]).split("user\n", 1)[1], "DOC " * 40)   # exactly those characters
-        # a system message first: message 1 is the user's
-        msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": text}]
-        req = {"strata_prefix": {"message": 1, "chars": 160}}
-        ids, _, _ = self.svc.prepare(msgs, None, {}, 16, req=req)
-        self.assertEqual(self.tok.decode(ids[:req["strata_prefix"]["tokens"]]).split("user\n", 1)[1], "DOC " * 40)
-
-    def test_without_the_field_nothing_changes(self):
-        req = {"temperature": 0}
-        ids, _, _ = self.svc.prepare(self.MSGS, None, {}, 16, req=req)
-        self.assertEqual(req, {"temperature": 0})
-        self.assertEqual(ids, self.svc.prepare(self.MSGS, None, {}, 16)[0])
 
 
 class SamplingEngine(MockEngine):
@@ -2396,77 +2171,10 @@ class PeerDevice(unittest.TestCase):
     """#665: several GPUs in the config are a layer split, but --peer-device uses the second card as an expert-cache
     tier, and the engine refuses it beside --layer-split: the server must not add one then."""
 
-    def test_a_vision_section_starts_the_engine_with_images_1322(self):
-        args = ["--native", "x"]
-        got = engine_args({"args": list(args), "vision": {"exe": "v", "gpu": True}})
-        self.assertEqual(got, args + ["--vision", "--vram-reserve-mib", "700"])
-        got = engine_args({"args": list(args), "vision": {"exe": "v", "gpu": False}})
-        self.assertEqual(got, args + ["--vision"])
-        mine = args + ["--vram-reserve-mib", "1500"]
-        self.assertEqual(engine_args({"args": list(mine), "vision": {"gpu": True}}), mine + ["--vision"])
-        done = args + ["--vision", "--vram-reserve-mib", "700"]                  # setup wrote it: unchanged
-        self.assertEqual(engine_args({"args": list(done), "vision": {"gpu": True}}), done)
-        self.assertEqual(engine_args({"args": list(args)}), args)                # no section: no images
-        # it has no such option; setup writes its path as this system writes one
-        for exe in ("engine-poly/strata-poly", os.path.join(os.sep, "x", "engine-poly", "strata-poly.exe")):
-            poly = ["--model", "x.gguf"]
-            self.assertEqual(engine_args({"exe": exe, "args": list(poly), "vision": {"exe": "v", "gpu": True}}), poly)
 
     def test_split_added_for_several_gpus(self):
         self.assertEqual(engine_args({"args": ["--native", "x"], "gpu": [0, 1]}),
                          ["--native", "x", "--layer-split", "auto"])
-
-    def test_no_split_with_a_peer(self):
-        args = ["--native", "x", "--peer-device", "1"]
-        self.assertEqual(engine_args({"args": list(args), "gpu": [0, 1]}), args)
-        self.assertEqual(engine_args({"args": list(args), "gpu": [0, 1], "split_skip_if_fits": True}), args)
-
-    def test_both_cards_visible(self):
-        from serve.server import child_env
-        env = child_env({"args": ["--peer-device", "1"], "gpu": [0, 1]})
-        self.assertEqual(env["CUDA_VISIBLE_DEVICES"], "0,1")
-
-
-class LearnedProfile(unittest.TestCase):
-    """#477: "expert_profile_save" in the config: the engine saves its learned profile there, and the next start
-    begins from it when it is a profile of the same model; without the key the arguments are unchanged."""
-
-    def write(self, path, nl=48, ne=512, n=4):
-        sys.path.insert(0, str(ROOT / "tools"))
-        import make_profile
-        old = make_profile.N_LAYER
-        make_profile.N_LAYER = nl
-        try:
-            make_profile.write_profile(path, [(i % nl, i // nl) for i in range(n)], n_expert=ne)
-        finally:
-            make_profile.N_LAYER = old
-
-    def test_without_the_key_nothing_changes(self):
-        args = ["--native", "x", "--expert-profile", "data/expert-profile.bin", "--adapt-every", "4"]
-        self.assertEqual(engine_args({"args": list(args)}), args)
-        self.assertEqual(engine_args({"args": list(args), "expert_profile_save": ""}), args)
-
-    def test_save_and_start_from_it(self):
-        d = Path(tempfile.mkdtemp())
-        self.write(d / "base.bin")
-        cfg = {"args": ["--expert-profile", "base.bin"], "cwd": str(d), "expert_profile_save": "learned.bin",
-               "expert_profile_save_every": 5}
-        # nothing saved yet: the config's profile, and the engine is told where to save
-        self.assertEqual(engine_args(cfg), ["--expert-profile", "base.bin", "--expert-profile-save", "learned.bin",
-                                            "--expert-profile-save-every", "5"])
-        self.write(d / "learned.bin")
-        self.assertEqual(engine_args(cfg)[:2], ["--expert-profile", "learned.bin"])
-        self.write(d / "learned.bin", ne=256)                    # another model's: not used
-        self.assertEqual(engine_args(cfg)[:2], ["--expert-profile", "base.bin"])
-        (d / "learned.bin").write_bytes(b"STRP" + bytes(20))     # not a whole profile
-        self.assertEqual(engine_args(cfg)[:2], ["--expert-profile", "base.bin"])
-        self.write(d / "learned.bin")
-        (d / "learned.bin").write_bytes((d / "learned.bin").read_bytes()[:30])   # truncated
-        self.assertEqual(engine_args(cfg)[:2], ["--expert-profile", "base.bin"])
-
-    def test_no_profile_in_the_args(self):
-        cfg = {"args": ["--native", "x"], "expert_profile_save": "learned.bin"}
-        self.assertEqual(engine_args(cfg), ["--native", "x", "--expert-profile-save", "learned.bin"])
 
 
 class RepeatStop(unittest.TestCase):
@@ -2653,39 +2361,6 @@ class LayerSplit(unittest.TestCase):
                          ["--native", "x"])
 
 
-class DraftHeadHint(unittest.TestCase):
-    """#474: a start that stopped at "the draft head does not fit" says what to change, from this start's log lines."""
-
-    def log(self, text, before=""):
-        d = tempfile.mkdtemp()
-        p = Path(d) / "engine.log"
-        p.write_text(before + text, encoding="utf-8")
-        return str(p), len(before.encode())
-
-    def test_the_engines_hint_is_relayed(self):
-        p, off = self.log("strata mtp: the draft head over 106299 tokens needs 348 MiB of VRAM and 120 MiB is free.\n"
-                          "strata mtp: hint: a smaller draft vocabulary needs less VRAM: --draft-vocab en (...)\n"
-                          "strata serve: mtp: the draft head does not fit\n")
-        h = start_failure_hint(p, off)
-        self.assertIn("the draft head does not fit", h)
-        self.assertIn("348 MiB", h)
-        self.assertIn("--draft-vocab en", h)
-
-    def test_an_older_engine_gets_the_advice_in_words(self):
-        p, off = self.log("strata serve: mtp: the draft head does not fit\n")
-        self.assertIn("--draft-vocab en", start_failure_hint(p, off))
-
-    def test_other_failures_and_earlier_starts_add_nothing(self):
-        p, off = self.log("strata serve: cannot open the pack\n")
-        self.assertEqual(start_failure_hint(p, off), "")
-        # an earlier start's failure (before this start's offset) is not this one's
-        p, off = self.log("strata serve: cannot open the pack\n",
-                          before="strata serve: mtp: the draft head does not fit\n")
-        self.assertEqual(start_failure_hint(p, off), "")
-        self.assertEqual(start_failure_hint(None, 0), "")
-        self.assertEqual(start_failure_hint(str(Path(tempfile.mkdtemp()) / "missing.log"), 0), "")
-
-
 class DesktopVramNote(unittest.TestCase):
     """#560 #516: an AMD card on a Linux desktop with little VRAM left after the start gets a recommended reserve."""
 
@@ -2840,18 +2515,13 @@ class StartCrashReported(unittest.TestCase):
 
 
 class StartNarrator(unittest.TestCase):
-    """#505: the start's words say what happens to the experts - --mmap-experts loads nothing into RAM up front."""
+    """#505: the start's words say what happens to the experts: strata-poly reads its GGUF in place."""
 
-    def test_the_words_follow_the_flags(self):
+    def test_the_words(self):
         from serve.server import experts_loading_words
-        self.assertIn("loading the experts into RAM (about 38 GB)", experts_loading_words([], "about 38 GB"))
-        mapped = experts_loading_words(["--mmap-experts"], "about 47 GB")
-        self.assertIn("mapping the experts from the model files (about 47 GB", mapped)
-        self.assertIn("not loaded into RAM", mapped)
-        self.assertIn("the GPU does not hold", experts_loading_words(["--resident-experts"], "about 47 GB"))
-        budget = experts_loading_words(["--mmap-experts", "--resident-budget-gib", "71"], "about 50 GB")
-        self.assertIn("up to 71 GiB", budget)
-        self.assertNotIn("about 50 GB", budget)
+        said = experts_loading_words(["--model", "m.gguf"], "about 54 GB")
+        self.assertIn("reading the model file (about 54 GB) in place", said)
+        self.assertIn("OS file cache", said)
 
     def narrate(self, args, lines):
         import contextlib
@@ -2869,17 +2539,13 @@ class StartNarrator(unittest.TestCase):
             t.join(5)
         return out.getvalue()
 
-    def test_a_mapped_start(self):
-        said = self.narrate(["--mmap-experts"], ["strata generate: experts via mmap (--mmap-experts; the GGUF shards "
-                                                 "in place, no experts.bin)"])
-        self.assertIn("mapping the experts from the model files", said)
-        self.assertNotIn("loading the experts into RAM", said)
-
-    def test_an_arena_start(self):
-        said = self.narrate([], ["strata generate: expert arena: resident, 31.64 GiB",
-                                 "strata generate: loaded 31.64 GiB at 3.17 GiB/s"])
-        self.assertIn("loading the experts into RAM (tens of GB)", said)
-        self.assertIn("experts loaded: 31.64 GiB at 3.17 GiB/s", said)
+    def test_a_strata_poly_start(self):
+        # the lines of a Laguna-S UD-Q3_K_XL start on 2x RTX 5060 Ti (echo, 2026-11-14)
+        said = self.narrate(["--model", "missing.gguf"], [
+            "strata-poly: layers 0 to 24 on card 0: 2907 of 6144 routed experts in VRAM (11.1 GiB)",
+            "strata-poly: loaded in 13.6 s; 5637 of 12032 routed experts in VRAM (21.7 GiB), 11 CPU threads"])
+        self.assertIn("reading the model file (tens of GB) in place", said)
+        self.assertIn("model loaded in 13.6 s; 5637 of 12032 routed experts in VRAM (21.7 GiB)", said)
 
 
 class CancelledRead(unittest.TestCase):
@@ -3316,7 +2982,7 @@ class SharedSettings(unittest.TestCase):
 
     def test_other_apps_get_the_chat_settings(self):
         d = {"temperature": 0.3, "top_p": 0.9, "top_k": 10, "seed": 7, "max_tokens": 77,
-             "reasoning_effort": "low", "experimental_speed_projection": False}
+             "reasoning_effort": "low"}
         code, b = self.req("/settings", {"defaults": d})
         self.assertEqual(code, 200, b)
         self.assertTrue(b["shared"])
@@ -3324,7 +2990,7 @@ class SharedSettings(unittest.TestCase):
         code, _ = self.chat()                                        # a client that sets nothing
         self.assertEqual(code, 200)
         got = self.engine.last_sampling
-        for k in ("temperature", "top_p", "top_k", "seed", "experimental_speed_projection"):
+        for k in ("temperature", "top_p", "top_k", "seed"):
             self.assertEqual(got[k], d[k], k)
         self.assertEqual(self.engine.last_max_new, 77)
         code, _ = self.chat(temperature=0.9, max_tokens=5)          # its own values win
@@ -5886,32 +5552,6 @@ class VisionCacheEviction(unittest.TestCase):
                 v.encode(f"image {i}".encode())
             self.assertEqual(len(v.cache), 64)
             self.assertFalse(first.exists())
-
-
-class BudgetOverRam(unittest.TestCase):
-    """#1080: a RAM budget above what the PC has free is a warning at start, not silence and not a refusal."""
-
-    def run_with(self, budget, total, free):
-        import serve.server as S
-        vm = SimpleNamespace(total=total * 2**30, available=free * 2**30)
-        fake = SimpleNamespace(virtual_memory=lambda: vm)
-        with mock.patch.dict(sys.modules, {"psutil": fake}), contextlib.redirect_stdout(io.StringIO()):
-            return S.warn_budget_over_ram(["--native", "x", "--resident-budget-gib", str(budget)])
-
-    def test_over_free_ram_warns(self):
-        msg = self.run_with(55, 64, 30)
-        self.assertIn("55 GiB", msg)
-        self.assertIn("30 GiB free of 64", msg)
-
-    def test_over_total_less_headroom_warns(self):
-        self.assertIsNotNone(self.run_with(60, 64, 60))
-
-    def test_a_budget_that_fits_is_quiet(self):
-        self.assertIsNone(self.run_with(40, 64, 50))
-
-    def test_no_budget_argument_is_quiet(self):
-        import serve.server as S
-        self.assertIsNone(S.warn_budget_over_ram(["--native", "x"]))
 
 
 class LazyVision(unittest.TestCase):

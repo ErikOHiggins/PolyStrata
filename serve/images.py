@@ -780,22 +780,12 @@ def _make_room(svc, gen: ImageServer, policy: str, need: int):
         except Exception as e:                       # noqa: BLE001 - the job still runs, with what is free
             gen._say(f"image job: the engine could not give VRAM back ({e}); the job runs with what is free")
             return None
-    if policy == "unload":
-        saved = None
-        if hasattr(eng, "session_file") and not getattr(eng, "batch", 0):
-            path = str(gen.dir / f"llm-session-{secrets.token_hex(6)}.bin")
-            try:
-                r = eng.session_file("save", path)
-                saved = path
-                gen._say(f"image job: the conversation ({r.get('tokens')} tokens) saved; unloading the model")
-            except Exception as e:                   # noqa: BLE001 - unloading still frees the GPU
-                gen._say(f"image job: the conversation could not be saved ({e}); unloading the model")
-                with contextlib.suppress(OSError):
-                    os.unlink(path)
+    if policy == "unload":                           # strata-poly keeps no disk sessions: the next request reads its
+        gen._say("image job: unloading the model")   # prompt again
         eng.unload()
         if svc.vision is not None and hasattr(svc.vision, "unload"):
             svc.vision.unload()
-        return saved or "unloaded"
+        return "unloaded"
     return None
 
 
@@ -807,8 +797,6 @@ def _give_back(svc, gen: ImageServer, policy: str, restore) -> None:
         except Exception as e:                       # noqa: BLE001
             gen._say(f"image job: the expert cache did not grow back ({e}); POST /v1/vram can retry")
     elif policy == "unload" and restore:
-        if restore != "unloaded":
-            svc.restore_after_load = restore         # Service.ensure_loaded restores it after the next start
         if gen.reload == "eager":
             try:
                 svc.ensure_loaded()                  # the caller still holds the FIFO
@@ -816,18 +804,3 @@ def _give_back(svc, gen: ImageServer, policy: str, restore) -> None:
                 gen._say(f"image job: the model did not load again yet ({e}); the next request loads it")
 
 
-def restore_session(svc) -> None:
-    """After an engine start: restore the conversation an image job saved before it unloaded the engine."""
-    path = getattr(svc, "restore_after_load", None)
-    if not path:
-        return
-    svc.restore_after_load = None
-    try:
-        r = svc.engine.session_file("restore", path)
-        print(f"[strata] the conversation from before the image job is back ({r.get('tokens')} tokens)", flush=True)
-    except Exception as e:                           # noqa: BLE001 - the engine runs, without the old cache
-        print(f"[strata] the conversation from before the image job was not restored ({e}); the next request "
-              "reads its prompt again", flush=True)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(path)

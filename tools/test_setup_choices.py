@@ -73,7 +73,8 @@ class VsRange(unittest.TestCase):
 
     def asked(self, cuda_v):
         seen = []
-        with mock.patch.object(setup.Path, "exists", lambda self: True),                 mock.patch.object(setup, "out", lambda cmd, *a, **k: seen.append(cmd) or "C:/VS"):
+        with mock.patch.object(setup.Path, "exists", lambda self: True), \
+                mock.patch.object(setup, "out", lambda cmd, *a, **k: seen.append(cmd) or "C:/VS"):
             setup.find_vcvars(cuda_v)
         return seen[0][seen[0].index("-version") + 1] if "-version" in seen[0] else None
 

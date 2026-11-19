@@ -66,14 +66,10 @@ class EngineCommand(unittest.TestCase):
             e.vram(100)
 
     def test_config_key(self):
-        cfg = {"args": ["--max-context", "8192"]}
-        self.assertEqual(engine_args(cfg), ["--max-context", "8192"])           # off unless asked
-        self.assertEqual(engine_args({**cfg, "vram_elastic": True, "vram_segment_mib": 256}),
-                         ["--max-context", "8192", "--vram-elastic", "--vram-segment-mib", "256"])
-        self.assertEqual(engine_args({**cfg, "vram_elastic": "yes"}), ["--max-context", "8192"])
-        # strata-poly has no such option and ends at one it does not know: its cache is resized as it is
-        poly = {**cfg, "exe": "engine-poly/strata-poly.exe", "vram_elastic": True, "vram_segment_mib": 256}
-        self.assertEqual(engine_args(poly), ["--max-context", "8192"])
+        # strata-poly resizes its expert cache without a flag (INFO vram_elastic=1): "vram_elastic", the Qwen engine's
+        # --vram-elastic, is not passed on
+        cfg = {"args": ["--max-context", "8192"], "exe": "engine-poly/strata-poly.exe"}
+        self.assertEqual(engine_args({**cfg, "vram_elastic": True, "vram_segment_mib": 256}), ["--max-context", "8192"])
 
 
 class Route(unittest.TestCase):
