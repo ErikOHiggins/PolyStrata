@@ -9,7 +9,8 @@ Tools from MCP servers (serve/mcp.py, `"mcp_servers"` in the config or --mcp-con
 ask for them with `"strata_mcp": true` - the web app does; other clients see exactly the API they always saw.
 Images (optional, when the config has a "vision" entry): OpenAI image_url parts and Anthropic image blocks (base64
 data, http(s) URLs or local file paths) go through `strata-vision` (the model's mmproj file) and reach the engine as
-embeddings (`GENI`).  JPEG/PNG/BMP/GIF go straight in; WebP, TIFF, AVIF, ... (agents like omp send WebP) are
+embeddings (`GENI`); with a llama-server engine and its --mmproj, the pictures go to llama-server with the prompt's text
+(LlamaServerEngine).  JPEG/PNG/BMP/GIF go straight in; WebP, TIFF, AVIF, ... (agents like omp send WebP) are
 converted to PNG first with Pillow.
 Requests whose prompt plus max tokens exceed the engine's context are rejected with 400 by default. The opt-in
 `truncate_middle` setting can trim an oversized text prompt while keeping its beginning and ending.
@@ -2170,6 +2171,10 @@ class LlamaServerEngine:
     Every sampling field is sent (sampling_fields), so a request means what it means with strata-poly: neither
     llama-server's own defaults nor the ones a GGUF carries (general.sampling.*) apply.
 
+    Pictures (with --mmproj in the args): Service.prepare() reads them as for strata-vision (Vision.load and
+    normalize), plans the prompt with each picture's rows as llama-server's mtmd will make them (image_tokens), and
+    the request goes as the prompt's text with llama-server's media marker where each picture is (_media_prompt).
+
     llama-server streams a token only once the text ends on a whole character; the tokens of a character split over
     several tokens come with the last of them (_rebuild).  It ends a reply at every end-of-generation token llama.cpp
     knows, which can be one Puddle does not stop on (Bolt's </s>): such a reply ends as a stop, not as text (_holds)."""
@@ -2196,6 +2201,10 @@ class LlamaServerEngine:
         self.progress, self.progress_ms, self.reused, self.prefill_tok_s_mean = None, 0, 0, None
         self.rebuilt = 0                 # tokens llama-server did not stream that were rebuilt from the text
         self._by_bytes, self._longest = None, 1
+        # pictures: llama-server reads them itself with its --mmproj (Service sends them with the prompt's text)
+        self.mmproj = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-mm", "--mmproj")), None)
+        self.images = bool(self.mmproj)
+        self._media, self._specials_re = None, None
         ctx = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-c", "--ctx-size")), None)
         if ctx is not None and str(ctx).isdigit():       # until it has started: what the config asks for
             self.known_ctx = int(ctx)
@@ -2281,6 +2290,10 @@ class LlamaServerEngine:
         self.info.update(version=f"llama-server {props.get('build_info') or '(unknown build)'}",
                          vision=bool((props.get("modalities") or {}).get("vision")),
                          media_marker=props.get("media_marker"), slots=props.get("total_slots"))
+        if self.mmproj and not self.info["vision"]:
+            print("[strata] llama-server was given an --mmproj but reads no pictures with it: pictures are refused",
+                  flush=True)
+        self.images = bool(self.mmproj) and self.info["vision"]
         if isinstance(props.get("total_slots"), int) and props["total_slots"] > 1:
             print(f"[strata] llama-server runs {props['total_slots']} slots, but Puddle sends one request at a time: "
                   "\"-np\", \"1\" in the config's args gives the other slots' memory back", flush=True)
@@ -2478,8 +2491,9 @@ class LlamaServerEngine:
         self.rebuilt += len(ids)
         return list(ids)
 
-    def _finish(self, ev: dict, prompt_tokens: int):
-        """The request's figures from llama-server's last event (its own clock)."""
+    def _finish(self, ev: dict, prompt_tokens: int, pictures: bool = False):
+        """The request's figures from llama-server's last event (its own clock).  With `pictures`, a prompt length other
+        than the one Puddle planned with (serve/media_tokens.py's estimate of the pictures) is said."""
         tm = ev.get("timings") if isinstance(ev.get("timings"), dict) else {}
         last = {"generated": int(ev.get("tokens_predicted") or tm.get("predicted_n") or 0),
                 "prompt_tokens": int(ev.get("tokens_evaluated") or prompt_tokens),
@@ -2489,6 +2503,10 @@ class LlamaServerEngine:
         if tm.get("draft_n") is not None:
             last.update(drafts_offered=int(tm["draft_n"]), drafts_accepted=int(tm.get("draft_n_accepted") or 0))
         self.last = last
+        off = last["prompt_tokens"] - prompt_tokens
+        if pictures and off:
+            print(f"[strata] llama-server read {last['prompt_tokens']} prompt tokens where Puddle planned "
+                  f"{prompt_tokens}: its estimate of the pictures' tokens was off by {off}", flush=True)
 
     def _own_figures(self, prompt_tokens: int, got: int, started: float, first: float | None, cancelled: bool):
         """The figures of a request that ended before llama-server's last event (the client left, a stop string, a
@@ -2502,15 +2520,99 @@ class LlamaServerEngine:
                      "decode_ms": (now - first) * 1000.0 if first else 0.0,
                      "finish": "cancel" if cancelled else "stop", "reused": int(self.reused or 0), "prompt_read": read}
 
+    # ---------------------------------------------------------------- pictures
+    def image_tokens(self, data: bytes) -> int:
+        """The prompt tokens llama-server will make of one picture (serve/media_tokens.py), for Service to plan the
+        request with; llama-server's own count, in its last event, is the one it goes by.  ValueError for a picture
+        whose size cannot be read."""
+        from serve import media_tokens
+        if self._media is None:
+            path = self.mmproj and (self.mmproj if os.path.isabs(self.mmproj) else
+                                    os.path.join(self.spawn[2] or ".", self.mmproj))
+            self._media = (media_tokens.mmproj_params(path) if path else None) or {}
+        n = media_tokens.picture_tokens(data, self._media, self.tok) if self._media else None
+        if n is not None:
+            return n
+        if media_tokens.image_size(data) is None:
+            raise ValueError("the picture could not be read (its size is not in its header)")
+        return 1                         # a projector not counted here: llama-server's count decides
+
+    def _text_of(self, ids: list[int]) -> tuple[str, int]:
+        """The text of a stretch of the prompt for llama-server to read again, and how many special-token texts in it
+        were kept text.  llama-server reads a prompt with pictures as text, with every special token's text taken as
+        that token; Puddle encodes those texts inside a message as plain text (#537, #554, #2026), so each one gets a
+        word joiner (U+2060) after its first character: it stays text and reads the same."""
+        if self._specials_re is None:
+            texts = sorted(set(getattr(self.tok, "special_tokens", {}) or {}) | {self.info.get("media_marker") or ""},
+                           key=len, reverse=True)
+            texts = [t for t in texts if len(t) > 1]
+            self._specials_re = re.compile("|".join(re.escape(t) for t in texts)) if texts else False
+        out, kept, run = [], 0, []
+
+        def flush():
+            nonlocal kept
+            if run:
+                text = self.tok.decode(run)
+                if self._specials_re:
+                    text, n = self._specials_re.subn(lambda m: m.group(0)[0] + "\u2060" + m.group(0)[1:], text)
+                    kept += n
+                out.append(text)
+                run.clear()
+        for t in ids:
+            if self._special(t):
+                flush()
+                out.append(self.tok.decode([t]))
+            else:
+                run.append(t)
+        flush()
+        return "".join(out), kept
+
+    def _media_prompt(self, ids: list[int], pad, counts: list[int]) -> str:
+        """The prompt as llama-server reads one with pictures: its text, and llama-server's media marker where each
+        picture's `counts[k]` rows of `pad` are (prepare() put them there).  ValueError when they do not match."""
+        marker = self.info.get("media_marker")
+        if not marker:
+            raise ValueError("llama-server did not say its media marker (GET /props), so it cannot be sent pictures")
+        parts, run, kept, k, i = [], [], 0, 0, 0
+        while i < len(ids):
+            if ids[i] == pad and k < len(counts):
+                n = counts[k]
+                if ids[i:i + n] != [pad] * n:
+                    raise ValueError("the prompt and its pictures do not match")
+                text, more = self._text_of(run)
+                parts += [text, marker]
+                kept, run, i, k = kept + more, [], i + n, k + 1
+                continue
+            run.append(ids[i])
+            i += 1
+        if k != len(counts):
+            raise ValueError("the prompt and its pictures do not match")
+        text, more = self._text_of(run)
+        if kept + more:
+            print(f"[strata] {kept + more} special-token text(s) inside the messages went to llama-server with a word "
+                  "joiner (U+2060) in them, so that they stay text", flush=True)
+        return "".join(parts) + text
+
     def generate(self, ids, max_new, sampling, cancel, embeddings=None):
         """Yields token ids, and None as a heartbeat (each prompt-progress event, and every 10 s of quiet).  A consumer
-        that stops early (or `cancel`) closes the connection, and llama-server stops the request."""
-        if embeddings:
-            raise ValueError("llama-server reads a request's pictures itself; this engine takes no embeddings file")
+        that stops early (or `cancel`) closes the connection, and llama-server stops the request.  `embeddings`: the
+        file prepare() wrote for a prompt with pictures ({"images": base64 files, "tokens": the rows each one has in
+        `ids`, as sampling's image_pad}): the prompt then goes as its text with llama-server's media marker."""
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
         self.progress, self.progress_ms, self.reused, self.prefill_tok_s_mean = None, 0, 0, None
-        body = {"prompt": [int(t) for t in ids], "n_predict": int(max_new), "stream": True, "return_tokens": True,
+        prompt = [int(t) for t in ids]
+        if embeddings:
+            if not self.images:
+                raise ValueError("this llama-server reads no pictures (no --mmproj in the config's args)")
+            try:
+                pictures = json.loads(Path(embeddings).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                raise ValueError(f"the request's pictures could not be read back ({e})") from None
+            prompt = {"prompt_string": self._media_prompt(prompt, (sampling or {}).get("image_pad"),
+                                                          pictures["tokens"]),
+                      "multimodal_data": pictures["images"]}
+        body = {"prompt": prompt, "n_predict": int(max_new), "stream": True, "return_tokens": True,
                 "return_progress": True, "cache_prompt": True, **self.sampling_fields(sampling)}
         out: queue.Queue = queue.Queue()
         stream = _LlamaStream(self.port, self.key, "/completion", body, out)
@@ -2563,7 +2665,7 @@ class LlamaServerEngine:
                     raise ValueError(llama_error_message(ev))
                 if ev.get("stop"):                       # the last event: the figures, and why it ended
                     done = True
-                    self._finish(ev, len(ids))
+                    self._finish(ev, len(ids), bool(embeddings))
                     eos, n = ev.get("stop_type") == "eos", int(ev.get("tokens_predicted") or got)
                     if held is not None:
                         t, held = held, None
@@ -2624,7 +2726,7 @@ class LlamaServerEngine:
                         except queue.Empty:
                             break
                         if kind == "event" and isinstance(data, dict) and data.get("stop"):
-                            self._finish(data, len(ids))
+                            self._finish(data, len(ids), bool(embeddings))
                             finished = True
                         elif kind in ("end", "lost", "refused"):
                             break
@@ -3553,6 +3655,12 @@ class Service:
         # an image's marker from the same text in a message: the first ones are the images (prepare()).
         self.image_marks = ("<|image|>", None, ("<|image>", "<image|>")) if self.call_format == "gemma" else \
             (IMAGE_PAD, VISION_START if VISION_START in getattr(self.template, "source", VISION_START) else None, None)
+        # Nemotron 3.5's template writes <image> for a picture (its own token), and llama-server's mtmd puts <img> and
+        # </img> around the picture's rows itself; a literal <image> in a message stays text (literal_tags)
+        source = getattr(self.template, "source", "") or ""
+        if self.call_format != "gemma" and "'<image>'" in source and IMAGE_PAD not in source and \
+                len(tokenizer.encode("<image>", parse_special=True)) == 1:
+            self.image_marks = ("<image>", None, None)
         # #567: a prompt re-encodes only what follows the last special token it shares with a recent prompt (the
         # same ids as a full encode: tools/strata_tokenizer.py PromptEncoder).  Tokenizers without resume points
         # encode in full.
@@ -3808,7 +3916,7 @@ class Service:
         loaded = self.loaded()
         model = {"id": self.model, "object": "model", "status": {"value": "loaded"},
                  "meta": {"n_ctx": self.reported_ctx()},
-                 "architecture": {"input_modalities": ["text", "image"] if self.vision is not None else ["text"],
+                 "architecture": {"input_modalities": ["text", "image"] if self.images_on() else ["text"],
                                   "output_modalities": ["text"]}}
         if not loaded and (self.switch_on_request or self.idle_unload_s or getattr(self.engine, "unloaded", False)):
             model["status"] = {"value": "unloaded"}       # like llama-server's router: listed, loads on use
@@ -3888,6 +3996,17 @@ class Service:
         anything that is not a whole number."""
         value = (req or {}).get("reasoning_budget_tokens") if isinstance(req, dict) else None
         return budget_tokens(self.reasoning_budget_tokens if value is None else value)
+
+    def images_on(self) -> bool:
+        """Pictures can be read: by the vision encoder (strata-vision), or by an engine that reads them itself
+        (llama-server with --mmproj)."""
+        return self.vision is not None or bool(getattr(self.engine, "images", False))
+
+    def engine_picture(self, src) -> tuple[bytes, int]:
+        """For an engine that reads pictures itself: the picture as the decoder reads it (Vision.normalize) and the
+        prompt tokens the engine will make of it.  ValueError for one that cannot be read."""
+        data = Vision.normalize(src if isinstance(src, bytes) else Vision.load(src))
+        return data, self.engine.image_tokens(data)
 
     def _vision_down(self) -> bool:
         """The encoder should run and does not (the engine's load starts it again).  An elastic encoder is down
@@ -4337,7 +4456,7 @@ class Service:
                 live["state"] = "generating"
         if hasattr(self.engine, "replica_view"):        # opt-in replicas: each one's state and requests routed to it
             live["replicas"] = self.engine.replica_view()
-        engine = {"model": self.model, "max_context": self.reported_ctx(), "images": self.vision is not None,
+        engine = {"model": self.model, "max_context": self.reported_ctx(), "images": self.images_on(),
                   **dict(getattr(self.engine, "info", {}) or {})}
         tel = self.telemetry.snapshot() if getattr(self, "telemetry", None) else {"now": {}, "history": {}, "static": {}}
         parked = self.conv_log.poll(getattr(self.engine, "log_path", None), getattr(self.engine, "log_start", None))
@@ -4397,7 +4516,7 @@ class Service:
             return round(v / unit, digits) if isinstance(v, (int, float)) else None
 
         busy, ctx = bool(s.get("busy")), self.reported_ctx()
-        images = self.vision is not None
+        images = self.images_on()
         return {
             "service": "strata", "model": self.model,
             "loaded": self.loaded(), "auto_load": hasattr(self.engine, "restart"),
@@ -4489,7 +4608,7 @@ class Service:
             for n, item in enumerate(content):
                 if not isinstance(item, dict) or item.get("type") != "image":
                     continue
-                why = "this server has no image encoder" if self.vision is None else None
+                why = "this server has no image encoder" if not self.images_on() else None
                 if why is None:
                     src = item["source"]
                     try:
@@ -4497,8 +4616,11 @@ class Service:
                             raise ClientGone()
                         if src.startswith(("http://", "https://")):
                             src = fetched[item["source"]] = Vision.download(src)   # outside the FIFO, as in prepare()
-                        with self._turn(cancel):  # the encoder takes its turn with the requests (see below)
-                            self.vision.encode(src)
+                        if self.vision is None:   # the engine reads it: what can be checked here is its format
+                            self.engine_picture(src)
+                        else:
+                            with self._turn(cancel):  # the encoder takes its turn with the requests (see below)
+                                self.vision.encode(src)
                     except (ValueError, OSError) as e:
                         why = str(e)
                 if why is not None:
@@ -4575,7 +4697,7 @@ class Service:
             ids = self.truncate_prompt_middle(ids, max_new)
         self.embeddings.path = None
         if images:
-            if self.vision is None:
+            if not self.images_on():
                 raise ValueError("this server was started without the vision encoder (run setup again and choose "
                                  "'vision'), so it cannot read images")
             mark, before, around = self.image_marks
@@ -4592,18 +4714,26 @@ class Service:
                 return fetched[src] if src in fetched else Vision.download(src) \
                     if src.startswith(("http://", "https://")) else src
             images = [fetch(src) for src in images]
+            pictures = []                       # an engine that reads them itself (llama-server): their files
+            if self.vision is None:
+                for src in images:
+                    if cancel is not None and cancel.is_set():
+                        raise ClientGone()
+                    pictures.append(self.engine_picture(src))
+                encoded = [(None, n) for _, n in pictures]
             # Encode only while the engine is idle: the engine and the image encoder (a separate process) must not
             # run on the GPU at the same time - an encode during a running request left that request stuck at
             # "reading the prompt" with CPU and GPU busy, for good (reproduced).  So encoding takes its turn in the
             # same FIFO as the requests.
-            self.warm_stop.set()
-            with self._turn(cancel):
-                self._vision_up()
-                try:
-                    encoded = (self.vision.encode_all(images, cancel) if hasattr(self.vision, "encode_all")
-                               else [self.vision.encode(src) for src in images])
-                finally:
-                    self.last_image_at = time.time()
+            if self.vision is not None:
+                self.warm_stop.set()
+                with self._turn(cancel):
+                    self._vision_up()
+                    try:
+                        encoded = (self.vision.encode_all(images, cancel) if hasattr(self.vision, "encode_all")
+                                   else [self.vision.encode(src) for src in images])
+                    finally:
+                        self.last_image_at = time.time()
             # one <|image_pad|> per image -> one per image token.  Only the markers the template writes for an image
             # (right after <|vision_start|>) are images: the same text inside a message (an agent reading these docs,
             # #150) is kept as plain text, or it took an image's place and the counts no longer matched.  A template
@@ -4655,7 +4785,15 @@ class Service:
                                  f"max_tokens (at most {max(0, room)} here), or add \"fit_max_tokens\": true to the "
                                  "model's strata-<model>.json to shorten it to the room left (#545)")
             max_new = max(1, room)          # --fit-max-tokens: a shorter completion beats a 400
-        if images:
+        if images and self.vision is None:
+            # the pictures themselves, for the engine to send with the prompt (LlamaServerEngine.generate); written
+            # once nothing above refuses the request, deleted as for GENI's file below
+            fd, name = tempfile.mkstemp(prefix="puddle-pictures-", suffix=".json")
+            self.embeddings.path, self.embeddings.pad = name, pad
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"images": [base64.b64encode(p).decode("ascii") for p, _ in pictures],
+                           "tokens": [n for _, n in pictures]}, f)
+        elif images:
             # The request's images in one file for GENI (~10 MB a picture), written once nothing above refuses the
             # request: one refused after it (the engine starting, no room) left it in the vision directory for good,
             # one more for every retry of a 503.  run() deletes it; drop_embeddings() if run() never starts.
@@ -6063,7 +6201,7 @@ def make_handler(svc: Service):
                 self.wfile.write(body)
             elif path in ("/health", "/api/health"):
                 self._json(200, {"status": "ok", "max_context": svc.reported_ctx(), "model": svc.model,
-                                 "images": svc.vision is not None, "api_key": bool(svc.api_key),
+                                 "images": svc.images_on(), "api_key": bool(svc.api_key),
                                  "image_generation": False, "api_monitor": svc.api_monitor,
                                  "loaded": svc.loaded(), "service": "strata"})
             elif path == "/status":
@@ -6324,7 +6462,7 @@ def make_handler(svc: Service):
                      "total_slots": max(1, int(getattr(svc.engine, "batch", 0) or 0)),   # #1004: the batch slots
                      "model_alias": svc.model, "chat_template": svc.template.source,
                      "chat_template_caps": svc.template.caps,
-                     "modalities": {"vision": svc.vision is not None}, "models_autoload": hasattr(svc.engine, "restart"),
+                     "modalities": {"vision": svc.images_on()}, "models_autoload": hasattr(svc.engine, "restart"),
                      "is_sleeping": not svc.loaded()}
             if getattr(svc.engine, "model_path", None):
                 props["model_path"] = svc.engine.model_path
@@ -7742,7 +7880,7 @@ def main() -> int:
     svc.start_vision_idle()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
     print(f"ready: http://{here}:{a.port}/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, "
-          f"context {engine.max_context} tokens{', images on' if vision else ''}"
+          f"context {engine.max_context} tokens{', images on' if svc.images_on() else ''}"
           f"{', API key required' if svc.api_key else ''})", flush=True)
     print(f"       open http://{here}:{a.port}/ in a browser to chat; close this window to stop the model", flush=True)
     if a.host not in ("127.0.0.1", "localhost", "::1"):

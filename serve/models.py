@@ -116,7 +116,7 @@ def describe(config: Path) -> dict | None:
         "display_name": None, "backend": "qwen4exp", "path": str(path) if path else None,
         "quantization": None, "params_total": None, "params_active": None,
         "context": int(ctx) if ctx and str(ctx).isdigit() else None,
-        "multimodal": bool(cfg.get("vision")),
+        "multimodal": bool(cfg.get("vision")) or (llama and bool(_arg(args, "--mmproj") or _arg(args, "-mm"))),
         "aliases": _aliases(cfg.get("aliases")),
         "mtp": bool(_arg(args, "--draft-model")) and "--no-draft" not in args,
         "ram_gb": None, "vram_gb": None,

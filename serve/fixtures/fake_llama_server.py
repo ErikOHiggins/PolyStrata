@@ -12,10 +12,14 @@ with its last token), and it ends a reply at its end-of-generation tokens.  The 
     python fake_llama_server.py --host 127.0.0.1 --port N --fake-vocab vocab.json --fake-reply reply.json
         [--fake-eog 1,2] [--fake-load-s 0.2] [--fake-ctx 4096] [--fake-slots 1] [--fake-delay-s 0]
         [--fake-record log.jsonl] [--fake-die-after N] [--fake-bind-fail-once marker] [--fake-exit-at-start]
+        [--mmproj file] [--fake-image-tokens N]
 
 vocab.json: a list of each token's bytes as hex, and "special" ids (rendered as "" like llama.cpp's control tokens);
-reply.json: the token ids of each reply, in turn (the last one repeats).  --fake-record writes each request (its body,
-whether it had the key, and how it ended) as a line of JSON.  Other arguments (llama-server's own) are ignored.
+reply.json: the token ids of each reply, in turn (the last one repeats).  With --mmproj it reads pictures: a prompt
+{"prompt_string": text with the media marker, "multimodal_data": [base64, ...]} counts each picture as
+--fake-image-tokens tokens, a special token's text as one and each other byte of the text as one.
+--fake-record writes each request (its body, whether it had the key, and how it ended) as a line of JSON.  Other
+arguments (llama-server's own) are ignored.
 """
 from __future__ import annotations
 
@@ -41,6 +45,8 @@ ap.add_argument("--fake-record")
 ap.add_argument("--fake-die-after", type=int)
 ap.add_argument("--fake-bind-fail-once")
 ap.add_argument("--fake-exit-at-start", action="store_true")
+ap.add_argument("-mm", "--mmproj")
+ap.add_argument("--fake-image-tokens", type=int, default=10)
 a, rest = ap.parse_known_args()
 
 print(f"fake llama-server: args {sys.argv[1:]}", flush=True)
@@ -60,6 +66,7 @@ EOG = {int(x) for x in a.fake_eog.split(",") if x.strip()}
 KEY = os.environ.get("LLAMA_API_KEY", "")
 loaded_at = time.monotonic() + a.fake_load_s
 state = {"turn": 0, "cached": []}
+MARKER = "<__media_fake0123__>"           # llama-server's is random at each start; /props says it
 lock = threading.Lock()
 
 
@@ -104,8 +111,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"error": {"code": 401, "message": "Invalid API Key", "type": "authentication_error"}})
         if self.path == "/props":
             return self._send(200, {"default_generation_settings": {"n_ctx": a.fake_ctx, "params": {}},
-                                    "total_slots": a.fake_slots, "modalities": {"vision": False, "audio": False},
-                                    "media_marker": "<__media__>", "build_info": "b0-fake"})
+                                    "total_slots": a.fake_slots, "modalities": {"vision": bool(a.mmproj), "audio": False},
+                                    "media_marker": MARKER, "build_info": "b0-fake"})
         self._send(404, {"error": {"code": 404, "message": "File Not Found", "type": "not_found_error"}})
 
     def _chunk(self, obj) -> None:
@@ -120,6 +127,20 @@ class Handler(BaseHTTPRequestHandler):
             record({**entry, "end": "401"})
             return self._send(401, {"error": {"code": 401, "message": "Invalid API Key", "type": "authentication_error"}})
         prompt = body.get("prompt") or []
+        if isinstance(prompt, dict):                   # a prompt with pictures: its text, the marker where each goes
+            files, text = prompt.get("multimodal_data") or [], prompt.get("prompt_string") or ""
+            if not a.mmproj:
+                record({**entry, "end": "500"})
+                return self._send(500, {"error": {"code": 500, "type": "server_error", "message":
+                                                  "Multimodal data provided, but model does not support multimodal "
+                                                  "requests."}})
+            if text.count(MARKER) != len(files):
+                record({**entry, "end": "500"})
+                return self._send(500, {"error": {"code": 500, "message": "Failed to tokenize prompt",
+                                                  "type": "server_error"}})
+            text = text.replace(MARKER, "").encode("utf-8")       # a byte a token, a special token's text one
+            n = len(text) - sum(text.count(PIECES[i]) * (len(PIECES[i]) - 1) for i in SPECIAL if PIECES[i])
+            prompt = [-2] * (n + a.fake_image_tokens * len(files))
         if len(prompt) >= a.fake_ctx:
             record({**entry, "end": "400"})
             return self._send(400, {"error": {"code": 400, "message": "the request exceeds the available context size, "
