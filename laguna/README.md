@@ -1,67 +1,27 @@
-# Laguna-S-2.1 on echo: getting the files (2026-11-13)
+# laguna/: Laguna's bring-up and measurement tools
 
-Targets: Unsloth `UD-Q3_K_XL` (54.1 GB, the expected daily driver) and `UD-Q4_K_XL` (73.4 GB, the quality
-reference), both at revision 750f92f9. Details and VRAM estimates are in `../HANDOFF-laguna-polystrata.md`
-(section 1, "Target files", and section 7.4).
+The tools used to port poolside's Laguna (Laguna-S 2.1, Laguna-XS 2.1) to strata-poly and to measure it. Each one runs
+the engine of a checkout (`--src`, this one by default; its `build-poly/strata-poly` must be built) on a GGUF you name
+(`--gguf`), and writes its results to `--out` (`laguna-test/` in the current folder by default). They need the GPUs to
+themselves: stop any server that uses them first (`--service NAME` refuses to run while that systemd service is active).
 
-`download-laguna.sh` runs on echo. It fetches Q3 first, then Q4, into
-`/home/eohiggins/PolyStrata-data/models/laguna-s21-<quant>/`. It checks the free space first, resumes partial
-files, and checks every shard's SHA-256. Running it again skips the shards that are done.
+| Tool | What it does |
+|---|---|
+| `smoke.py` | The first run: the tokenizer from the GGUF, three prompts through the engine's own line protocol, their speed, and the engine's rope line. `--llama DIR` compares the prompt ids with llama.cpp's `llama-tokenize`. |
+| `parity.py` | Token-by-token agreement with llama.cpp on the same GGUF: llama.cpp answers greedily, strata-poly is made to follow that answer, and the first disagreement and the KL divergence over llama.cpp's 10 likeliest tokens are reported per prompt. Needs a Laguna-capable llama.cpp (`--llama DIR`). |
+| `longctx.py` | Prompt and decode speed as the context grows (2K to 200K by default), per KV format (`--kv fp16,q8_0`), with the share of routed experts found in VRAM at each depth. |
+| `chat_smoke.py` | Laguna through this checkout's server: thinking on and off, a tool call and its answer, streaming, and how much of a second turn's prompt is read again. |
+| `gguf_types.py` | The tensor types of Unsloth's Laguna-S GGUFs by role (routed experts, shared expert, attention, ...), read from the shards' headers over HTTP range requests; the `gguf-types-*.json` files here are its output for UD-Q3_K_XL, UD-Q4_K_S and UD-Q5_K_S. |
+| `same_sass.py` | Whether every GPU kernel of one build is in another, instruction for instruction (their SASS, by `cuobjdump`): shows a change left the kernels it should not touch as they were. |
 
-PowerShell on this workstation:
+    python laguna/smoke.py --gguf MODEL.gguf
+    python laguna/parity.py --gguf MODEL.gguf --llama LLAMA_CPP/build/bin --kv q8_0
+    python laguna/longctx.py --gguf MODEL.gguf --kv q8_0 --depths 2048,32768,131072,200704
 
-```powershell
-# 1) free space where the models go (needs about 119 GiB, plus 5)
-ssh eohiggins@echo 'df -h /home/eohiggins/PolyStrata-data/models'
+Their long prompts are the repository's own text, read as it was at a fixed git revision (`--corpus`, `ac62d979` by
+default, the one every run so far used), so a run stays comparable with the earlier ones although the docs have
+changed since.
 
-# 2) copy the script over
-ssh eohiggins@echo 'mkdir -p ~/laguna-download'
-Set-Location V:\common\configs\Ploystrata\laguna
-scp download-laguna.sh eohiggins@echo:laguna-download/
-
-# 3) start it detached: it keeps going after the ssh session ends
-ssh eohiggins@echo 'setsid nohup bash ~/laguna-download/download-laguna.sh > ~/laguna-download.log 2>&1 < /dev/null &'
-
-# 4) progress, any time (.part files grow; "ok" lines mean a checked shard)
-ssh eohiggins@echo 'tail -n 8 ~/laguna-download.log; ls -l --block-size=M ~/PolyStrata-data/models/laguna-s21-*/'
-```
-
-To fetch only one of the two, put it in front of the command in step 3:
-`QUANTS=UD-Q3_K_XL setsid nohup bash ...`.
-
-## Daily use (2026-11-14)
-
-`deploy-laguna.sh` (run on echo) installs `strata-laguna-ud-q3_k_xl.json` into `~/PolyStrata`, the tokenizer and
-the expert profile into `~/PolyStrata-data/packs/laguna-ud-q3_k_xl/`, and `polystrata.service` with ExecStart on
-the dev checkout's `server.py`. It asks before each step and backs up what it replaces.
-
-```powershell
-ssh eohiggins@echo 'mkdir -p ~/laguna-deploy'
-Set-Location V:\common\configs\Ploystrata\laguna
-scp deploy-laguna.sh strata-laguna-ud-q3_k_xl.json polystrata.service eohiggins@echo:laguna-deploy/
-```
-
-On echo, in tmux:
-
-```bash
-cd ~/src/PolyStrata && git pull
-export PATH="$HOME/PolyStrata/.venv/bin:$PATH"
-cmake --build build-poly --target strata-poly -j 8 2>&1 | tail -3
-bash ~/laguna-deploy/deploy-laguna.sh
-```
-
-## The PR evidence (2026-11-14)
-
-`verify-prs.sh` (on echo, in tmux) builds main, PR 1 and PR 3 for CUDA and runs the attention tests on all three.
-It compares their kernels' machine code (`same_sass.py`), runs parity and the long-context speed for PR 1 and PR 3,
-moves `~/src/PolyStrata` to the new `laguna` branch and restarts polystrata, runs the server tests on PR 2, and
-builds PR 1 and PR 3 for HIP (gfx1100, gfx906) in Docker. Results go to `~/laguna-test/verify-<time>/summary.txt`.
-
-```powershell
-Set-Location V:\common\configs\Ploystrata\laguna
-scp verify-prs.sh same_sass.py parity.py longctx.py eohiggins@echo:laguna-deploy/
-```
-
-```bash
-bash ~/laguna-deploy/verify-prs.sh
-```
+`reference/` holds what the port was checked against: the GGUF metadata of poolside's and Unsloth's files, the
+Hugging Face configs and chat templates, llama.cpp's `laguna.cpp`, and PolyStrata's Flint code the port started from.
+`pr/` holds the write-ups of the pull requests the port was sent upstream in.

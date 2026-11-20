@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""laguna/smoke.py -- run ON ECHO: the Laguna port's first run, through strata-poly's own line protocol.
+"""laguna/smoke.py -- the Laguna port's first run, through strata-poly's own line protocol.
 
-    sudo systemctl stop polystrata                 # the service holds both cards
-    ~/PolyStrata/.venv/bin/python ~/laguna-test/smoke.py [--llama DIR] [--kv q8_0] [--max-new N]
-    sudo systemctl start polystrata
+    python laguna/smoke.py --gguf MODEL.gguf [--llama DIR] [--kv q8_0] [--max-new N] [--service NAME]
 
 1. the tokenizer folder from the GGUF (tools/strata_tokenizer.py, with its round-trip check), once
 2. with --llama DIR (the folder of a Laguna-capable llama.cpp's binaries): each prompt's ids from llama-tokenize
    next to ours
-3. the dev engine (~/src/PolyStrata/build-poly/strata-poly --serve), loaded once, greedy, on both cards
+3. the engine (<src>/build-poly/strata-poly --serve), loaded once, greedy, on every card it sees
 4. three prompts: a short one, code, and one of about 1,500 tokens (past the 512-token window rings, and read as a
    prompt batch); each one's text, prompt and decode speed
 5. the engine's own line on how it turns the full layers (expected: pairs 9 to 18, magnitude 1.3466)
 
-Everything goes to ~/laguna-test/: the engine's log (engine.log) and the results (smoke-<time>.txt).
+Everything goes to --out (laguna-test/ here by default): the engine's log (engine.log) and the results (smoke-<time>.txt).
 """
 from __future__ import annotations
 
@@ -24,12 +22,14 @@ import subprocess
 import sys
 import time
 
-HOME = pathlib.Path.home()
+ROOT = pathlib.Path(__file__).resolve().parents[1]   # this checkout
 p = argparse.ArgumentParser()
-p.add_argument("--src", default=str(HOME / "src/PolyStrata"))
-p.add_argument("--gguf", default=str(HOME / "PolyStrata-data/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/"
-                                            "Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf"))
-p.add_argument("--out", default=str(HOME / "laguna-test"))
+p.add_argument("--src", default=str(ROOT), help="the checkout whose engine (build-poly/strata-poly) and tools run "
+               "(default: this one)")
+p.add_argument("--gguf", required=True, help="the model's GGUF (the first file of a split one)")
+p.add_argument("--out", default="laguna-test", help="where the results go (default: laguna-test/ here)")
+p.add_argument("--service", default="", help="a systemd service that holds the GPUs: the run is refused while it is active (none by default)")
+p.add_argument("--corpus", default="ac62d979", help="the git revision whose README.md and docs/*.md are the long prompts (the runs so far used ac62d979's; the docs have changed since)")
 p.add_argument("--llama", default="", help="folder of a Laguna-capable llama.cpp's binaries (llama-tokenize)")
 p.add_argument("--max-new", type=int, default=64)
 p.add_argument("--context", type=int, default=16384)
@@ -49,17 +49,17 @@ def say(*parts):
     report.flush()
 
 
-if subprocess.run(["systemctl", "is-active", "--quiet", "polystrata"]).returncode == 0:
-    sys.exit("polystrata.service holds the cards: sudo systemctl stop polystrata first, and start it again after")
+if a.service and subprocess.run(["systemctl", "is-active", "--quiet", a.service]).returncode == 0:
+    sys.exit(f"{a.service} holds the cards: sudo systemctl stop {a.service} first, and start it again after")
 engine_exe = src / "build-poly/strata-poly"
 for need in (engine_exe, gguf, src / "tools/strata_tokenizer.py", src / "src/poly/laguna.cpp"):
     if not need.exists():
-        sys.exit(f"missing: {need}" + ("  (git pull in ~/src/PolyStrata first)" if need.name == "laguna.cpp" else ""))
+        sys.exit(f"missing: {need}" + ("  (update the checkout first)" if need.name == "laguna.cpp" else ""))
 # an engine built before the Laguna code would refuse the model at load
 if engine_exe.stat().st_mtime < (src / "src/poly/laguna.cpp").stat().st_mtime:
     sys.exit(f"{engine_exe} is older than src/poly/laguna.cpp: build it first\n"
-             "  cd ~/src/PolyStrata && PATH=~/PolyStrata/.venv/bin:$PATH cmake --build build-poly "
-             "--target strata-poly poly_sink_attend_test -j 8")
+             f"  cmake --build {src / 'build-poly'} --target strata-poly -j 8 (with setup's .venv/bin on PATH), or "
+             "run setup again")
 
 # 1) the tokenizer
 tok_dir = out / "tok"
@@ -73,8 +73,16 @@ from strata_tokenizer import Tokenizer  # noqa: E402
 tk = Tokenizer.from_dir(tok_dir / "tokenizer")
 say(f"== tokenizer: {len(tk.tokens)} tokens, pre {tk.pre}")
 
+def at_rev(rel: str) -> str:
+    """A file of the checkout as it was at --corpus: the long prompts stay the same whatever the docs are now."""
+    r = subprocess.run(["git", "-C", str(src), "show", f"{a.corpus}:{rel}"], capture_output=True)
+    if r.returncode != 0:
+        sys.exit(f"cannot read {rel} at {a.corpus}: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 # 2) the prompts.  BOS first: the GGUF has add_bos_token, and llama.cpp puts it before a raw prompt.
-readme = (src / "README.md").read_text(encoding="utf-8", errors="replace")
+readme = at_rev("README.md")
 long_text = readme[:6500].rsplit("\n", 1)[0]
 prompts = {
     "short": "The capital of France is",

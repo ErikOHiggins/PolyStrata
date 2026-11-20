@@ -1,36 +1,35 @@
 #!/usr/bin/env python3
-"""laguna/longctx.py -- run ON ECHO: Laguna's prompt and decode speed as the context grows, per KV format.
+"""laguna/longctx.py -- Laguna's prompt and decode speed as the context grows, per KV format.
 
-    sudo systemctl stop polystrata
-    ~/PolyStrata/.venv/bin/python ~/laguna-test/longctx.py [--kv fp16,q8_0] [--depths 2048,32768,...] [--lookup]
-    sudo systemctl start polystrata
+    python laguna/longctx.py --gguf MODEL.gguf [--kv fp16,q8_0] [--depths 2048,32768,...] [--lookup] [--service NAME]
 
 One growing conversation per KV format, so the document is read once: the prompt is the first 2K tokens of the
-repository's docs, then the first 32K, and so on.  Each one goes on from the one before (the engine keeps a checkpoint
+repository's docs (at --corpus), then the first 32K, and so on.  Each one goes on from the one before (the engine keeps a checkpoint
 at a prompt's end), so a step reads only its new tokens, and its prompt speed is the speed at that depth.  After
 each, 128 tokens are written, greedy.  Prompt-lookup guesses are off (--lookup 0) unless --lookup: the decode figure
 is then the model's own pace, not the document's repeats.
 
 Per step: the tokens read and their speed, the decode speed, and the share of the routed experts the decode found in
-VRAM (the attention caches take VRAM from the expert cache as they grow).  To ~/laguna-test/: longctx-<time>.txt,
+VRAM (the attention caches take VRAM from the expert cache as they grow).  To --out (laguna-test/ here by default): longctx-<time>.txt,
 and the engine's log per format (longctx-<time>-<kv>.log).
 """
 from __future__ import annotations
 
 import argparse
-import glob
 import pathlib
 import subprocess
 import sys
 import time
 
-HOME = pathlib.Path.home()
+ROOT = pathlib.Path(__file__).resolve().parents[1]   # this checkout
 p = argparse.ArgumentParser()
-p.add_argument("--src", default=str(HOME / "src/PolyStrata"))
+p.add_argument("--src", default=str(ROOT), help="the checkout whose engine (build-poly/strata-poly) and tools run "
+               "(default: this one)")
 p.add_argument("--tools", default="", help="the folder of strata_tokenizer.py (default: <src>/tools); a checkout without Laguna's pre-tokenizer takes another's")
-p.add_argument("--gguf", default=str(HOME / "PolyStrata-data/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/"
-                                            "Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf"))
-p.add_argument("--out", default=str(HOME / "laguna-test"))
+p.add_argument("--gguf", required=True, help="the model's GGUF (the first file of a split one)")
+p.add_argument("--out", default="laguna-test", help="where the results go (default: laguna-test/ here)")
+p.add_argument("--service", default="", help="a systemd service that holds the GPUs: the run is refused while it is active (none by default)")
+p.add_argument("--corpus", default="ac62d979", help="the git revision whose README.md and docs/*.md are the long prompts (the runs so far used ac62d979's; the docs have changed since)")
 p.add_argument("--kv", default="fp16,q8_0", help="the KV formats to run, in turn")
 p.add_argument("--depths", default="2048,32768,65536,131072,172032,200704")
 p.add_argument("--max-new", type=int, default=128)
@@ -57,8 +56,8 @@ def say(*parts):
     report.flush()
 
 
-if subprocess.run(["systemctl", "is-active", "--quiet", "polystrata"]).returncode == 0:
-    sys.exit("polystrata.service holds the cards: sudo systemctl stop polystrata first, and start it again after")
+if a.service and subprocess.run(["systemctl", "is-active", "--quiet", a.service]).returncode == 0:
+    sys.exit(f"{a.service} holds the cards: sudo systemctl stop {a.service} first, and start it again after")
 engine_exe = src / "build-poly/strata-poly"
 for need in (engine_exe, gguf, out / "tok/tokenizer/vocab.json"):
     if not need.exists():
@@ -69,14 +68,24 @@ from strata_tokenizer import Tokenizer  # noqa: E402
 tk = Tokenizer.from_dir(out / "tok/tokenizer")
 say("== strata-poly:", subprocess.run(["git", "-C", str(src), "log", "-1", "--format=%h %s"], capture_output=True,
                                       text=True).stdout.strip())
-# the document: the repository's docs, one file after another
+def at_rev(rel: str) -> str:
+    """A file of the checkout as it was at --corpus: the long prompts stay the same whatever the docs are now."""
+    r = subprocess.run(["git", "-C", str(src), "show", f"{a.corpus}:{rel}"], capture_output=True)
+    if r.returncode != 0:
+        sys.exit(f"cannot read {rel} at {a.corpus}: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
+# the document: the repository's docs at --corpus, one file after another
 parts = []
-for f in sorted(glob.glob(str(src / "docs/*.md"))):
-    parts.append(f"\n\n===== {pathlib.Path(f).name} =====\n\n" + pathlib.Path(f).read_text(encoding="utf-8", errors="replace"))
+names = subprocess.run(["git", "-C", str(src), "ls-tree", "--name-only", a.corpus, "docs/"], capture_output=True,
+                       text=True).stdout.split()
+for rel in sorted(n for n in names if n.endswith(".md")):
+    parts.append(f"\n\n===== {pathlib.Path(rel).name} =====\n\n" + at_rev(rel))
 doc = [2] + tk.encode("".join(parts))
 if len(doc) < depths[-1]:
     sys.exit(f"the docs come to {len(doc)} tokens, fewer than the deepest step ({depths[-1]})")
-say(f"== document: {len(doc):,} tokens of docs/*.md; steps {', '.join(f'{d:,}' for d in depths)}; "
+say(f"== document: {len(doc):,} tokens of docs/*.md at {a.corpus}; steps {', '.join(f'{d:,}' for d in depths)}; "
     f"context {context:,}; {a.max_new} tokens written at each; lookup {'on' if a.lookup else 'off'}")
 
 rows = []

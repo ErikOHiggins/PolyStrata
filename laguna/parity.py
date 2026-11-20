@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""laguna/parity.py -- run ON ECHO: Laguna on strata-poly against llama.cpp on the same GGUF, token by token.
+"""laguna/parity.py -- Laguna on strata-poly against llama.cpp on the same GGUF, token by token.
 
-    sudo systemctl stop polystrata
-    ~/PolyStrata/.venv/bin/python ~/laguna-test/parity.py --llama ~/llama.cpp/build/bin [--n 64] [--kv q8_0]
-    sudo systemctl start polystrata
+    python laguna/parity.py --gguf MODEL.gguf --llama LLAMA_CPP/build/bin [--n 64] [--kv q8_0] [--service NAME]
 
 1. the prompts, as ids from the tokenizer smoke.py extracted (identical to llama-tokenize's there): the three
-   smoke prompts and three longer ones (about 600, 1,500 and 4,000 tokens) from the repository's docs
+   smoke prompts and three longer ones (about 600, 1,500 and 4,000 tokens) from the repository's docs at --corpus
 2. llama.cpp (llama-server, every routed expert on the CPU as the handoff's gate asks) answers each one greedily,
    with the probabilities of its 10 likeliest tokens at every step
 3. strata-poly is made to write llama.cpp's answer (--follow) and prints its own 10 likeliest at every step
@@ -14,7 +12,7 @@
 4. per prompt: how many steps the two engines' first choices agree, the first step where they do not (and
    whether it is a near tie), and KL(llama.cpp || strata-poly) over llama.cpp's 10 likeliest tokens
 
-Everything goes to ~/laguna-test/: parity-<time>.txt, and the raw answers in parity-<time>.json.
+Everything goes to --out (laguna-test/ here by default): parity-<time>.txt, and the raw answers in parity-<time>.json.
 """
 from __future__ import annotations
 
@@ -29,13 +27,15 @@ import time
 import urllib.error
 import urllib.request
 
-HOME = pathlib.Path.home()
+ROOT = pathlib.Path(__file__).resolve().parents[1]   # this checkout
 p = argparse.ArgumentParser()
-p.add_argument("--src", default=str(HOME / "src/PolyStrata"))
+p.add_argument("--src", default=str(ROOT), help="the checkout whose engine (build-poly/strata-poly) and tools run "
+               "(default: this one)")
 p.add_argument("--tools", default="", help="the folder of strata_tokenizer.py (default: <src>/tools); a checkout without Laguna's pre-tokenizer takes another's")
-p.add_argument("--gguf", default=str(HOME / "PolyStrata-data/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/"
-                                            "Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf"))
-p.add_argument("--out", default=str(HOME / "laguna-test"))
+p.add_argument("--gguf", required=True, help="the model's GGUF (the first file of a split one)")
+p.add_argument("--out", default="laguna-test", help="where the results go (default: laguna-test/ here)")
+p.add_argument("--service", default="", help="a systemd service that holds the GPUs: the run is refused while it is active (none by default)")
+p.add_argument("--corpus", default="ac62d979", help="the git revision whose README.md and docs/*.md are the long prompts (the runs so far used ac62d979's; the docs have changed since)")
 p.add_argument("--llama", default="", help="folder of a Laguna-capable llama.cpp's binaries (llama-server)")
 p.add_argument("--n", type=int, default=64, help="tokens each answer has")
 p.add_argument("--context", type=int, default=16384)
@@ -69,8 +69,8 @@ def say(*parts):
     report.flush()
 
 
-if subprocess.run(["systemctl", "is-active", "--quiet", "polystrata"]).returncode == 0:
-    sys.exit("polystrata.service holds the cards: sudo systemctl stop polystrata first, and start it again after")
+if a.service and subprocess.run(["systemctl", "is-active", "--quiet", a.service]).returncode == 0:
+    sys.exit(f"{a.service} holds the cards: sudo systemctl stop {a.service} first, and start it again after")
 server = bindir / "llama-server"
 engine_exe = src / "build-poly/strata-poly"
 for need in ((engine_exe, gguf, out / "tok/tokenizer/vocab.json") if a.reuse_ref else
@@ -90,9 +90,17 @@ say("== strata-poly options beside the defaults:", a.ours_args or "(none)", f"--
 say("== strata-poly:", subprocess.run(["git", "-C", str(src), "log", "-1", "--format=%h %s"], capture_output=True,
                                       text=True).stdout.strip())
 
+def at_rev(rel: str) -> str:
+    """A file of the checkout as it was at --corpus: the long prompts stay the same whatever the docs are now."""
+    r = subprocess.run(["git", "-C", str(src), "show", f"{a.corpus}:{rel}"], capture_output=True)
+    if r.returncode != 0:
+        sys.exit(f"cannot read {rel} at {a.corpus}: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 # 1) the prompts
-readme = (src / "README.md").read_text(encoding="utf-8", errors="replace")
-details = (src / "docs/DETAILS.md").read_text(encoding="utf-8", errors="replace")
+readme = at_rev("README.md")
+details = at_rev("docs/DETAILS.md")
 
 
 def cut(text: str, tokens: int) -> str:

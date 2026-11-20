@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""laguna/chat_smoke.py -- run ON ECHO: Laguna through PolyStrata's own server (the dev checkout), on the chat API.
+"""laguna/chat_smoke.py -- Laguna through this checkout's own server, on the chat API.
 
-    sudo systemctl stop polystrata
-    ~/PolyStrata/.venv/bin/python ~/laguna-test/chat_smoke.py [--kv q8_0] [--context 65536]
-    sudo systemctl start polystrata
+    python laguna/chat_smoke.py --gguf MODEL.gguf [--kv q8_0] [--context 65536] [--service NAME]
 
-It writes ~/laguna-test/strata-laguna-ud-q3_k_xl.json (the dev engine, the tokenizer smoke.py extracted, on both
-cards), starts ~/src/PolyStrata/serve/server.py with it on 127.0.0.1:8081, and checks over /v1/chat/completions:
+It writes <out>/strata-laguna-ud-q3_k_xl.json (<src>'s engine, the tokenizer smoke.py extracted, on every
+card), starts <src>/serve/server.py with it on 127.0.0.1:8081, and checks over /v1/chat/completions:
 
   1. thinking on:  the reasoning comes back as reasoning_content, the answer as content
   2. thinking off: chat_template_kwargs {"enable_thinking": false}, no reasoning
@@ -15,7 +13,7 @@ cards), starts ~/src/PolyStrata/serve/server.py with it on 127.0.0.1:8081, and c
   5. streaming:    the same as 1, as server-sent events
   6. a second turn of 1's conversation: how much of the prompt the engine did not read again
 
-Everything goes to ~/laguna-test/: chat-<time>.txt, the server's output (server.log) and the engine's (the config's
+Everything goes to --out (laguna-test/ here by default): chat-<time>.txt, the server's output (server.log) and the engine's (the config's
 "log").  The server is stopped at the end, whatever happens.
 """
 from __future__ import annotations
@@ -29,12 +27,13 @@ import time
 import urllib.error
 import urllib.request
 
-HOME = pathlib.Path.home()
+ROOT = pathlib.Path(__file__).resolve().parents[1]   # this checkout
 p = argparse.ArgumentParser()
-p.add_argument("--src", default=str(HOME / "src/PolyStrata"))
-p.add_argument("--gguf", default=str(HOME / "PolyStrata-data/models/laguna-s21-UD-Q3_K_XL/UD-Q3_K_XL/"
-                                            "Laguna-S-2.1-UD-Q3_K_XL-00001-of-00003.gguf"))
-p.add_argument("--out", default=str(HOME / "laguna-test"))
+p.add_argument("--src", default=str(ROOT), help="the checkout whose engine (build-poly/strata-poly) and tools run "
+               "(default: this one)")
+p.add_argument("--gguf", required=True, help="the model's GGUF (the first file of a split one)")
+p.add_argument("--out", default="laguna-test", help="where the results go (default: laguna-test/ here)")
+p.add_argument("--service", default="", help="a systemd service that holds the GPUs: the run is refused while it is active (none by default)")
 p.add_argument("--port", type=int, default=8081)
 p.add_argument("--context", type=int, default=65536)
 p.add_argument("--kv", default="", help="fp16 (default) or q8_0")
@@ -59,8 +58,8 @@ def check(ok: bool, what: str):
         failed.append(what)
 
 
-if subprocess.run(["systemctl", "is-active", "--quiet", "polystrata"]).returncode == 0:
-    sys.exit("polystrata.service holds the cards: sudo systemctl stop polystrata first, and start it again after")
+if a.service and subprocess.run(["systemctl", "is-active", "--quiet", a.service]).returncode == 0:
+    sys.exit(f"{a.service} holds the cards: sudo systemctl stop {a.service} first, and start it again after")
 tok = out / "tok/tokenizer"
 for need in (src / "serve/server.py", src / "build-poly/strata-poly", gguf, tok / "chat_template.jinja"):
     if not need.exists():
