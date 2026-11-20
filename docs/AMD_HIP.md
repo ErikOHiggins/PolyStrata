@@ -10,7 +10,7 @@ card. What is below was measured by PolyStrata's contributors on other models of
 Setup accepts the RX 7900 XT / XTX (gfx1100), RX 7800 XT / 7700 XT (gfx1101), RX 7600 / 7600 XT (gfx1102), RX 9060 XT
 (gfx1200), RX 9070 / 9070 XT / Radeon AI PRO R9700 (gfx1201), the RX 6800 / 6900 / 6700 XT / 6600 series (gfx1030,
 gfx1031, gfx1032), the RX 5600 XT / 5700 / 5700 XT (gfx1010) and the Ryzen AI Max "Strix Halo" APU (gfx1151,
-[STRIX_HALO.md](STRIX_HALO.md)). The Radeon 780M / 760M (gfx1103) is opt-in ([RADEON_780M.md](RADEON_780M.md)). Other
+experimental). The Radeon 780M / 760M (gfx1103) is opt-in (`STRATA_EXPERIMENTAL_GFX1103=1`, unvalidated). Other
 AMD architectures and AMD and NVIDIA cards in one run are not supported.
 
 ## Install with setup

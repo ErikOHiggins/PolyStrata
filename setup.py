@@ -1624,7 +1624,7 @@ ROCM_INDEXES = {"gfx1100": "https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/",   
                 "gfx1031": "https://rocm.nightlies.amd.com/v2/gfx103X-all/",
                 "gfx1032": "https://rocm.nightlies.amd.com/v2/gfx103X-all/",
                 "gfx1010": "https://rocm.nightlies.amd.com/v2/gfx101X-dgpu/",  # RDNA1: run on Windows only so far
-                "gfx1151": "https://rocm.nightlies.amd.com/v2/gfx1151/",       # Strix Halo (docs/STRIX_HALO.md)
+                "gfx1151": "https://rocm.nightlies.amd.com/v2/gfx1151/",       # Strix Halo
                 "gfx1150": "https://rocm.nightlies.amd.com/v2/gfx1150/",       # Strix Point: only with STRATA_EXPERIMENTAL_GFX1150=1
                 "gfx1103": "https://rocm.nightlies.amd.com/v2/gfx110X-all/"}   # Radeon 780M: only with STRATA_EXPERIMENTAL_GFX1103=1
 # The TheRock nightly indexes are pruned and move on, and each GPU family's index holds its own range (#1103: gfx103X-all
@@ -1681,7 +1681,7 @@ AMD_NAMES = {"gfx1100": "AMD Radeon RX 7900 series (gfx1100)",   # when sysfs ha
 AMD_CARDS = ("the RX 7900 XT / XTX (gfx1100), RX 7800 XT / 7700 XT (gfx1101), RX 9060 XT (gfx1200) and "
              "RX 9070 / 9070 XT / Radeon AI PRO R9700 (gfx1201), and the RX 6800 / 6900 series (gfx1030) and RX 6700 XT "
              "(gfx1031, #524), the RX 6600 / 6600 XT / 6650 XT (gfx1032, one run reported), the RX 5600 XT / 5700 / 5700 XT (gfx1010, run on Windows only), and the RX 7600 / 7600 XT (gfx1102, one run reported, #942), all unvalidated, and the Ryzen AI Max \"Strix Halo\" APU (Radeon 8060S / 8050S / 8040S, "
-             "gfx1151: experimental, docs/STRIX_HALO.md)")
+             "gfx1151: experimental)")
 
 
 def rocm_index(arch):
@@ -1740,7 +1740,7 @@ def rocm_wanted(index, listing=None):
     if rocm_family(index) == "gfx1151" and (rocm_vkey(version) or (9, 0))[:2] < (7, 11):
         note = ((note + "; ") if note else "") + (
             "the ROCm 7.10 wheels segfault in the HSA runtime on a Strix Halo with a new kernel (7.2.8, #1267): "
-            "the 7.14 line (docs/STRIX_HALO.md) is the one that works")
+            "the 7.14 line is the one that works")
     return version, note
 
 
@@ -1826,10 +1826,8 @@ def gfx1103_notes(gpu, ram) -> list[str]:
     notes = [f"  Radeon 780M / 760M class (gfx1103, Ryzen 7040 / 8040): the CPU and the GPU share one memory pool ({ram:.0f} GB "
              f"seen by the OS + a {gpu.get('dedicated_gb', 0.0):.1f} GB BIOS carve-out), so the model's experts live in "
              "that pool and the expert cache is sized from the memory the OS can give back."]
-    notes.append("  " + ("The engine is compiled here for gfx1103" if not WIN else "This GPU has no ready-made Windows engine")
-                 + " with the native dot4 and WMMA kernels and the 780M's exact speed switches"
-                 + " (experimental opt-in, STRATA_EXPERIMENTAL_GFX1103=1; measured on one machine, not validated on a real "
-                 "card): see docs/AMD_HIP.md and docs/RADEON_780M.md. This is not a Strix Halo.")
+    notes.append("  The engine is compiled here for gfx1103 (experimental opt-in, STRATA_EXPERIMENTAL_GFX1103=1, "
+                 "unvalidated): see docs/AMD_HIP.md. This is not a Strix Halo.")
     if not WIN and gpu.get("shared_gb", 0) < 0.75 * ram - 1:
         notes.append(f"!the GPU can reach {gpu.get('shared_gb', 0):.0f} GB of shared memory (the GTT pool; the kernel's "
                      "default is about half of the RAM). The kernel option ttm.pages_limit raises it; setup changes no "
@@ -1869,13 +1867,11 @@ def strix_halo_notes(gpu, ram) -> list[str]:
     notes = [f"  Strix Halo (gfx1151, Ryzen AI Max): the CPU and the GPU share one memory pool ({ram:.0f} GB seen by the "
              f"OS + a {gpu.get('dedicated_gb', 0.0):.1f} GB BIOS carve-out), so the model's experts live in that pool "
              "and the expert cache is sized from the memory the OS can give back, not from the carve-out."]
-    notes.append("  The engine is compiled here for gfx1151 (experimental, measured on one machine): see "
-                 "docs/STRIX_HALO.md.")
+    notes.append("  The engine is compiled here for gfx1151 (experimental): see docs/AMD_HIP.md.")
     if not WIN and gpu.get("shared_gb", 0) < 0.75 * ram - 1:
         notes.append(f"!the GPU can reach {gpu.get('shared_gb', 0):.0f} GB of shared memory (the GTT pool; the kernel's "
-                     f"default is about half of the RAM). docs/STRIX_HALO.md boots with ttm.pages_limit and "
-                     "ttm.page_pool_size to give it most of the RAM; setup changes no host setting - a bigger model "
-                     "needs the room, a smaller one runs as it is")
+                     "default is about half of the RAM). The kernel options ttm.pages_limit and ttm.page_pool_size "
+                     "raise it; setup changes no host setting - a bigger model needs the room, a smaller one runs as it is")
     if gpu.get("dedicated_gb", 0.0) > 16:
         notes.append(f"!the BIOS carve-out is {gpu['dedicated_gb']:.0f} GB: that memory is taken from the OS, while the GPU "
                      "reaches the shared memory anyway. A small carve-out (the BIOS's default or 512 MB - 2 GB) leaves "
@@ -3688,7 +3684,7 @@ def build_engine_poly_hip_win(gpu, llama, portable=False) -> Path:
     bdir = ROOT / "build-poly-hip-win"
     cmake_build(ROOT, bdir, "strata-poly",
                 ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_BUILD_TESTS=OFF",
-                 "-DSTRATA_PREFILL_MMQ=ON", f"-DSTRATA_PORTABLE={'ON' if portable else 'OFF'}",
+                 f"-DSTRATA_PORTABLE={'ON' if portable else 'OFF'}",
                  "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
                  f"-DCMAKE_C_COMPILER={rocm}/lib/llvm/bin/clang.exe",
                  f"-DCMAKE_CXX_COMPILER={rocm}/lib/llvm/bin/clang++.exe",
@@ -4472,7 +4468,7 @@ def main() -> int:
             for d in amd_pci_devices():
                 if d["pci_id"] in STRIX_HALO_PCI_IDS:
                     say(f"    The kernel lists an AMD Strix Halo (PCI 1002:{d['pci_id']:04x}) but /dev/kfd's topology is "
-                        "empty: ROCm cannot use it yet (docs/STRIX_HALO.md: the amdgpu driver and /dev/kfd access, "
+                        "empty: ROCm cannot use it yet (it needs the kernel's amdgpu driver and /dev/kfd access: "
                         "your user in the render and video groups)")
         if not usable:
             fail("no AMD GPU Puddle can use", f"the AMD backend runs on {AMD_CARDS}")
@@ -4501,7 +4497,7 @@ def main() -> int:
         if multi:
             ok("GPUs: " + " + ".join(gpu_name(x) for x in chosen) + " together (the model's layers are split across them)")
         ok(f"GPU: {gpu['name']}, {amd_mem_text(gpu) if gpu.get('uma') else format(gpu['vram_gb'], '.1f') + ' GB VRAM'}, "
-           f"{gpu['arch']} (AMD: docs/{'STRIX_HALO' if is_strix_halo(gpu) else 'AMD_HIP'}.md)")
+           f"{gpu['arch']} (AMD: docs/AMD_HIP.md)")
         if WIN and str(gpu.get("arch") or "").startswith("gfx12"):   # only a pointer; no default changes
             say("  If Windows resets the AMD driver (VIDEO_ENGINE_TIMEOUT_DETECTED, flicker, the engine dies mid-answer): "
                 "docs/TROUBLESHOOTING.md, \"Windows AMD: the driver resets\"")

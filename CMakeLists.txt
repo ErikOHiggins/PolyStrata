@@ -1,12 +1,5 @@
-﻿# Strata Engine - top-level build (P1.S1).
-#
-# Targets (phase-1 Ă‚Â§P1.S1): `strata_artifact` (no CUDA dependency), `tests`.  `strata_plan` and the C++
-# `strata-pack` are added when their sources exist - a target with no sources would make the build graph
-# claim something the tree does not have, which is worse than an absent target.
-#
-# CUDA targets arrive in Phase 2.  The kernels need sm_80 or newer (tf32 mma, bf16 math) and the guard
-# below refuses anything older: silently building for a pre-Ampere arch would produce a binary that runs
-# and is wrong about its own performance, which is the worst of both outcomes.
+﻿# Puddle - the root build: strata-poly (CUDA or HIP), the libraries it links and its tests.  metal/ is its own
+# project (macOS).  setup.py configures it and builds the strata-poly target.
 cmake_minimum_required(VERSION 3.24)
 project(strata VERSION 0.1.45 LANGUAGES CXX)
 add_compile_definitions(STRATA_VERSION="${PROJECT_VERSION}")
@@ -17,14 +10,12 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
   add_link_options(/DEBUG /OPT:REF /OPT:ICF)
 endif()
 
-# The prebuilt release (setup.py downloads it, so users need no compiler): ggml's CPU backend for any AVX2 CPU
-# instead of this machine's (Strata's own AVX-512 kernels are per-file and chosen at run time either way), and
-# the MSVC runtime linked in, so no Visual C++ redistributable is needed.
+# An engine for other PCs: ggml's CPU backend for any AVX2 CPU instead of this machine's, and the MSVC runtime linked
+# in, so no Visual C++ redistributable is needed.
 option(STRATA_PORTABLE "build for other PCs: AVX2 baseline, static MSVC runtime" OFF)
 # EXPERIMENTAL, opt-in: an engine for CPUs without AVX2 (#394, #595, #623), compiled on that PC.  ggml-cpu, which then
 # computes every CPU expert row, is built for this floor instead of AVX2 or the build host: "avx" (Sandy/Ivy Bridge:
-# AVX, no FMA/F16C/AVX2) or "none" (SSE4.2 + POPCNT: Nehalem/Westmere).  Strata's own AVX2/AVX-512 kernels stay in the
-# binary behind their CPU checks; the router lookahead gets an AVX1 kernel.  Empty (the default) changes nothing.
+# AVX, no FMA/F16C/AVX2) or "none" (SSE4.2 + POPCNT: Nehalem/Westmere).  Empty (the default) changes nothing.
 set(STRATA_ISA_FLOOR "" CACHE STRING "experimental older-CPU build: empty (default, AVX2 floor), avx, or none (SSE4.2)")
 set_property(CACHE STRATA_ISA_FLOOR PROPERTY STRINGS "" avx none)
 if(NOT STRATA_ISA_FLOOR STREQUAL "" AND NOT STRATA_ISA_FLOOR STREQUAL "avx" AND NOT STRATA_ISA_FLOOR STREQUAL "none")
@@ -44,28 +35,18 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-option(STRATA_ENABLE_CUDA "Build the CUDA targets (Phase 2+)" OFF)
+option(STRATA_ENABLE_CUDA "Build the CUDA targets (NVIDIA)" OFF)
 option(STRATA_ENABLE_HIP "Build the HIP targets for wave32 AMD GPUs (gfx1100, gfx1201; gfx1012/gfx1030 unvalidated)" OFF)
-option(STRATA_PREFILL_MMQ "Build the optional GGML MMQ prefill path for HIP" OFF)
-if(STRATA_PREFILL_MMQ AND NOT STRATA_ENABLE_HIP)
-  message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_ENABLE_HIP=ON")
-endif()
 if(STRATA_ENABLE_CUDA AND STRATA_ENABLE_HIP)
   message(FATAL_ERROR "STRATA_ENABLE_CUDA and STRATA_ENABLE_HIP are separate backends; enable only one")
 endif()
 if(STRATA_ENABLE_HIP)
   include(cmake/hip_backend.cmake)
 endif()
-# The test suite and the micro benchmarks live in tests/ and bench/micro/, which the published source leaves out.
-set(_strata_tests_default OFF)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/bench/micro)
-  set(_strata_tests_default ON)
-endif()
-option(STRATA_BUILD_TESTS "Build the test suite" ${_strata_tests_default})
+option(STRATA_BUILD_TESTS "Build the test suite" OFF)
 option(STRATA_BUILD_CONVERSATION_TESTS "Build standalone conversation cache tests" OFF)
 option(STRATA_WERROR "Treat compiler warnings as errors" OFF)
-# #2027: defined here, before the GPU section reads it to register the native-expert tests (it was defined at the
-# native-experts section far below, so a first configure registered four tests fewer than the second)
+# ggml from llama.cpp (the CPU experts' dot products, the prompt path's MMQ kernels): strata-poly needs it
 option(STRATA_NATIVE_EXPERTS "Native (IQ) expert support through ggml-cpu" ON)
 
 if(STRATA_BUILD_CONVERSATION_TESTS)
@@ -83,8 +64,8 @@ endif()
 if(STRATA_ENABLE_CUDA)
   # #585: CMake links CUDA code with the STATIC runtime by default, and the targets below also link CUDA::cudart (the
   # DLL's import library).  MSVC with a CUDA 12.x toolkit - the experimental Pascal/Volta build - then fails with
-  # LNK1169 (every cudart symbol defined twice); GNU ld lets it pass.  That build links the shared runtime alone.  The
-  # ready-made engine (CUDA 13, no STRATA_EXPERIMENTAL_SM60) is unchanged; -DCMAKE_CUDA_RUNTIME_LIBRARY overrides.
+  # LNK1169 (every cudart symbol defined twice); GNU ld lets it pass.  That build links the shared runtime alone.  A
+  # CUDA 13 build without STRATA_EXPERIMENTAL_SM60 is unchanged; -DCMAKE_CUDA_RUNTIME_LIBRARY overrides.
   if(MSVC AND STRATA_EXPERIMENTAL_SM60 AND NOT DEFINED CMAKE_CUDA_RUNTIME_LIBRARY)
     set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
   endif()
@@ -98,18 +79,14 @@ if(STRATA_ENABLE_CUDA)
   endif()
   foreach(_a IN LISTS CMAKE_CUDA_ARCHITECTURES)
     string(REGEX REPLACE "-.*$" "" _base "${_a}")     # 120-real / 120-virtual are still 120
-    # Turing port: developed and measured on sm_120 (RTX 50); the tf32 mma in the QSA scorer has a
-    # portable fp32-FMA fallback, so RTX 20 (75), 30 (86), RTX 40 (89) and RTX 50 (120) build too.
-    # Pre-sm_75 is refused.
+    # RTX 20 (75), 30 (86), 40 (89) and 50 (120) build; pre-sm_75 is refused below.
     if(_base STREQUAL "native" OR _base STREQUAL "all" OR _base STREQUAL "all-major")
       continue()
     endif()
     # STRATA_EXPERIMENTAL_SM60: a Pascal (sm_60, GP100-class) or Volta (sm_70, V100 / Titan V, #236) build.
-    # These sit below every architecture the kernels were written for, so two intrinsics are replaced below
-    # their arch - `__dp4a` (6.1+) and `__nanosleep` (7.0+) - in include/strata/kernels/dp4a.hpp, which is
-    # bit-exact for the first and merely a shorter pause for the second (sm_70 has both).  Community-tested,
-    # not in the ready-made engine; RTX 20/30/40/50 cards must use the release engine instead.  It needs a CUDA
-    # 12.x toolkit: CUDA 13 dropped sm_60 and sm_70 (nvcc fails CMake's compiler test with "compute_70").
+    # These sit below every architecture the kernels were written for, so `__dp4a` (6.1+) is replaced below its
+    # arch, bit-exact, in include/strata/kernels/dp4a.hpp.  Opt-in; RTX 20/30/40/50 builds do not need it.  It needs
+    # a CUDA 12.x toolkit: CUDA 13 dropped sm_60 and sm_70 (nvcc fails CMake's compiler test with "compute_70").
     if(_base LESS 75 AND NOT STRATA_EXPERIMENTAL_SM60)
       message(FATAL_ERROR
         "Strata needs an NVIDIA GPU of compute capability 7.5 or newer (RTX 20 / 30 / 40 / 50 series), but "
@@ -127,8 +104,8 @@ if(STRATA_ENABLE_CUDA)
     endif()
   endforeach()
   if(STRATA_EXPERIMENTAL_SM60)
-    # every target sees it: the Pascal / Volta code paths (the Volta prompt attention, PR #600) are compiled into this
-    # build only, so the ready-made engine (sm_75+) keeps exactly the code it had
+    # every target sees it: the Pascal / Volta code paths are compiled into this build only, so an sm_75+ build keeps
+    # exactly the code it had
     add_compile_definitions(STRATA_EXPERIMENTAL_SM60=1)
   endif()
   message(STATUS "Strata: CUDA enabled, arch ${CMAKE_CUDA_ARCHITECTURES}")
@@ -165,9 +142,7 @@ if(STRATA_WERROR)
 endif()
 
 # ---- strata_artifact -------------------------------------------------------
-# Header-only, and that is a deliberate property rather than an unfinished split: the GGUF reader and the
-# scalar dequantizers hold no state worth hiding, and a header-only boundary cannot introduce a
-# duplicate-symbol or missing-declaration bug into code that is already validated against the real artifact.
+# Header-only: the GGUF reader (include/strata/artifact) holds no state worth hiding.
 add_library(strata_artifact INTERFACE)
 target_include_directories(strata_artifact INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(strata_artifact INTERFACE strata_warnings)
@@ -179,23 +154,18 @@ if(STRATA_BUILD_TESTS)
   add_test(NAME gguf_reader_test COMMAND gguf_reader_test)
 endif()
 
-# ---- strata_core (GPU runtime) ---------------------------------------------
-# Only built when a GPU backend is on, so the Phase 1 targets keep working without a toolkit.
+# ---- strata_core: the GPU's memory budget as Windows reports it (src/platform/memory.cpp) ----
+# Only built when a GPU backend is on.  The selected runtime is PUBLIC: strata_kernels and its users take it from here.
 if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   add_library(strata_core STATIC src/platform/memory.cpp)
   target_include_directories(strata_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  # The selected runtime is PUBLIC because graph.cpp is a HOST translation unit that calls cudaGraphLaunch and
-  # cudaEventQuery: the .cu sources get cudart through the CUDA language rules, a .cpp does not, and the
-  # linker error ("unresolved external symbol cudaGraphInstantiate") names the function rather than the cause.
   target_link_libraries(strata_core PUBLIC strata_warnings ${_strata_gpu_runtime_target})
 
-  # ---- strata_kernels (P2.S2) ----
-  # Naive first, each with a parity test against a reference that was itself validated against ggml.  The
-  # kernels link `strata_artifact` for the scalar dequantizers, because using the VALIDATED scalar path as the
-  # reference is the whole point - a kernel checked against another copy of itself proves nothing.
+  # ---- strata_kernels: the decode matrix-vector products (native_mmvq.cu, and iq_kernels.cu for the formats it
+  # hands over) ----
   add_library(strata_kernels STATIC src/kernels/cuda/native_mmvq.cu src/kernels/cuda/iq_kernels.cu)
   target_link_libraries(strata_kernels PUBLIC strata_core strata_artifact)
-  # plan v0.3 P6: llama.cpp's block layouts and codebook grids for the i-quant formats (MIT, third_party/ggml)
+  # llama.cpp's block layouts and codebook grids for the i-quant formats (MIT, third_party/ggml)
   target_include_directories(strata_kernels PRIVATE third_party/ggml)
   # Match the pinned llama.cpp CUDA arithmetic contract for this adapter only.
   if(STRATA_ENABLE_CUDA)
@@ -213,7 +183,7 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   endif()
 endif()
 
-# Plan v0.3 P6: speculation components that need no GPU.
+# The draft machinery's host side (suffix drafter, draft policy, controller): no GPU.
 add_library(strata_spec STATIC src/spec/suffix_drafter.cpp src/spec/controller.cpp src/spec/draft_policy.cpp
             src/spec/draft_source.cpp)
 target_include_directories(strata_spec PUBLIC include)
@@ -231,15 +201,12 @@ endif()
 
 find_package(Threads REQUIRED)
 
-# ---- plan v0.3 P6: the i-quant models' CPU experts (IQ2_XS / IQ3_XXS files) ----
+# ---- ggml from llama.cpp: the CPU experts and the GGUF block formats ----
 #
 # The CPU computes a native expert with ggml-cpu's own dot products (`ggml_get_type_traits_cpu`), so an IQ
 # weight means exactly what it means in llama.cpp.  ggml is built static from a llama.cpp checkout: a local one
 # with -DSTRATA_GGML_DIR=..., otherwise the pinned upstream commit (third_party/ggml/VERSION.txt).
 set(STRATA_GGML_DIR "" CACHE PATH "llama.cpp checkout to take ggml from (empty: fetch the pinned commit)")
-if(STRATA_PREFILL_MMQ AND NOT STRATA_NATIVE_EXPERTS)
-  message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_NATIVE_EXPERTS=ON for GGML sources")
-endif()
 if(STRATA_NATIVE_EXPERTS)
   enable_language(C)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -299,8 +266,7 @@ if(STRATA_BUILD_TESTS)
   add_test(NAME poly_stream_stage_test COMMAND poly_stream_stage_test)
 endif()
 
-# Shared prepared-input GDN recurrence. Either engine may link this library;
-# only the Poly Qwen35 adapter is integrated initially. Keep FP32/BF16 hi+lo math
+# The prepared-input GDN recurrence of qwen35moe's linear-attention layers (CUDA). Keep FP32/BF16 hi+lo math
 # separate from the MMQ targets' -use_fast_math compilation options.
 if(STRATA_NATIVE_EXPERTS AND STRATA_ENABLE_CUDA)
   if(STRATA_GGML_DIR)
@@ -323,30 +289,27 @@ if(STRATA_NATIVE_EXPERTS AND STRATA_ENABLE_CUDA)
   endif()
 endif()
 
-# ---- strata-poly: GLM 5.3 Flash (llama.cpp's glm5-next), read from its GGUF ----
+# ---- strata-poly: the engine (qwen35moe, gemma4, laguna), read from the model's GGUF ----
 #
-# A second engine beside `strata`.  It shares the quantized matvec kernels and the GGUF reader, and takes the
-# CPU experts' dot products from ggml-cpu.  On HIP it is the same CUDA-shaped code through the hip_compat headers
-# (the wave32 RDNA backend).
+# It takes the decode products from strata_kernels, the prompt products from llama.cpp's MMQ kernels
+# (strata_poly_mmq) and the CPU experts' dot products from ggml-cpu.  On HIP it is the same CUDA-shaped code through
+# the hip_compat headers (the wave32 RDNA backend).
 if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP))
   # The prompt path's quantized products: llama.cpp's MMQ kernels (ggml-cuda, MIT) for the types the model's
-  # GGUFs keep their matrices in (the list in src/poly/mmq.cu), from the checkout strata_mmq is compiled from and
-  # with the same host symbols.  A library of its own, so that what `strata` multiplies with MMQ stays as it is.
-  if(NOT _strata_mmq)   # a HIP build without STRATA_PREFILL_MMQ has not set these up yet
-    if(STRATA_GGML_DIR)
-      set(_strata_gg ${STRATA_GGML_DIR}/ggml)
-    else()
-      set(_strata_gg ${strata_llamacpp_SOURCE_DIR}/ggml)
-    endif()
-    set(_strata_mmq ${_strata_gg}/src/ggml-cuda)
+  # GGUFs keep their matrices in (the list in src/poly/mmq.cu), from the llama.cpp checkout ggml comes from.
+  if(STRATA_GGML_DIR)
+    set(_strata_gg ${STRATA_GGML_DIR}/ggml)
+  else()
+    set(_strata_gg ${strata_llamacpp_SOURCE_DIR}/ggml)
   endif()
+  set(_strata_mmq ${_strata_gg}/src/ggml-cuda)
   set(_strata_poly_mmq_instances "")
   foreach(_t q4_0 q4_1 q5_0 q5_1 q8_0 q2_k q3_k q4_k q5_k q6_k iq1_s iq2_xxs iq2_xs iq2_s iq3_xxs iq3_s iq4_nl
              iq4_xs)
     list(APPEND _strata_poly_mmq_instances ${_strata_mmq}/template-instances/mmq-instance-${_t}.cu)
   endforeach()
   # MXFP4 and NVFP4: on RTX 50 llama.cpp's tiles use the FP4 MMA with block scales, which exists only in the
-  # arch-specific target, so on CUDA their instances alone are built with 12x -> 12xa, as Strata's W4A4 unit is.  A
+  # arch-specific target, so on CUDA their instances alone are built with 12x -> 12xa.  A
   # Blackwell other than 12.0 has no image of them, and Mmq::fits() leaves MXFP4 out there.  NVFP4 takes this
   # instance only on a 12.0 card with STRATA_PREFILL_NVFP4=w4a4; otherwise its tiles are mmq_nvfp4.cu's int8 ones,
   # built for the architectures as given.  On HIP there is no NVFP4 prompt product.
@@ -542,9 +505,5 @@ endif()
 
 if(STRATA_BUILD_TESTS)
   enable_testing()
-  # Model-level checks may be absent from source distributions.
-  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
-    add_subdirectory(tests)
-  endif()
 endif()
 

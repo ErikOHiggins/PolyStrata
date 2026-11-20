@@ -167,8 +167,7 @@ class GpuLists(unittest.TestCase):
 
 class WindowsDetection(unittest.TestCase):
     """Windows: the AMD cards from the display adapters (mocked Win32_VideoController rows and display-class registry
-    values), the HIP runtime's numbering from `strata-device --list-devices`, and the card setup chose matched to its
-    HIP ordinal (#325: an integrated Radeon is HIP's device 0)."""
+    values), and the card setup chose matched to its HIP ordinal (#325: an integrated Radeon is HIP's device 0)."""
     ADAPTERS = [  # Win32_VideoController: name, PNPDeviceID, AdapterRAM (32-bit: at most 4 GB)
         {"name": "NVIDIA GeForce RTX 5070", "pnp": r"PCI\VEN_10DE&DEV_2F04&SUBSYS_1234&REV_A1\4&1", "ram": 4293918720},
         {"name": "AMD Radeon RX 9070 XT", "pnp": r"PCI\VEN_1002&DEV_7550&SUBSYS_0E3B1002&REV_C0\6&2", "ram": 4293918720},
@@ -455,7 +454,6 @@ class PolyHipWindows(unittest.TestCase):
             rocm = root / "rocm"
             defs, meta = self.build(root, rocm)
             self.assertIn("-DSTRATA_PORTABLE=OFF", defs)           # native for the PC setup builds on (as on Linux)
-            self.assertIn("-DSTRATA_PREFILL_MMQ=ON", defs)
             self.assertNotIn("-DSTRATA_NATIVE_EXPERTS=ON", defs)   # ON by default
             self.assertEqual(meta["lib_dirs"], [str(rocm / "bin")])   # .rocm-win's ROCm: not on the disk twice
             self.assertFalse((root / setup.ENGINE_POLY_DIR / "rocm").exists())

@@ -204,11 +204,11 @@ The estimates are rough. `least` leaves out the attention caches, which grow wit
 From a terminal:
 
 ```bash
-python polystrata.py --list-models
+python puddle.py --list-models
 ```
 
 ```bash
-python polystrata.py --model laguna-s
+python puddle.py --model laguna-s
 ```
 
 `--model` chats with a model. If a server is already running on the port it is switched to the model; if none is,
@@ -262,7 +262,7 @@ VRAM whole. [One section](#with-8-gb-of-vram) holds the 5090 to 8 GB, and [one](
 from a Windows laptop whose card has 8 GB.
 
 ```bash
-python polystrata.py benchmark --model laguna-s --json laguna-s.json
+python puddle.py benchmark --model laguna-s --json laguna-s.json
 ```
 
 It sends a short prompt and two long ones (2000 and 8000 tokens, roughly; `--prompt-tokens` changes them), 256
@@ -2243,7 +2243,7 @@ Setup knows the files in the table above. Another file of one of these architect
    {"exe": "engine-poly/strata-poly", "args": ["--model", "/path/model.gguf", "--max-context", "32768"],
     "cwd": ".", "tokenizer": "packs/<name>/tokenizer", "model_name": "<name>", "port": 8080}
    ```
-4. `python polystrata.py --list-models` should list it as available, and `python polystrata.py --model <name>`
+4. `python puddle.py --list-models` should list it as available, and `python puddle.py --model <name>`
    should answer.
 5. Check it against llama.cpp before trusting it: the same prompt's token ids into both, greedy, and compare the
    tokens that come out.

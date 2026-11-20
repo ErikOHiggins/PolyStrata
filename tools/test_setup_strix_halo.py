@@ -94,7 +94,7 @@ class ExactArch(unittest.TestCase):
         self.assertTrue(setup.ROCM_INDEXES["gfx1151"].endswith("/gfx1151/"))
         for a in ("gfx1150", "gfx1152", "gfx1103"):                                  # never supported by accident
             self.assertNotIn(a, setup.AMD_ARCHS)
-        self.assertIn("docs/STRIX_HALO.md", setup.AMD_CARDS)
+        self.assertIn("gfx1151: experimental", setup.AMD_CARDS)
 
 class OldGfxSwitches(unittest.TestCase):
     def test_polystrata_s_gfx_switches_are_setup_s_own(self):
@@ -340,7 +340,7 @@ class IgpuTextIsArchExact(unittest.TestCase):
                 text = chr(10).join(setup.igpu_notes(self.gpu("gfx1103", "AMD Radeon 780M Graphics"), 61.0))
             self.assertIn("gfx1103", text)
             self.assertIn("STRATA_EXPERIMENTAL_GFX1103=1", text)
-            self.assertIn("RADEON_780M.md", text)
+            self.assertIn("docs/AMD_HIP.md", text)
             for bad in ("gfx1151", "Ryzen AI Max", "STRIX_HALO", "Recommended model"):
                 self.assertNotIn(bad, text)
             self.assertNotIn("Strix Halo (gfx1151", text)
@@ -351,7 +351,7 @@ class IgpuTextIsArchExact(unittest.TestCase):
             text = chr(10).join(setup.igpu_notes(self.gpu("gfx1151", "AMD Radeon 8060S"), 121.0))
         self.assertIn("Strix Halo (gfx1151, Ryzen AI Max)", text)
         self.assertIn("compiled here for gfx1151", text)
-        self.assertIn("docs/STRIX_HALO.md", text)
+        self.assertIn("docs/AMD_HIP.md", text)
         self.assertNotIn("gfx1103", text)
 
     def test_other_chips_get_nothing(self):

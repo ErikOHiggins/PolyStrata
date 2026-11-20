@@ -1,7 +1,7 @@
-"""Tests for Ornith-1.5-122B engine verification, synthetic GGUF metadata, tokenizer,
-model registry, streaming reasoning/tool parser, and Qwen35 load_geometry validation.
+"""Tests on a synthetic qwen35moe GGUF of a 122B shape (qwen35moe is Occamy's architecture): the GGUF metadata, the
+model registry, the tokenizer rules, the streaming reasoning/tool parser, and Qwen35 load_geometry validation.
 
-    python -m unittest tools.test_strata_ornith122
+    python -m unittest tools.test_strata_qwen35moe
 """
 from __future__ import annotations
 
@@ -135,15 +135,15 @@ class SyntheticGGUFWriter:
 
 
 # -----------------------------------------------------------------------------
-# Synthetic Ornith-1.5-122B GGUF Fixture Builder
+# Synthetic Qwen35moe-122B GGUF Fixture Builder
 # -----------------------------------------------------------------------------
-def build_synthetic_ornith122_gguf(target_path: pathlib.Path | str) -> pathlib.Path:
-    """Build a minimal valid GGUF v3 file representing Ornith-1.5-122B."""
+def build_synthetic_qwen35moe122_gguf(target_path: pathlib.Path | str) -> pathlib.Path:
+    """Build a minimal valid GGUF v3 file representing Qwen35moe-122B."""
     w = SyntheticGGUFWriter()
 
     # General metadata
     w.add("general.architecture", "qwen35moe")
-    w.add("general.name", "Ornith-1.5-122B")
+    w.add("general.name", "Qwen35moe-122B")
     w.add("general.size_label", "122B-A14B")
     w.add("general.alignment", 32, "u32")
 
@@ -231,8 +231,8 @@ class TestSyntheticGGUFHeader(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.gguf_path = pathlib.Path(self.tmp.name) / "Ornith-1.5-122B-UD-Q3_K_XL.gguf"
-        build_synthetic_ornith122_gguf(self.gguf_path)
+        self.gguf_path = pathlib.Path(self.tmp.name) / "Qwen35moe-122B-UD-Q3_K_XL.gguf"
+        build_synthetic_qwen35moe122_gguf(self.gguf_path)
         self.reader = GGUFFile(self.gguf_path)
         self.meta = self.reader.metadata
 
@@ -242,7 +242,7 @@ class TestSyntheticGGUFHeader(unittest.TestCase):
     def test_gguf_v3_header_attributes(self):
         self.assertEqual(self.reader.version, 3)
         self.assertEqual(self.meta.get("general.architecture"), "qwen35moe")
-        self.assertEqual(self.meta.get("general.name"), "Ornith-1.5-122B")
+        self.assertEqual(self.meta.get("general.name"), "Qwen35moe-122B")
         self.assertEqual(self.meta.get("general.size_label"), "122B-A14B")
 
     def test_layer_and_draft_tensor_counts(self):
@@ -263,13 +263,13 @@ class TestSyntheticGGUFHeader(unittest.TestCase):
 
 
 class TestModelRegistryDescribe(unittest.TestCase):
-    """Test serve/models.py describe() on synthetic Ornith-1.5-122B run configs."""
+    """Test serve/models.py describe() on synthetic Qwen35moe-122B run configs."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tmp_dir = pathlib.Path(self.tmp.name)
-        self.gguf_path = self.tmp_dir / "Ornith-1.5-122B-UD-Q3_K_XL.gguf"
-        build_synthetic_ornith122_gguf(self.gguf_path)
+        self.gguf_path = self.tmp_dir / "Qwen35moe-122B-UD-Q3_K_XL.gguf"
+        build_synthetic_qwen35moe122_gguf(self.gguf_path)
 
         # Extract minimal tokenizer pack
         self.pack_dir = self.tmp_dir / "pack"
@@ -282,8 +282,8 @@ class TestModelRegistryDescribe(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_describe_accurately_resolves_ornith122(self):
-        cfg_path = self.tmp_dir / "strata-ornith122-ud-q3_k_xl.json"
+    def test_describe_accurately_resolves_qwen35moe122(self):
+        cfg_path = self.tmp_dir / "strata-qwen35moe122-ud-q3_k_xl.json"
         cfg_data = {
             "exe": str(self.fake_exe),
             "cwd": str(self.tmp_dir),
@@ -292,15 +292,15 @@ class TestModelRegistryDescribe(unittest.TestCase):
                 "--max-context", "262144",
             ],
             "tokenizer": str(self.pack_dir / "tokenizer"),
-            "model_name": "ornith122-ud-q3_k_xl",
-            "display_name": "Ornith 1.5 122B UD-Q3_K_XL",
+            "model_name": "qwen35moe122-ud-q3_k_xl",
+            "display_name": "Qwen35moe 122B UD-Q3_K_XL",
             "vision": True,
         }
         cfg_path.write_text(json.dumps(cfg_data), encoding="utf-8")
 
         desc = models.describe(cfg_path)
         self.assertIsNotNone(desc)
-        self.assertEqual(desc["id"], "ornith122-ud-q3_k_xl")
+        self.assertEqual(desc["id"], "qwen35moe122-ud-q3_k_xl")
         self.assertEqual(desc["backend"], "qwen35moe")
         self.assertEqual(desc["status"], "available")
         self.assertIsNone(desc["problem"])
@@ -312,7 +312,7 @@ class TestModelRegistryDescribe(unittest.TestCase):
         self.assertEqual(desc["context"], 262144)
 
     def test_describe_no_draft_flag_disables_mtp(self):
-        cfg_path = self.tmp_dir / "strata-ornith122-nodraft.json"
+        cfg_path = self.tmp_dir / "strata-qwen35moe122-nodraft.json"
         cfg_data = {
             "exe": str(self.fake_exe),
             "cwd": str(self.tmp_dir),
@@ -321,7 +321,7 @@ class TestModelRegistryDescribe(unittest.TestCase):
                 "--no-draft",
             ],
             "tokenizer": str(self.pack_dir / "tokenizer"),
-            "model_name": "ornith122-nodraft",
+            "model_name": "qwen35moe122-nodraft",
         }
         cfg_path.write_text(json.dumps(cfg_data), encoding="utf-8")
 
@@ -354,7 +354,7 @@ class TestTokenizerQwen35Rules(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.gguf_path = pathlib.Path(self.tmp.name) / "test.gguf"
-        build_synthetic_ornith122_gguf(self.gguf_path)
+        build_synthetic_qwen35moe122_gguf(self.gguf_path)
         self.pack_dir = pathlib.Path(self.tmp.name) / "pack"
         strata_tokenizer.extract(self.gguf_path, self.pack_dir)
         self.tokenizer = strata_tokenizer.Tokenizer.from_dir(self.pack_dir / "tokenizer")
@@ -451,14 +451,14 @@ class TestFrontendReasoningAndTools(unittest.TestCase):
             },
         }]
         parser = frontend.OutputParser(thinking=False, tools=tools)
-        xml = "<tool_call>\n<function=fetch_spec>\n<parameter=model>\nOrnith-1.5-122B\n</parameter>\n</function>\n</tool_call>"
+        xml = "<tool_call>\n<function=fetch_spec>\n<parameter=model>\nQwen35moe-122B\n</parameter>\n</function>\n</tool_call>"
         events = parser.feed(xml)
         events.extend(parser.finish())
 
         tool_calls = [e.call for e in events if e.kind == "tool_call"]
         self.assertEqual(len(tool_calls), 1)
         self.assertEqual(tool_calls[0].name, "fetch_spec")
-        self.assertEqual(tool_calls[0].arguments, {"model": "Ornith-1.5-122B"})
+        self.assertEqual(tool_calls[0].arguments, {"model": "Qwen35moe-122B"})
 
     def test_literal_tag_escaping_prevents_injection(self):
         # Quoted literal </think> inside messages should be protected
@@ -478,14 +478,14 @@ class TestQwen35LoadGeometryChecks(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.gguf_path = pathlib.Path(self.tmp.name) / "test_geom.gguf"
-        build_synthetic_ornith122_gguf(self.gguf_path)
+        build_synthetic_qwen35moe122_gguf(self.gguf_path)
         self.reader = GGUFFile(self.gguf_path)
         self.meta = self.reader.metadata
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_exact_ornith122_dimensions(self):
+    def test_exact_qwen35moe122_dimensions(self):
         # 1. Block counts & trunk layers
         block_count = self.meta["qwen35moe.block_count"]
         nextn = self.meta["qwen35moe.nextn_predict_layers"]
