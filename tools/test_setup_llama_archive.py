@@ -169,5 +169,50 @@ class LlamaSourceArchive(unittest.TestCase):
                     self.assertEqual(self.unrelated.read_text(), "keep this")
 
 
+class LlamaServerSource(unittest.TestCase):
+    """B4: llama-server's own checkout (LLAMA_SERVER_COMMIT).  Its ui/ tree is dropped but for the files of
+    ui/apps/chat itself: the build reads that folder's CMakeLists.txt and the templates of the empty UI table
+    (echo's first build stopped at "ui.h.in: No such file or directory", 2026-11-20)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.source = self.root / "server.zip"
+        prefix = "llama.cpp-" + setup.LLAMA_SERVER_COMMIT
+        with zipfile.ZipFile(self.source, "w") as z:
+            for name in ("ggml/CMakeLists.txt", "gguf-py/fixture.txt", "scripts/ui-assets.cmake",
+                         "ui/apps/chat/CMakeLists.txt", "ui/apps/chat/ui.h.in", "ui/apps/chat/ui.cpp.in",
+                         "ui/apps/chat/package.json", "ui/apps/chat/src/routes/a/very/deep/page.svelte",
+                         "ui/lib/ui/src/lib/x.ts", "tools/ui/not-needed.txt"):
+                z.writestr(f"{prefix}/{name}", name)
+        (self.root / "third_party").mkdir()
+        self.llama = self.root / "third_party" / f"llama.cpp-{setup.LLAMA_SERVER_COMMIT[:7]}"
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(setup, "ROOT", self.root))
+        stack.enter_context(mock.patch.object(setup, "LLAMA_SERVER_ZIP", str(self.source)))
+        stack.enter_context(mock.patch.object(setup.urllib.request, "urlopen",
+                                             side_effect=AssertionError("test must not use the network")))
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+
+    def test_the_ui_templates_are_kept_and_the_rest_of_ui_is_not(self):
+        self.assertEqual(setup.get_llama_cpp(server=True), self.llama)
+        chat = self.llama / "ui" / "apps" / "chat"
+        self.assertEqual(sorted(p.name for p in chat.iterdir()),
+                         ["CMakeLists.txt", "package.json", "ui.cpp.in", "ui.h.in"])
+        self.assertFalse((self.llama / "ui" / "lib").exists())
+        self.assertFalse((self.llama / "tools" / "ui").exists())
+        self.assertTrue((self.llama / "scripts" / "ui-assets.cmake").is_file())
+
+    def test_an_unpack_without_the_templates_is_unpacked_again(self):
+        self.assertEqual(setup.get_llama_cpp(server=True), self.llama)
+        (self.llama / "ui" / "apps" / "chat" / "ui.h.in").unlink()     # as the first B4 unpack left it
+        self.assertEqual(setup.get_llama_cpp(server=True), self.llama)
+        self.assertTrue((self.llama / "ui" / "apps" / "chat" / "ui.h.in").is_file())
+        with mock.patch.object(setup, "download", side_effect=AssertionError("already there")):
+            self.assertEqual(setup.get_llama_cpp(server=True), self.llama)
+
+
 if __name__ == "__main__":
     unittest.main()

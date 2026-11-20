@@ -1516,7 +1516,9 @@ def get_llama_cpp(vision=False, server=False):
         vision = False
     commit = LLAMA_SERVER_COMMIT if server else VISION_LLAMA_CPP_COMMIT if vision else LLAMA_CPP_COMMIT
     llama = ROOT / "third_party" / (f"llama.cpp-{commit[:7]}" if vision or server else "llama.cpp")
-    if (llama / "ggml" / "CMakeLists.txt").exists() and (llama / "gguf-py").is_dir():
+    # llama-server's build reads the UI's templates (an unpack from before they were kept has none: it is unpacked again)
+    if (llama / "ggml" / "CMakeLists.txt").exists() and (llama / "gguf-py").is_dir() and \
+            (not server or (llama / "ui" / "apps" / "chat" / "ui.h.in").is_file()):
         return llama
     z = ROOT / "third_party" / f"llama.cpp-{commit[:7]}.zip"
     download(LLAMA_SERVER_ZIP if server else VISION_LLAMA_CPP_ZIP if vision else LLAMA_CPP_ZIP, z, "llama.cpp source")
@@ -1525,12 +1527,15 @@ def get_llama_cpp(vision=False, server=False):
 
     def wanted(m: str) -> bool:
         # llama.cpp's own web UI (tools/ui) is not used, and its deep paths passed Windows' 260-character limit in a
-        # folder like Downloads\Puddle-main\Puddle-main (#206).  llama-server's checkout has it in ui/: only the CMake
-        # file its build reads is kept (built without the UI: LLAMA_BUILD_UI and LLAMA_USE_PREBUILT_UI off)
+        # folder like Downloads\Puddle-main\Puddle-main (#206).  llama-server's checkout has it in ui/: only the files
+        # of ui/apps/chat itself are kept, not its folders.  Built without the UI (LLAMA_BUILD_UI and
+        # LLAMA_USE_PREBUILT_UI off), the build still reads that folder's CMakeLists.txt and the two templates of the
+        # empty table it writes (ui.h.in, ui.cpp.in: scripts/ui-assets.cmake's emit_files)
         if "/tools/ui/" in m:
             return False
         rel = m.split("/", 1)[1] if "/" in m else ""     # the path below the zip's top folder
-        return not server or not rel.startswith("ui/") or rel == "ui/apps/chat/CMakeLists.txt"
+        chat = "ui/apps/chat/"
+        return not server or not rel.startswith("ui/") or (rel.startswith(chat) and "/" not in rel[len(chat):])
     try:
         with zipfile.ZipFile(z) as f:
             f.extractall(tmp, [m for m in f.namelist() if wanted(m)])
