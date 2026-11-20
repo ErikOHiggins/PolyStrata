@@ -170,6 +170,37 @@ class PreTokenizerNames(unittest.TestCase):
         self.assertEqual(self.pieces("qwen2", text), ["cafe", "\u0301", " x"])
         self.assertEqual(self.pieces("qwen35", text), ["cafe\u0301", " x"])
 
+    def test_tekken_split(self):
+        """`pixtral` (Nemotron 3.5's GGUFs) and `tekken` are Mistral's Tekken split: words cut where the case turns,
+        digits one by one, `/` kept with what follows.  The pieces are Hugging Face tokenizers' for Bolt's
+        tokenizer.json (0.23.3), byte mapping aside."""
+        text = "McDonald's HTTPServer 3.14 a/b\n\n\u00c9cole"
+        want = ["Mc", "Donald", "'s", " HTTPServer", " ", "3", ".", "1", "4", " a", "/b", "\n\n", "\u00c9cole"]
+        self.assertEqual(self.pieces("pixtral", text), want)
+        self.assertEqual(self.pieces("tekken", text), want)
+
+    def test_tekken_ignores_merges_for_a_word_in_the_vocabulary(self):
+        """ignore_merges (llama.cpp's for TEKKEN, tokenizer.json's too): a word the vocabulary has whole is that token,
+        though the merges alone would not reach it."""
+        tokens, merges = ["a", "b", "c", "ab", "abc"], ["a b"]
+        self.assertEqual(ST.Tokenizer(tokens, merges, pre="pixtral").encode("abc"), [4])
+        self.assertEqual(ST.Tokenizer(tokens, merges, pre="qwen35").encode("abc"), [3, 2])
+
+    def test_an_unknown_pre_tokenizer_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "not one Puddle's tokenizer has"):
+            ST.Tokenizer(["a"], [], pre="some-new-model")
+
+    def test_a_gguf_without_a_pre_tokenizer_is_refused(self):
+        from unittest import mock
+        import types
+        md = {"tokenizer.ggml.model": "gpt2", "tokenizer.ggml.tokens": ["a"], "tokenizer.ggml.merges": []}
+        fake = types.SimpleNamespace(GGUFFile=lambda path: types.SimpleNamespace(metadata=md))
+        with mock.patch.dict(sys.modules, {"gguf_reader": fake}):
+            with self.assertRaisesRegex(ValueError, "names no pre-tokenizer"):
+                ST.Tokenizer.from_gguf("x.gguf")
+            md["tokenizer.ggml.pre"] = "pixtral"
+            self.assertEqual(ST.Tokenizer.from_gguf("x.gguf").pre, "pixtral")
+
 
 class Marks(unittest.TestCase):
     @classmethod

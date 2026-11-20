@@ -89,8 +89,27 @@ QWEN2_PATTERN = (
 # and its runs of newlines first, and each of those by Qwen 2's pattern.
 LAGUNA_SEQUENCE = (r"[^\n]+|[\n]+", QWEN2_PATTERN)
 
-PRE_PATTERNS = {"qwen2": QWEN2_PATTERN, "gemma4": GEMMA4_PATTERN}   # every other name: QWEN35_PATTERN, as before
+# The `tekken` pre-tokenizer (Mistral's Tekken), which NVIDIA's Nemotron 3.5 GGUFs name `pixtral`: llama.cpp maps
+# both names to LLAMA_VOCAB_PRE_TYPE_TEKKEN, with ignore_merges.  The pattern is the one in the model's tokenizer.json
+# (Hugging Face's Split, "Isolated"); llama.cpp's own transcription spells the letter classes as lookaheads.  A word
+# the vocabulary has whole is that token (ignore_merges: tokenizer.json's BPE has it too); only the others are merged.
+TEKKEN_PATTERN = (
+    r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+"
+    r"|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*"
+    r"|\p{N}"
+    r"| ?[^\s\p{L}\p{N}]+[\r\n/]*"
+    r"|\s*[\r\n]+"
+    r"|\s+(?!\S)"
+    r"|\s+"
+)
+
+PRE_PATTERNS = {"qwen35": QWEN35_PATTERN, "qwen2": QWEN2_PATTERN, "gemma4": GEMMA4_PATTERN,
+                "tekken": TEKKEN_PATTERN, "pixtral": TEKKEN_PATTERN}
 PRE_SEQUENCES = {"laguna": LAGUNA_SEQUENCE}
+# Every pre-tokenizer this module has.  Another name is refused: guessing a split gives plausible ids that are not the
+# model's (a GGUF of a pre-tokenizer added here later used to get qwen35's split without a word).
+KNOWN_PRE = frozenset(PRE_PATTERNS) | frozenset(PRE_SEQUENCES)
+IGNORE_MERGES = frozenset({"tekken", "pixtral"})   # a whole word in the vocabulary is that one token
 RAW = ("gemma4",)                      # vocabularies of UTF-8 pieces
 MODELS = {"gpt2": None, "gemma4": "gemma4"}   # tokenizer.ggml.model -> the pre-tokenizer it implies, if any
 
@@ -98,9 +117,13 @@ MODELS = {"gpt2": None, "gemma4": "gemma4"}   # tokenizer.ggml.model -> the pre-
 class Tokenizer:
     def __init__(self, tokens: list[str], merges: list[str], token_types: list[int] | None = None,
                  pre: str = "qwen35", special_ids: dict[str, int] | None = None):
+        if pre not in KNOWN_PRE:
+            raise ValueError("pre-tokenizer %r is not one Puddle's tokenizer has (%s): its token ids would not be the "
+                             "model's" % (pre, ", ".join(sorted(KNOWN_PRE))))
         self.tokens = tokens
         self.pre = pre
         self.raw = pre in RAW
+        self.ignore_merges = pre in IGNORE_MERGES
         self.token_types = token_types
         self.special_ids = special_ids or {}
         self.ids = {t: i for i, t in enumerate(tokens)}
@@ -120,7 +143,7 @@ class Tokenizer:
                 raise ValueError("merge %d names a token outside the vocabulary: %r" % (i, m))
             self.ranks[(parts[0], parts[1])] = i
         self.pre_sequence = PRE_SEQUENCES.get(pre)
-        self.pre_pattern = self.pre_sequence[-1] if self.pre_sequence else PRE_PATTERNS.get(pre, QWEN35_PATTERN)
+        self.pre_pattern = self.pre_sequence[-1] if self.pre_sequence else PRE_PATTERNS[pre]
         self._re = regex.compile(self.pre_pattern)
         self._seq = [regex.compile(x) for x in self.pre_sequence] if self.pre_sequence else None
 
@@ -175,9 +198,12 @@ class Tokenizer:
             raise ValueError("expected a BPE tokenizer (model 'gpt2' or 'gemma4'), got %r" % model)
         special = {k: int(md[k]) for k in md
                    if k.startswith("tokenizer.ggml.") and k.endswith("_token_id")}
+        pre = MODELS[model] or md.get("tokenizer.ggml.pre")
+        if not pre:
+            raise ValueError("the GGUF names no pre-tokenizer (tokenizer.ggml.pre): which split its ids were made with "
+                             "is unknown")
         return cls(list(md["tokenizer.ggml.tokens"]), list(md["tokenizer.ggml.merges"]),
-                   list(md.get("tokenizer.ggml.token_type") or []) or None,
-                   MODELS[model] or md.get("tokenizer.ggml.pre", "qwen35"), special)
+                   list(md.get("tokenizer.ggml.token_type") or []) or None, pre, special)
 
     @classmethod
     def from_dir(cls, path) -> "Tokenizer":
@@ -325,6 +351,12 @@ class Tokenizer:
             got = cache.get(piece)
             if got is None:
                 mapped = "".join(BYTE_TO_UNICODE[b] for b in piece.encode("utf-8"))
+                whole = self.ids.get(mapped) if self.ignore_merges else None
+                if whole is not None:               # ignore_merges: the word is a token as it is
+                    if len(cache) < self.PIECE_CACHE_MAX:
+                        cache[piece] = [whole]
+                    out.append(whole)
+                    continue
                 got = []
                 for tok in self._bpe(mapped):
                     i = self.ids.get(tok)
@@ -550,10 +582,13 @@ def extract(gguf_path, out_dir) -> dict:
         "pre_pattern_source": "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_GEMMA4)" if tk.raw
                               else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_LAGUNA)"
                               if tk.pre_sequence
+                              else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_TEKKEN); the pattern is the "
+                                   "model's tokenizer.json"
+                              if tk.pre_pattern == TEKKEN_PATTERN
                               else "llama.cpp src/llama-vocab.cpp (LLAMA_VOCAB_PRE_TYPE_QWEN2)"
                               if tk.pre_pattern == QWEN2_PATTERN
                               else ".ref/llama.cpp src/llama-vocab.cpp L396 (LLAMA_VOCAB_PRE_TYPE_QWEN35)",
-        "ignore_merges": False,            # (GLM's and LFM2's pre-tokenizers had it; the readers keep the key)
+        "ignore_merges": tk.ignore_merges,   # the reader takes it from "pre"; written for a reader in another language
     }
     merges =["%s %s" % k for k, _ in sorted(tk.ranks.items(), key=lambda kv: kv[1])]
     if tk.raw:      # its pieces can hold a newline, which a line a merge cannot
