@@ -1649,8 +1649,7 @@ ROCM_WIN_VERSION = ROCM_WIN_VERSION_OVERRIDE or ROCM_WIN_VERSION_DEFAULT
 ROCM_WIN_INDEX = "https://nightly.repo.amd.com/rocm/whl-next/"
 ROCM_WIN_VENV = ".rocm-win"
 # STRATA_EXPERIMENTAL_GFX1103=1 (opt-in, unsupported): the Radeon 780M / 760M / 740M iGPU (Ryzen 7040 / 8040, gfx1103) is taken
-# as a unified-memory AMD card like Strix Halo, with the native dot4 and gfx11 WMMA kernels, the gfx1103 exact speed switches
-# and a hipBLASLt table when one matches (measured on one machine: Ryzen 7 8745HS).  Unset: unchanged.
+# as a unified-memory AMD card like Strix Halo; setup compiles strata-poly for it as for any AMD card.  Unset: unchanged.
 GFX1103_OPT_IN = os.environ.get("STRATA_EXPERIMENTAL_GFX1103") == "1"
 # STRATA_EXPERIMENTAL_GFX1150=1 (opt-in, unvalidated): the Radeon 890M / 880M iGPU (Ryzen AI 300, Strix Point, gfx1150)
 # is taken as a unified-memory AMD card like Strix Halo; setup compiles strata-poly for it as for any AMD card.
@@ -1659,27 +1658,12 @@ GFX1150_OPT_IN = os.environ.get("STRATA_EXPERIMENTAL_GFX1150") == "1"
 AMD_ARCHS = ("gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030", "gfx1031", "gfx1032", "gfx1010",
              "gfx1151") \
             + (("gfx1103",) if GFX1103_OPT_IN else ()) + (("gfx1150",) if GFX1150_OPT_IN else ())
-# The exact (bit-identical) speed switches the engine turns on by default on gfx1151 (src/core/arch_defaults.cpp), less
-# STRATA_HCD_EXACT: that one copies the gfx1151 hipBLASLt table's solutions 1176 / 1177, and the gfx1103 table
-# (tools/hip/gfx1103-hipblaslt-100401.txt) picks others, so it would only report that it cannot run.  A gfx1103 install
-# takes them from here (setup writes them into the config's "env"), the same way the table is written: one 780M measured
-# the same greedy answers with all 17 on and with all 17 off, +13% to +15% prompt and decode +3.2% (the decode half
-# alone).  The engine keeps gfx1103 out of its own arch defaults (src/core/arch_defaults_test.cpp asserts it stays
-# empty), so this keeps the default path byte-identical.
-GFX1103_SWITCHES = {
-    # prompt
-    "STRATA_GDN_HEAD": "1", "STRATA_GDN_PP": "2", "STRATA_GDN_CONVL2": "1", "STRATA_GDN_NOY": "1",
-    "STRATA_CVEC_FUSE": "1", "STRATA_PF_PAD": "1",
-    # decode
-    "STRATA_Q8_PACKED": "1", "STRATA_Q6_PACKED": "1", "STRATA_MMVF_ROWS": "1", "STRATA_ATTN_LANECELL": "1",
-    "STRATA_EXPERT_V2": "1", "STRATA_TSUM": "1", "STRATA_LFUSE": "1", "STRATA_GDN_SPLIT": "1",
-    "STRATA_QFUSE": "1", "STRATA_PLE_BATCH": "1", "STRATA_SH_STREAM": "1",
-}
-# The same set for a gfx1150 install (Radeon 890M / 880M): less STRATA_HCD_EXACT as well, because a gfx1150 table picks other
-# solutions than the gfx1151 one.  The Radeon 890M report (docs/AMD_HIP.md; bench/results/2026-10-07-community-gfx1150) measured the
-# same greedy answers with all 17 on and with all 17 off, decode +2% and prompts +3-6%.  The engine's arch defaults are not used
-# for gfx1150 (src/core/arch_defaults_test.cpp asserts gfx1150 stays empty), so this keeps the default path byte-identical.
-GFX1150_SWITCHES = dict(GFX1103_SWITCHES)
+# The Qwen engine's speed switches PolyStrata's setup wrote into a gfx1103 / gfx1150 install's "env".  Setup's own
+# entries, so a setup run again for such an install leaves them out (SETUP_ENV).
+OLD_GFX_SWITCHES = frozenset({
+    "STRATA_GDN_HEAD", "STRATA_GDN_PP", "STRATA_GDN_CONVL2", "STRATA_GDN_NOY", "STRATA_CVEC_FUSE", "STRATA_PF_PAD",
+    "STRATA_Q8_PACKED", "STRATA_Q6_PACKED", "STRATA_MMVF_ROWS", "STRATA_ATTN_LANECELL", "STRATA_EXPERT_V2",
+    "STRATA_TSUM", "STRATA_LFUSE", "STRATA_GDN_SPLIT", "STRATA_QFUSE", "STRATA_PLE_BATCH", "STRATA_SH_STREAM"})
 AMD_NAMES = {"gfx1100": "AMD Radeon RX 7900 series (gfx1100)",   # when sysfs has no product name
              "gfx1101": "AMD Radeon RX 7800 XT / 7700 XT (gfx1101)",
              "gfx1102": "AMD Radeon RX 7600 / 7600 XT (gfx1102)",
@@ -2997,7 +2981,7 @@ SETUP_KEYS = frozenset({"exe", "args", "cwd", "tokenizer", "model_name", "log", 
                         "gpu", "gpus_asked", "layer_split", "host", "api_key", "vision",
                         "display_name", "cuda"})
 SETUP_ENV = frozenset({"STRATA_HIPBLASLT_TUNING", "STRATA_ROCBLAS_TUNING", "STRATA_RESIDENT_PIN", "STRATA_NO_ARENA_THP", "STRATA_MMQ_KQ", "STRATA_HC_Q8",
-                       "STRATA_ROUTE_TAIL_SKIP"}) | frozenset(GFX1103_SWITCHES) | frozenset(GFX1150_SWITCHES)   # the "env" entries setup writes (the gfx1103 switches are setup's too: a re-run refreshes them, they do not linger)
+                       "STRATA_ROUTE_TAIL_SKIP"}) | OLD_GFX_SWITCHES   # the "env" entries setup writes (the gfx1103 / gfx1150 switches are setup's too: they do not linger)
 # the Qwen engine wrote STRATA_MMQ_KQ, STRATA_HC_Q8 and STRATA_ROUTE_TAIL_SKIP for Unsloth's files; in a strata-poly
 # config they are the user's own (STRATA_ROUTE_TAIL_SKIP=0 turns the tail skip off ...): a setup run again keeps them
 SETUP_ENV_USER = frozenset({"STRATA_MMQ_KQ", "STRATA_HC_Q8", "STRATA_ROUTE_TAIL_SKIP"})

@@ -38,8 +38,7 @@ list(REMOVE_DUPLICATES STRATA_HIP_ARCH_LIST)
 if(NOT STRATA_HIP_ARCH_LIST)
   message(FATAL_ERROR "Strata HIP: CMAKE_HIP_ARCHITECTURES is empty")
 endif()
-# The compiled architectures reach the runtime device check (src/core/device.cu) as "gfx1100,gfx1201": a binary
-# carried to a card it has no code for stops at startup with a clear message instead of "invalid device function".
+# the compiled architectures, for the configure message
 string(REPLACE ";" "," STRATA_HIP_ARCHS "${STRATA_HIP_ARCH_LIST}")
 
 enable_language(HIP)
@@ -95,7 +94,7 @@ set(STRATA_HIP_COMPAT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/strata/hi
 add_library(strata_hip_runtime INTERFACE)
 target_include_directories(strata_hip_runtime BEFORE INTERFACE
   "${STRATA_HIP_COMPAT_INCLUDE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_definitions(strata_hip_runtime INTERFACE STRATA_USE_HIP=1 "STRATA_HIP_ARCHS=\"${STRATA_HIP_ARCHS}\"")
+target_compile_definitions(strata_hip_runtime INTERFACE STRATA_USE_HIP=1)
 option(STRATA_GFX1012_PORTABLE_DOT "Use the portable signed-byte dot control on gfx1010 and gfx1012" OFF)
 if(STRATA_GFX1012_PORTABLE_DOT)
   target_compile_definitions(strata_hip_runtime INTERFACE STRATA_GFX1012_PORTABLE_DOT=1)
@@ -128,10 +127,5 @@ file(GLOB_RECURSE _strata_hip_sources CONFIGURE_DEPENDS
 if(_strata_hip_sources)
   set_source_files_properties(${_strata_hip_sources} PROPERTIES LANGUAGE HIP)
 endif()
-foreach(_source IN ITEMS tests/hip/intrinsics.cpp tests/hip/native_qsa_score.cpp)
-  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_source}")
-    set_source_files_properties("${_source}" PROPERTIES LANGUAGE HIP)
-  endif()
-endforeach()
 
 message(STATUS "Strata: HIP enabled, arch ${STRATA_HIP_ARCHS}")
