@@ -1,7 +1,7 @@
 <h1 align="center">Puddle</h1>
 
 <p align="center"><b>Large AI models on your own PC</b><br>
-Laguna-S 2.1, Laguna-XS 2.1 and Gemma 4 26B-A4B · free and open source</p>
+Laguna-S 2.1, Laguna-XS 2.1, Nemotron 3.5 Bolt and Gemma 4 26B-A4B · free and open source</p>
 
 Puddle runs mixture-of-experts models that usually need a server on a normal PC: one or two graphics cards and the
 PC's RAM. They chat, write code and work with your apps and coding agents over an OpenAI- and Anthropic-compatible
@@ -9,8 +9,8 @@ API on `http://127.0.0.1:8080`. Nothing leaves your PC.
 
 Puddle is a fork of [PolyStrata](https://github.com/simplexai-labs/PolyStrata) by VecSzn, which is built on
 [Strata](https://github.com/Niko1221/Strata) by Niko1221. It keeps PolyStrata's second engine, **strata-poly**, with
-its server, web app and installer, and adds poolside's Laguna. Strata's Qwen3.8 engine and PolyStrata's other models
-are not part of Puddle.
+its server, web app and installer, and adds poolside's Laguna and NVIDIA's Nemotron 3.5 Bolt. Strata's Qwen3.8 engine
+and PolyStrata's other models are not part of Puddle.
 
 ## The models
 
@@ -18,13 +18,17 @@ are not part of Puddle.
 | --- | --- | --- | --- |
 | **[Laguna-S 2.1](https://huggingface.co/poolside/Laguna-S-2.1)** | poolside; quantized by Unsloth | UD-Q3_K_XL (54 GB, the default), UD-Q4_K_XL (73 GB), poolside's own Q4_K_M (96 GB) | no |
 | **[Laguna-XS 2.1](https://huggingface.co/poolside/Laguna-XS-2.1)** | poolside | Q4_K_M (20 GB) | no |
+| **[Nemotron 3.5 Bolt 74B-A9B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF)** | NVIDIA | NVIDIA's own 2-bit file (22 GB) | yes |
 | **[Gemma 4 26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it)** | Google; quantized by Unsloth | UD-Q3_K_M (13 GB, the default), UD-Q2_K_XL, UD-Q4_K_M, QAT-UD-Q4_K_XL | yes |
 
-All three are experimental. poolside's Laguna-S Q4_K_M keeps 8 of its 47 expert layers in BF16, which run on the
+All four are experimental. poolside's Laguna-S Q4_K_M keeps 8 of its 47 expert layers in BF16, which run on the
 processor every token, and it has a 1M-token rope where Unsloth's files have 262K; it has not been run yet.
+Nemotron 3.5 Bolt runs on llama.cpp's `llama-server` for now, which setup compiles, with Puddle's server in front of
+it ([docs/NEMOTRON.md](docs/NEMOTRON.md)).
 
 Which models Puddle offers: open-weight models whose license puts no restriction on their use, OpenMDW first (both
-Lagunas are OpenMDW-1.1), with Apache 2.0 where a gap needs filling (Gemma 4, which reads pictures).
+Lagunas and Nemotron 3.5 Bolt are OpenMDW-1.1), with Apache 2.0 where a gap needs filling (Gemma 4, which reads
+pictures on cards too small for Bolt).
 
 ## How fast is it?
 
@@ -41,6 +45,10 @@ Linux, with the KV cache in q8_0 and prompt-lookup guesses off (2026-11-14):
 Against llama.cpp on the same file (six prompts, 64 steps each, llama.cpp choosing each token), strata-poly's first
 choice was the same at 95.3% of the 384 steps, and in every prompt the first difference was a near tie.
 
+**Nemotron 3.5 Bolt** on the same two cards, with llama-server alone (not yet through Puddle), one request with
+pictures (2026-11-20): read an 11,331-token prompt at 1,402 tokens/s and wrote 589 tokens at 57.6 tokens/s, at a
+168K context.
+
 **Gemma 4 26B-A4B UD-Q3_K_M**, measured by PolyStrata: writes 92-93 tokens/s and reads a prompt at 2,240 on a laptop
 with an RTX 4070 Laptop (8 GB), a Core i7-14700HX and 32 GB of RAM; 353-356 and 8,420-8,480 on an RTX 5090.
 
@@ -53,13 +61,15 @@ report ([how](docs/COMMUNITY_BENCHMARKS.md)).
 | --- | --- | --- | --- |
 | Laguna-S 2.1 | NVIDIA RTX 20 series or newer; it has run on two 16 GB cards | about 51 GB beside a 16 GB card (UD-Q3_K_XL) | 54 to 96 GB |
 | Laguna-XS 2.1 | same | about 17 GB beside a 16 GB card | 20 GB |
+| Nemotron 3.5 Bolt | NVIDIA cards with 30 GB of VRAM together (one 32 GB card, or two 16 GB); it has run on two 16 GB cards | about 16 GB (not measured) | 22 GB, 24 with pictures |
 | Gemma 4 26B-A4B | NVIDIA RTX 20 series or newer, 8 GB or more | about 15 to 21 GB beside an 8 GB card | 11 to 17 GB |
 
 A larger card needs less RAM, and two or three cards can share a model ([multi-GPU](docs/MULTI_GPU.md)). Laguna
-has run on Linux only so far; setup says so and asks before it installs it on Windows. AMD cards
+has run on Linux only so far; setup says so and asks before it installs it on Windows. Nemotron 3.5 Bolt keeps
+every layer on the cards and has run on Linux only; setup says Windows is untested, and offers it on no AMD card. AMD cards
 (Linux and Windows) and Pascal / Volta cards (with CUDA 12) are experimental: [AMD](docs/AMD_HIP.md),
 [older cards](docs/OLDER_GPUS.md). On a Mac (Apple Silicon), setup builds strata-poly's Metal engine; Laguna does not
-run on it yet, and Gemma 4 has not been run there ([docs/MAC.md](docs/MAC.md)).
+run on it yet, Nemotron 3.5 Bolt is not offered there, and Gemma 4 has not been run there ([docs/MAC.md](docs/MAC.md)).
 
 ## Install
 
@@ -84,7 +94,7 @@ installs the build tools first, and asks; the first compile takes 10 to 20 minut
 it. If the download stops, run it again: it continues where it stopped. Your browser opens the app at
 `http://127.0.0.1:8080`.
 
-`./setup.sh --family laguna-s` (or `laguna-xs`, `gemma4`) goes straight to one model, and `--model SIZE`
+`./setup.sh --family laguna-s` (or `laguna-xs`, `nemotron-bolt`, `gemma4`) goes straight to one model, and `--model SIZE`
 to one size. Every option: [docs/INSTALL.md](docs/INSTALL.md).
 
 **Next time**, run `START-HERE.bat` (or `./setup.sh`) again: it starts right away and downloads nothing twice. Close
@@ -98,7 +108,8 @@ its window to stop the model. `UPDATE.bat` (`./update.sh`) updates Puddle withou
   Apps that use Anthropic's API: `http://127.0.0.1:8080/v1/messages` (Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`).
   The OpenAI Responses API (Codex CLI): `/v1/responses`. All of it: [docs/API.md](docs/API.md).
 - **Thinking:** off, low, medium or high, in the chat menu or your app's "reasoning effort".
-- **Pictures** (Gemma 4): say yes to "Images?" in setup, then attach pictures in the chat or your app.
+- **Pictures** (Nemotron 3.5 Bolt, Gemma 4): say yes to "Images?" in setup, then attach pictures in the chat or your
+  app.
 - **From your phone or another PC:** `./setup.sh --setup --host 0.0.0.0 --api-key <secret>`. Always set a key.
 
 ## Something went wrong?
@@ -113,16 +124,19 @@ A mixture-of-experts model uses only a few of its experts for each token. strata
 the layers every token needs and as many experts as fit go to the graphics card, and the rest stay in RAM (the
 system's file cache), where the processor computes them when a token needs them. The engine counts which experts
 are used and keeps the counts for its next start, when the most-used ones go to the card first. How the engine and its backends work:
-[docs/BACKENDS.md](docs/BACKENDS.md).
+[docs/BACKENDS.md](docs/BACKENDS.md). Nemotron 3.5 Bolt's architecture (Mamba-2 layers beside attention and
+experts) is not in strata-poly yet: it runs on llama-server, with every layer on the cards ([docs/NEMOTRON.md](docs/NEMOTRON.md)).
 
 ## Credits and license
 
 Laguna-S 2.1 and Laguna-XS 2.1 are by [poolside](https://huggingface.co/poolside), under the OpenMDW-1.1 license;
-Laguna-S in [Unsloth](https://huggingface.co/unsloth)'s quantization and poolside's own. Gemma 4 is by Google,
-under Apache 2.0, in Unsloth's quantization.
+Laguna-S in [Unsloth](https://huggingface.co/unsloth)'s quantization and poolside's own. Nemotron 3.5 Bolt is by
+[NVIDIA](https://huggingface.co/nvidia), under the OpenMDW-1.1 license, in NVIDIA's own quantization. Gemma 4 is by
+Google, under Apache 2.0, in Unsloth's quantization.
 
 Puddle is built on [PolyStrata](https://github.com/simplexai-labs/PolyStrata) by VecSzn and its contributors, which is
 built on [Strata](https://github.com/Niko1221/Strata) by Niko1221 and its contributors (how Strata's engine works:
 [the Strata paper](https://github.com/simplexai-labs/PolyStrata/blob/67dde645dd94190733cca8ad78d2faa68b930e2a/docs/paper/Strata-Paper.pdf)).
-It uses parts of [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp). Puddle is open source under the
+It uses parts of [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp), and runs Nemotron 3.5 Bolt on llama.cpp's
+`llama-server`. Puddle is open source under the
 [MIT License](LICENSE); every model has its own license.

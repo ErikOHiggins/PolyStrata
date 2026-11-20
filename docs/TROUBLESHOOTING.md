@@ -75,9 +75,28 @@ driver (a Studio one, or an older one) and a lower power limit.
 
 **Pictures are refused, or slow.**
 "this server was started without the vision encoder": the model was set up for text only; run setup again with
-`--vision yes` (Gemma 4 only). A picture that takes several seconds is read by the encoder on the CPU, which
-setup chooses on a card under 15.5 GB; `--vision gpu` puts it on the card (2.4 GB of VRAM for
+`--vision yes` (Gemma 4 and Nemotron 3.5 Bolt). A picture that takes several seconds is read by Gemma 4's encoder on
+the CPU, which setup chooses on a card under 15.5 GB; `--vision gpu` puts it on the card (2.4 GB of VRAM for
 Gemma 4).
+
+## Nemotron 3.5 Bolt (llama-server)
+
+**Setup says it runs with 30 GB of VRAM or more.**
+The cards you chose have less together. With two cards, choose both (`--gpus 0,1`); with less VRAM, pick another
+model (Gemma 4 reads pictures on smaller cards).
+
+**llama-server does not compile.**
+Setup prints the build's output, and the build folder is `build-llama-server/`. Run setup again: it compiles only what
+is missing. The compiler notes above apply to it too (gcc newer than 14: `CXX=g++-14 ./setup.sh`).
+
+**"llama-server exited before it was ready".**
+The message ends with llama-server's last log lines; the whole log is `strata-nemotron-bolt-24gb.log` in the Puddle
+folder. If it ran out of VRAM while loading, close the program that holds VRAM, or run
+`./setup.sh --setup --family nemotron-bolt --context N` with a smaller N.
+
+**"llama-server read N prompt tokens where Puddle planned M".**
+Puddle's count of a picture's tokens differs from llama-server's. The request is still answered (llama-server's count
+is the one it goes by). Please report it with the picture's width and height.
 
 ## AMD cards
 

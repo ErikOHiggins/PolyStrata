@@ -1,0 +1,148 @@
+# Nemotron 3.5 Bolt
+
+NVIDIA's [Nemotron 3.5 Bolt 74B-A9B 24GB](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF)
+reads text and pictures. It is under the OpenMDW-1.1 license. Puddle runs it on llama.cpp's `llama-server`, which
+setup compiles on your PC, because strata-poly does not run its architecture yet. Puddle's own server stays in front
+of it: the chat template, the tool calls, the thinking, every endpoint and setting are the same as for the other
+models. llama-server only writes the tokens.
+
+**Status: experimental.** It has run on one machine, echo, and there with llama-server alone, not yet through Puddle
+([what was measured](#measured)).
+
+## The model
+
+What its files say (their headers, read with `tools/gguf_reader.py`):
+
+| | |
+| --- | --- |
+| Architecture | `nemotron_h_moe`: Mamba-2 layers, attention layers and mixture-of-experts layers, 88 blocks |
+| Experts | 496 routed experts, 9 used for each token |
+| The file | NVIDIA's own, 22,018,326,528 bytes: the experts in IQ2_XXS (2-bit, trained for it), the Mamba layers in NVFP4, the embedding and output in Q8_0 |
+| The image encoder | C-RADIO v4-H, 1,733,692,736 bytes, in BF16 and F32 (not quantized) |
+| Context | trained to 262,144 tokens |
+| Tokenizer | 131,072 tokens, Mistral's Tekken pre-tokenizer (`pixtral` in the GGUF) |
+
+Its tokenizer was checked twice on 2026-11-20. Puddle's tokenizer gives the same token ids as Hugging Face's
+`tokenizers` 0.23.3, with the model's own `tokenizer.json`, on 239 strings. It also gives the same ids as llama-server's
+`/tokenize` on echo, on 242 strings ([`tools/tokenizer_check.py`](../tools/tokenizer_check.py)).
+
+## What you need
+
+- **NVIDIA cards with 30 GB of VRAM or more together:** one 32 GB card, or two 16 GB ones. Setup refuses less. It
+  keeps every layer on the GPUs and has not been tried with experts on the processor.
+- **Not on AMD cards or a Mac yet.** Setup compiles llama-server for NVIDIA only, and it has not been run anywhere else.
+- **Windows:** setup compiles llama-server there as it compiles strata-poly (MSVC and CUDA), and says that it is
+  untested. NVIDIA lists Windows as supported; nobody here has run it.
+- **Disk:** 22 GB for the model, 1.7 GB more for pictures, and a few GB for the build.
+- **RAM:** setup's estimate is 16 GB. The file goes to the GPUs, and llama-server keeps up to 8 GiB of earlier prompts in
+  RAM (its prompt cache). Not measured.
+
+## Install
+
+```bash
+./setup.sh --family nemotron-bolt
+```
+
+Setup then:
+
+1. compiles llama-server from llama.cpp at commit `08c252e22` (the one echo ran it with) into `engine-llama/`, for
+   your cards: llama.cpp's CUDA kernels, once. It builds without llama.cpp's own chat app, so nothing is downloaded
+   during the build, and compiles again only when that commit changes or a card needs code it does not have.
+2. downloads the model and its image encoder from NVIDIA's repository at a pinned revision, and checks their SHA-256.
+   It keeps them in `Puddle-data/models/nemotron-bolt-24GB/`. Files you already have: move them there, and setup checks
+   them instead of downloading them. Or give their folder with `--gguf-dir` to use them where they are.
+3. writes the model's tokenizer and chat template from the GGUF to `Puddle-data/packs/nemotron-bolt-24gb/`.
+4. writes `strata-nemotron-bolt-24gb.json` and `run-nemotron-bolt-24gb.sh` (`.bat`), and starts the model.
+
+It asks whether the model should read pictures. The default is yes: without them the image encoder is not downloaded.
+
+## The run config
+
+`strata-nemotron-bolt-24gb.json` has `"engine": "llama-server"`, and its `"args"` are llama-server's own, the command
+echo ran:
+
+```
+--model <the file> --mmproj <the image encoder> --ctx-size 168000 --parallel 1 --flash-attn on
+--cache-type-k q8_0 --cache-type-v q8_0 --batch-size 2048 --ubatch-size 2048 --load-mode none --n-gpu-layers all
+--tensor-split 1,1
+```
+
+- **The context:** `--ctx-size 168000` on two 16 GB cards, as on echo. On other cards setup writes none, and
+  llama-server's `--fit` takes the largest context that fits each time it loads. `./setup.sh --setup --family
+  nemotron-bolt --context N` sets one.
+- **Several cards:** `--tensor-split` splits the model evenly across them (`1,1` is the same split as `30,30`). The
+  config's `"gpu"` says which cards, in order, as for the other models.
+- **`--load-mode none`** reads the file into memory instead of mapping it (llama.cpp's default is to map it).
+- **Sampling:** setup writes `"sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 40, "min_p": 0.05}`. This is
+  NVIDIA's recipe as llama.cpp runs it: the model card's temperature and top_p, plus the top_k and min_p that
+  NVIDIA's llama-server command leaves at llama.cpp's defaults. Puddle sends every sampling value to llama-server, so
+  llama-server's own defaults never apply. Neither do the ones the GGUF carries (`general.sampling.temp` 1.0 and
+  `top_p` 0.95).
+
+The args must not set `--host`, `--port`, `--api-key` or `--api-key-file`. Puddle starts llama-server on `127.0.0.1`
+at a port it picks each time, with a key it makes each time and passes in llama-server's environment, so only Puddle
+can reach it. Your apps reach Puddle, at Puddle's address and with Puddle's key. A `"vision"` section, `"replicas"`
+and `"parallel"` are refused: llama-server reads pictures with its `--mmproj`, and Puddle sends it one request at a
+time.
+
+llama-server's own output goes to `strata-nemotron-bolt-24gb.log`, where the other models' engine logs go.
+
+## Measured
+
+On echo (two RTX 5060 Ti 16 GB, Linux), 2026-11-20, with llama-server alone: llama.cpp `08c252e22`, these args with
+`--tensor-split 30,30`, one request with pictures:
+
+| | |
+| --- | --- |
+| Read the prompt (11,331 tokens) | 1,401.85 tokens/s |
+| Wrote 589 tokens | 57.61 tokens/s |
+| VRAM in use | 95% and 93% of the two cards |
+| Context | 168,192 tokens (llama-server's size for `--ctx-size 168000`) |
+
+Not measured yet: Bolt through Puddle, any other card, Windows, and a long conversation.
+
+## Pictures
+
+Puddle reads a picture as it does for the other models: a `data:` URL, an `http(s)://` URL or a local file. It turns
+WebP, TIFF and the like into PNG, and turns an EXIF-rotated phone photo upright. Bolt's chat template writes `<image>`
+where the picture goes. Puddle sends the prompt to llama-server as text, with llama-server's marker in that place
+and the picture's file beside it. llama.cpp's image code (`mtmd`) puts `<img>` and `</img>` around the picture.
+
+By llama.cpp's code at `08c252e22`, a picture is resized to at most 3,407,872 pixels and at least 262,144 (the numbers
+in the image encoder's file), each side a multiple of 32. It then becomes one token per 32 x 32 pixels, plus the two
+around it. A 1920 x 1080 screenshot is read at 1920 x 1088, 2,042 tokens; a 2560 x 1440 one at 2432 x 1376, 3,270
+tokens. Puddle plans the request with that count. llama-server counts the prompt itself, and the server window says
+when the two differ. That has not been seen on echo yet.
+
+A message that quotes a special token's text (`<|im_end|>`, `<think>` ...) next to a picture gets a word joiner
+(U+2060) after that text's first character. It looks the same, but llama-server reads it as text. llama-server reads
+every special token's text in a prompt with pictures as the token itself, while Puddle keeps such text inside a
+message as text. Prompts without pictures go to llama-server as token ids and are not changed.
+
+## How Puddle talks to llama-server
+
+For developers. `LlamaServerEngine` in `serve/server.py`:
+
+- starts llama-server, waits for `/health`, and reads the context and the media marker from `/props`;
+- sends each request to `POST /completion`. A prompt without pictures goes as Puddle's token ids. A prompt with
+  pictures goes as text plus the pictures' files. The reply streams back with each token's id and the prompt's
+  progress (the heartbeats, the Monitor and `keepalive_events` read it);
+- stops a request by closing its connection;
+- takes its figures from llama-server's last event, which has its own clock.
+
+llama-server sends a token's id only once the text ends on a whole character. A character split across several
+tokens comes with the last of them, and Puddle rebuilds the ids from the text. With one token missing the rebuild is
+exact; with two or more the text is the same, and the ids can differ from the ones the model wrote.
+
+llama.cpp also ends a reply at Bolt's `</s>`, which is not the model's end of turn (`<|im_end|>`). Such a reply ends
+as a stop, and the token is not shown.
+
+The tests run without a GPU, against a stand-in for llama-server: `python -m unittest serve.test_llama_server
+serve.test_llama_server_images`.
+
+## Not there yet
+
+- strata-poly running `nemotron_h_moe` itself, which would retire llama-server here.
+- NVIDIA's DFlash draft model (a separate file, `NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr-GGUF`). Setup does not
+  download or use it.
+- `--vram-reserve-mib`, several requests at once, and replicas: llama-server is run with one slot.

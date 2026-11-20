@@ -3639,7 +3639,7 @@ def build_llama_server(gpu, yes, toolkit=13) -> Path:
                                         "need_cuda": (12, 8) if max(archs) >= 120 else (12, 0)}, yes)
     src = get_llama_cpp(server=True)
     ok(f"llama.cpp {LLAMA_SERVER_COMMIT[:9]} (llama-server)")
-    say("  Compiling llama-server for your GPU (llama.cpp's CUDA kernels: 10-30 minutes, once) ..."
+    say("  Compiling llama-server for your GPU (llama.cpp's CUDA kernels, once; it takes a while) ..."
         if not (eng / LLAMA_SERVER_EXE).exists() else
         "  llama-server's llama.cpp changed, or a card needs code it has not: compiling it again ...")
     bdir = ROOT / ("build-llama-server" if toolkit == 13 else "build-llama-server-cuda12")

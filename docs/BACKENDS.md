@@ -6,6 +6,10 @@ change the model that answers, and then keeps the engine's record: the benchmark
 each with what it was measured on. Most of those were measured on Qwen3.6-35B-A3B and Ornith 1.5, which are
 qwen35moe models, on Gemma 4, and on GLM 5.3 Flash; Puddle offers none of them except Gemma 4.
 
+Puddle's fourth model, Nemotron 3.5 Bolt, is not one of strata-poly's: its architecture (`nemotron_h_moe`, Mamba-2
+layers beside attention and experts) runs on llama.cpp's llama-server, which setup compiles, behind the same server
+([NEMOTRON.md](NEMOTRON.md)).
+
 One model is in memory at a time.
 
 ## What runs
@@ -23,7 +27,8 @@ The engine also keeps its `qwen35moe` class (`Qwen35`) as the test case for recu
 
 ## Install
 
-Setup installs all three; each has a family name that goes straight to it:
+Setup installs all three (and Nemotron 3.5 Bolt, `--family nemotron-bolt`: [NEMOTRON.md](NEMOTRON.md#install)); each
+has a family name that goes straight to it:
 
 ```bash
 ./setup.sh --family laguna-s
