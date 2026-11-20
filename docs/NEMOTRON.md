@@ -6,8 +6,8 @@ setup compiles on your PC, because strata-poly does not run its architecture yet
 of it: the chat template, the tool calls, the thinking, every endpoint and setting are the same as for the other
 models. llama-server only writes the tokens.
 
-**Status: experimental.** It has run on one machine, echo, and there with llama-server alone, not yet through Puddle
-([what was measured](#measured)).
+**Status: experimental.** It has run on one machine, echo: with llama-server alone, and through Puddle for its first
+requests ([what was measured](#measured)).
 
 ## The model
 
@@ -46,8 +46,9 @@ Its tokenizer was checked twice on 2026-11-20. Puddle's tokenizer gives the same
 Setup then:
 
 1. compiles llama-server from llama.cpp at commit `08c252e22` (the one echo ran it with) into `engine-llama/`, for
-   your cards: llama.cpp's CUDA kernels, once. It builds without llama.cpp's own chat app, so nothing is downloaded
-   during the build, and compiles again only when that commit changes or a card needs code it does not have.
+   your cards: llama.cpp's CUDA kernels, once (about 10 minutes on echo's i9-9900K, by the owner's watch). It builds
+   without llama.cpp's own chat app, so nothing is downloaded during the build, and compiles again only when that
+   commit changes or a card needs code it does not have.
 2. downloads the model and its image encoder from NVIDIA's repository at a pinned revision, and checks their SHA-256.
    It keeps them in `Puddle-data/models/nemotron-bolt-24GB/`. Files you already have: move them there, and setup checks
    them instead of downloading them. Or give their folder with `--gguf-dir` to use them where they are.
@@ -99,7 +100,15 @@ On echo (two RTX 5060 Ti 16 GB, Linux), 2026-11-20, with llama-server alone: lla
 | VRAM in use | 95% and 93% of the two cards |
 | Context | 168,192 tokens (llama-server's size for `--ctx-size 168000`) |
 
-Not measured yet: Bolt through Puddle, any other card, Windows, and a long conversation.
+Through Puddle on the same machine, the same day, its first two requests: a short text question (answered, with its
+thinking apart), and llama.cpp's own test picture, a 640 x 488 scan of the New York Times of July 21, 1969: it named
+the paper, the date and both headlines correctly, and wrote its 369 tokens at 61.2 tokens/s.
+
+Not measured yet: a long conversation through Puddle, any other card, and Windows.
+
+`tools/llama_server_check.py --config strata-nemotron-bolt-24gb.json --image <picture>` asks the same question,
+greedy, through Puddle and then of llama-server alone (the model must not be running), and says whether the two
+answers and prompt counts are the same.
 
 ## Pictures
 
