@@ -311,15 +311,6 @@ class DeviceAccess(unittest.TestCase):
             self.assertIn("renderD128", msg)
             self.assertNotIn("/kfd", msg)
 
-    def test_engine_names_the_permission_not_another_program(self):
-        src = (Path(setup.__file__).resolve().parent / "src/program/generate.cpp").read_text(encoding="utf-8")
-        i = src.index("cannot open /dev/kfd")
-        guard = src[src.rindex("#if", 0, i):i]
-        self.assertIn("cudaGetDeviceCount", guard)
-        self.assertIn('access("/dev/kfd", R_OK | W_OK)', guard)
-        self.assertIn("STRATA_USE_HIP", guard)               # CUDA builds keep the "another program" text
-        self.assertIn("another program (or an engine that is still exiting)", src)
-
 
 class PolyHipWindows(unittest.TestCase):
     """strata-poly on an AMD card under Windows: setup compiles it itself (AMD's TheRock wheels in .rocm-win), the

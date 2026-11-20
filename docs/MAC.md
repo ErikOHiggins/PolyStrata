@@ -56,18 +56,19 @@ Options: `--family NAME --model SIZE` (all choices: `./setup.sh --list-models`),
 
 ## Build and regression checks
 
-The standalone checks generate their own inputs and do not need model files or metal-cpp:
+The checks need metal-cpp and llama.cpp at setup's pinned commits; they generate their own inputs and need no model
+files:
 
 ```sh
-cmake -S metal -B build-metal-check -DCMAKE_BUILD_TYPE=Release
-cmake --build build-metal-check -j 4
+cmake -S metal -B build-metal-check -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_METAL_POLY=ON \
+      -DMETAL_CPP_DIR=/path/to/metal-cpp -DSTRATA_GGML_DIR=/path/to/llama.cpp
+cmake --build build-metal-check
 ctest --test-dir build-metal-check --output-on-failure
 ```
 
-To include strata-poly and its checks, configure with `-DSTRATA_METAL_POLY=ON -DMETAL_CPP_DIR=/path/to/metal-cpp
--DSTRATA_GGML_DIR=/path/to/llama.cpp` (setup's pinned dependencies) and run `ctest -L poly`. The checks compare kernels
-with CPU references and run small generated GGUF files; they check execution and state handling, not a model's
-quality.
+They compare strata-poly's Metal kernels with CPU references and run small generated GGUF files; they check execution
+and state handling, not a model's quality. Without `-DSTRATA_METAL_POLY=ON` only the runtime check (`runtime_hello`)
+is built.
 
 ## How it works
 
