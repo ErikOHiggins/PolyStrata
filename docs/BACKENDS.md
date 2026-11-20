@@ -1,164 +1,88 @@
-# Models and backends
+# strata-poly: models and backends
 
-PolyStrata runs more than one model family. This page says which, how the engine is put together so that it can,
-how a model is recognized, how to add one, and how to change the model that answers.
+Puddle has one engine, strata-poly (`src/poly/`), which came from PolyStrata. It reads a GGUF in place. This page
+says which models it runs for Puddle, how it is put together, how a model is recognized, how to add one and how to
+change the model that answers, and then keeps the engine's record: the benchmarks and tuning PolyStrata measured,
+each with what it was measured on. Most of those were measured on Qwen3.6-35B-A3B and Ornith 1.5, which are
+qwen35moe models like Occamy, on Gemma 4, and on GLM 5.3 Flash; Puddle offers none of them except Gemma 4.
 
-One model is in memory at a time. The measurements below are from one machine: an RTX 5090 (32 GB), 24 threads of
-a Xeon Platinum 8470Q, 120 GiB of RAM, Linux, CUDA 12.8. On that card the three new models fit in VRAM whole.
-[One section](#with-8-gb-of-vram) holds the 5090 to 8 GB, and [one section](#on-a-laptop-with-8-gb-of-vram) is from
-a second machine, a Windows laptop whose card has 8 GB.
+One model is in memory at a time.
 
 ## What runs
 
-| Model | Architecture | Engine | File it was checked with | Guesses ahead |
+| Model | Architecture | Class | Files setup offers | Guesses ahead |
 | --- | --- | --- | --- | --- |
-| Qwen3.8-Flash-Next and fine-tunes | `qwen4exp` | `strata` | the packs setup builds | separate MTP model |
-| GLM 5.3 Flash | `glm5-next` | `strata-poly` | GSQ-RCO 3.0bit, REAP50-Q3_K_M, UD-IQ2_XXS | draft block |
-| Qwen3.6-35B-A3B | `qwen35moe` | `strata-poly` | Unsloth UD-Q3_K_M, UD-Q2_K_XL and UD-Q4_K_M, 12.6 to 22.7 GB | draft block in the file |
-| Ornith 1.5 35B-A3B | `qwen35moe` | `strata-poly` | APEX-MTP-I-Compact, I-Mini and I-Quality, 14.4 to 23.7 GB | draft block in the file |
-| Ornith 1.5 122B | `qwen35moe` | `strata-poly` | Unsloth UD-Q3_K_XL, UD-Q2_K_XL, UD-IQ3_XXS, UD-Q4_K_XL and Q8_0, 44.5 to 132.6 GB | draft block in the file |
-| Gemma 4 26B-A4B | `gemma4` | `strata-poly` | Unsloth UD-Q3_K_M, UD-Q2_K_XL and UD-Q4_K_M, 10.5 to 16.9 GB | its draft model, a file of 0.46 GB |
-| Tiel Coder 35B-A3B | `qwen35moe` | `strata-poly` | peculiar-ragdoll's UD-Q3_K_XL, UD-IQ3_XXS and UD-Q4_K_XL, 13.6 to 22.7 GB | draft block in the file |
-| MiniCPM-V 4.7 35B-A3B | `qwen35moe` | `strata-poly` | OpenBMB Q4_K_M, mix_q3gud_im and Q6_K, 15.5 to 28.5 GB | none: it answers one token at a time |
-| DeepSeek V4 Flash | `deepseek4` | `strata-poly` | Unsloth UD-IQ2_XXS, three files, 90.9 GB | repeats only: its draft model is not run yet |
-| LFM2.5-24B-A2B | `lfm2moe` | `strata-poly` | Unsloth UD-Q4_K_XL, UD-Q3_K_XL, UD-Q6_K_XL and Q8_0, Liquid AI QAD-Q4_0, 10.9 to 25.5 GB | repeats only: there is no draft model |
-| Flint 40B-A2.5B | `flint` | `strata-poly` | Unsloth UD-Q4_K_XL, UD-Q3_K_XL, UD-Q6_K_XL and Q8_0, 18.5 to 42.3 GB | repeats only: there is no draft model |
-| Kolibri 1 | `kolibri1` | `strata-poly` | Hob-forge Q4_K_M, Q2_K and Q3_K_M, 28.6 to 47.5 GB | repeats only: there is no draft model |
-| Clover-35B-A3B-Preview | `clover_moe` | `strata-poly` | maternion Q3_K_M and Q4_K_M, IsValorum APEX-I-NanoPlus, 12.6 to 21.2 GB | repeats only: its own block guesses are off ([below](#clover-35b-a3b-preview)) |
+| Laguna-S 2.1 | `laguna` | `Laguna` | Unsloth UD-Q3_K_XL and UD-Q4_K_XL (three files each), poolside's Q4_K_M, 54.1 to 96.0 GB | repeats only: there is no draft block |
+| Laguna-XS 2.1 | `laguna` | `Laguna` | poolside's Q4_K_M, 20.3 GB | repeats only: there is no draft block |
+| Occamy 1.0 35B-A3B | `qwen35moe` | `Qwen35` | Accio-Lab's APEX-Quality, APEX-I-Compact and APEX-Balanced, 16.5 to 25.3 GB | a draft block if the file has one (not checked), and repeats |
+| Gemma 4 26B-A4B | `gemma4` | `Gemma4` | Unsloth UD-Q3_K_M, UD-Q2_K_XL, UD-Q4_K_M and QAT-UD-Q4_K_XL, 10.5 to 16.9 GB | its draft model, a file of 0.46 GB |
 
-`strata` is the first engine and runs Qwen3.8 only; nothing in it changed. `strata-poly` is the engine that reads a
-GGUF in place, and it now has eight architectures. It was called `strata-glm`, after its first model; an install
-from then keeps its engine and moves to the new name the next time setup updates it.
-
-The optional CUDA [GDN prefill adapter](DETAILS.md#strata-poly-chunked-gdn-prefill) uses
-`STRATA_GDN_MMA=1` for eligible Qwen35 reads. It is off by default; that section lists its shape and device limits.
+Until Puddle removes them, the engine still has PolyStrata's other architectures (`glm5-next`, `deepseek4`,
+`lfm2moe`, `flint`, `kolibri1`, `clover_moe`); setup and the server offer none of them. The Metal build has no
+`Laguna` class yet ([MAC.md](MAC.md)).
 
 ## Install
 
-Setup installs all of them. They are in its list of models, and each has a family name that goes
-straight to it. The larger models have pages of their own,
-[GLM.md](GLM.md), [DEEPSEEK.md](DEEPSEEK.md) and [ORNITH.md](ORNITH.md):
+Setup installs all four; each has a family name that goes straight to it:
 
 ```bash
-./setup.sh --family qwen36
-```
-
-```bash
-./setup.sh --family ornith
-```
-
-```bash
-./setup.sh --family ornith122
-```
-
-```bash
+./setup.sh --family laguna-s
+./setup.sh --family laguna-xs
+./setup.sh --family occamy
 ./setup.sh --family gemma4
 ```
 
-```bash
-./setup.sh --family tiel
-```
+| Family | Size | Download | RAM, setup's estimate |
+| --- | --- | --- | --- |
+| `laguna-s` | UD-Q3_K_XL (the default) | 54.1 GB | about 51 GB beside a 16 GB card |
+| | UD-Q4_K_XL | 73.4 GB | about 71 GB beside a 16 GB card |
+| | Q4_K_M (poolside's; 8 of its 47 expert layers in BF16, run on the processor; not run yet) | 96.0 GB | about 93 GB beside a 16 GB card |
+| `laguna-xs` | Q4_K_M | 20.3 GB | about 17 GB beside a 16 GB card |
+| `occamy` | APEX-Quality (the default) | 22.8 GB | about 18 GB beside a 16 GB card |
+| | APEX-I-Compact (not run yet) | 16.5 GB | about 12 GB beside a 16 GB card |
+| | APEX-Balanced (not run yet) | 25.3 GB | about 21 GB beside a 16 GB card |
+| `gemma4` | UD-Q3_K_M and its draft model (the default) | 13.2 GB | about 18 GB beside an 8 GB card |
+| | UD-Q2_K_XL and the draft model | 11.0 GB | about 15 GB beside an 8 GB card |
+| | UD-Q4_K_M and the draft model | 17.4 GB | about 21 GB beside an 8 GB card |
 
-```bash
-./setup.sh --family minicpmv
-```
+The RAM figure is the experts the card does not hold plus room for the rest; `./setup.sh --check` prints it for this
+PC's card. Laguna-S and Laguna-XS keep their attention caches in q8_0 (`--kv q8_0`); Occamy and Gemma 4 in fp16.
 
-```bash
-./setup.sh --family kolibri
-```
+Setup asks the context and whether to keep several conversations in RAM, compiles `strata-poly` (always, from this
+repository's source: there are no ready-made engines), downloads the model's files from a pinned revision (for
+Gemma 4 also its draft model), checks the SHA-256, writes the tokenizer directory, the run config and a start
+script, and starts the model. `--gguf-dir /folder/with/the/files` takes files you already have. On Windows it
+compiles with the CUDA Toolkit and Visual Studio's 2022 compiler (the newest that CUDA 13 takes), which it offers to
+install; on an AMD card it compiles from AMD's ROCm wheels in `.venv` (Linux) or `.rocm-win` (Windows)
+([AMD_HIP.md](AMD_HIP.md)). After a `git pull` that changes the source, the engine is compiled again. Laguna and
+Occamy have not been run on Windows, and setup says so before it installs them there.
 
-```bash
-./setup.sh --family clover
-```
+Occamy and Gemma 4 read pictures: say yes to setup's question about images, or pass `--vision yes`. Setup then
+downloads the model's image encoder too (Occamy's 0.9 GB, Gemma 4's 1.2 GB), compiles `strata-vision` beside the
+engine and writes both into the run config. On the GPU the encoder holds 1.6 GB of VRAM (Gemma 4's 2.4 GB), so on a
+card with less than 15.5 GB it runs on the CPU and a picture takes a few seconds.
 
-| Family | Model | File | Download | RAM beside an 8 GB card (estimate) |
-| --- | --- | --- | --- | --- |
-| `qwen36` | Qwen3.6-35B-A3B | Unsloth UD-Q3_K_M | 17.1 GB | about 21 GB |
-| | | Unsloth UD-Q2_K_XL | 12.6 GB | about 17 GB |
-| | | Unsloth UD-Q4_K_M | 22.7 GB | about 27 GB |
-| `ornith` | Ornith 1.5 35B-A3B | APEX-MTP-I-Compact | 17.4 GB | about 22 GB |
-| | | APEX-MTP-I-Mini | 14.4 GB | about 18 GB |
-| | | APEX-MTP-I-Quality | 23.7 GB | about 28 GB |
-| `ornith122` | Ornith 1.5 122B | Unsloth UD-Q3_K_XL, three files | 59.8 GB | about 47 GB (needs a 16 GB+ card, ~47 GB beside 24 GB) |
-| | | Unsloth UD-Q2_K_XL | 44.5 GB | about 32 GB beside a 24 GB card |
-| | | Unsloth UD-IQ3_XXS | 49.5 GB | about 37 GB beside a 24 GB card |
-| | | Unsloth UD-Q4_K_XL, three files | 79.7 GB | about 66 GB beside a 24 GB card |
-| | | Unsloth Q8_0, four files | 132.6 GB | about 119 GB beside a 24 GB card |
-| `gemma4` | Gemma 4 26B-A4B | Unsloth UD-Q3_K_M and its draft model | 13.2 GB | about 18 GB |
-| | | Unsloth UD-Q2_K_XL and the draft model | 11.0 GB | about 15 GB |
-| | | Unsloth UD-Q4_K_M and the draft model | 17.4 GB | about 21 GB |
-| `tiel` | Tiel Coder 35B-A3B | UD-Q3_K_XL | 17.2 GB | about 21 GB |
-| | | UD-IQ3_XXS | 13.6 GB | about 18 GB |
-| | | UD-Q4_K_XL | 22.7 GB | about 27 GB |
-| `minicpmv` | MiniCPM-V 4.7 35B-A3B | Q4_K_M | 21.2 GB | about 25 GB |
-| | | mix_q3gud_im | 15.5 GB | about 19 GB |
-| | | Q6_K | 28.5 GB | about 31 GB |
-| `kolibri` | Kolibri 1 | Hob-forge Q4_K_M | 47.5 GB | about 52 GB |
-| | | Hob-forge Q2_K | 28.6 GB | about 33 GB |
-| | | Hob-forge Q3_K_M | 37.5 GB | about 42 GB |
-| `clover` | Clover-35B-A3B-Preview | maternion Q3_K_M | 16.8 GB | about 20 GB |
-| | | IsValorum APEX-I-NanoPlus | 12.6 GB | about 16 GB |
-| | | maternion Q4_K_M | 21.2 GB | about 25 GB |
+## Laguna on two 16 GB cards
 
-Kolibri 1's file is 29 to 48 GB, so its three numbers are the RAM beside an 8 GB card: an 8 GB card holds
-about a tenth of its 19,200 experts, reads the rest through the OS cache; a 32 GB card fits about two thirds
-and wants about 26 GB of RAM; two cards with layer split hold it all in VRAM. At 131K context one 32 GB V100
-read a 32K prompt at 1,017 tokens/s (first token 32.7 s) and wrote 91; two read it at 2,179 tokens/s
-(first token 15.3 s) and wrote 93, the medians of three runs. It also takes `--kv q8_0`: the attention
-caches as ggml Q8_0 blocks, 544 bytes a row instead of 1,024, the window layers' rings included; fp16 is
-the default and that path is unchanged.
+Measured on echo: two RTX 5060 Ti 16 GB (PCIe 3.0 x8 and x4), an i9-9900K (AVX2), 128 GB of DDR4-3200, Linux,
+CUDA 13, the layers split across the two cards. Laguna-S 2.1 UD-Q3_K_XL at 262K of context, q8_0 attention cache,
+prompt-lookup guesses off, one conversation growing step by step with 128 tokens written a step (`laguna/longctx.py`;
+2026-11-14, the engine of commit 0a65d430):
 
-A family's first size is the one setup takes. On a PC with less RAM than that wants it takes the second, the
-smallest, and the third is by name: `--model UD-Q4_K_M`, `--model APEX-I-QUALITY`, `--model UD-Q4_K_XL`. The
-sizes differ in their routed experts. UD-Q2_K_XL has them as IQ2_XS and IQ3_XXS, for Gemma 4 as IQ2_XS and
-IQ4_NL; UD-Q4_K_M as Q4_K with Q5_K and Q6_K where they write, for Gemma 4 Q4_K and Q5_1; I-Mini as Q3_K in half
-its layers and IQ2_S in the other half; I-Quality as IQ4_XS, Q5_K and Q6_K. Tiel Coder is Ornith 1.5 quantized by
-peculiar-ragdoll with an importance matrix of its own and a chat template for shorter answers: UD-Q3_K_XL has its
-routed experts as IQ3_XXS with IQ4_XS where they write, UD-IQ3_XXS as IQ2_S with IQ3_XXS, UD-Q4_K_XL as Q4_K
-with Q5_K. The i-quants are slower on the CPU than the K-quants, which shows when the card is small: held to
-8 GB, Ornith's I-Mini writes more slowly than its I-Compact with more of its experts on the card.
+| Context | 2K | 32K | 64K | 128K | 168K | 196K |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Writes, tokens/s | 37.2 | 29.0 | 27.5 | 22.3 | 19.4 | 19.4 |
+| Reads the prompt, tokens/s | 258-269 | about 700 | about 470 | about 310 | about 225 | about 190 |
 
-The steps are GLM's ([GLM.md](GLM.md#install)). Setup asks the context and whether to keep several conversations in
-RAM, compiles `strata-poly`, downloads the model's file from a pinned revision (for Gemma 4 also its draft model,
-0.46 GB), checks the SHA-256, writes the tokenizer directory, the run config and a start script, and starts the
-model. `--gguf-dir /folder/with/the/file` takes a file you already have; a draft model that is not in that folder is
-downloaded to setup's own. The engine is compiled once for all of them. On the test machine, with the files on the
-disk, the first install took a minute, most of it the compile, and the other two 17 seconds each.
+74% to 87% of the experts a token used were in VRAM. Attention costs about 0.11 ms per 1K of context; the q8_0
+decode kernel reads the cache at about 250 GB/s.
 
-On Windows the three are installed the same way, with `START-HERE.bat` or `python setup.py` in place of
-`./setup.sh`. There setup downloads `strata-poly` and its image encoder ready-made from the latest release when that
-release was built from the same source (`tools/make_poly_release.py`: RTX 20 to RTX 50 cards, CUDA 13.0, ggml's
-CPU code for AVX2), checks the archive against the SHA-256 GitHub publishes for it, and installs NVIDIA's CUDA 13
-libraries from pip, as it does for the Qwen engine. With `--build`, on a processor without AVX2, or for a source the
-release was not built from, it compiles the engine with the CUDA Toolkit and Visual Studio's 2022 compiler, which is
-the newest that CUDA 13 takes. A newer Visual Studio serves when it has the 2022 toolset (v143) among its
-components; setup offers to install what is missing. After a `git pull` that changes the source, an engine compiled
-here is compiled again, and a ready-made one is replaced by the release's for the new source; until there is one,
-the ready-made engine already installed starts. On an AMD card under Windows there is nothing ready-made: setup
-compiles `strata-poly` for the card from AMD's TheRock wheels in `.rocm-win`, as it does for the Qwen engine, and
-keeps the images off ([AMD_HIP.md](AMD_HIP.md#strata-poly-on-amd-beta)). GLM 5.3 Flash was not run on Windows, and
-setup says so before it installs it there.
-
-Each install is a model of its own: `--list-models`, `/model` and the web page's list show all of them, and
-`./setup.sh --check` has a line for each with what this PC's card and RAM make of it.
-
-The five new models read pictures. Say yes to setup's question about images, or pass `--vision yes`:
-
-```bash
-./setup.sh --family gemma4 --vision yes
-```
-
-Setup then downloads the model's image encoder too (0.9 GB, Gemma 4's 1.2 GB), compiles `strata-vision` beside
-the engine and writes both into the run config. On the GPU the encoder holds 1.6 GB of VRAM (Gemma 4's 2.4 GB),
-which a small card needs for the model, so on a card with less than 16 GB it runs on the CPU and a picture takes
-a few seconds. `--vision gpu` and `--vision cpu` choose the place. GLM 5.3 Flash reads no pictures.
-
-The RAM column is the experts an 8 GB card does not hold, plus 10 GB for the rest. It is setup's estimate. The
-nine sizes ran on the [laptop](#on-a-laptop-with-8-gb-of-vram), which has 32 GB. The machine's RAM in use, 9 GiB
-with no model, was at most 22.5, 26.6 and 31.3 GiB with Qwen3.6's three sizes in the benchmark there, 23.9, 26.7
-and 31.4 with Ornith's and 22.6, 24.6 and 28.6 with Gemma 4's, of its 31.8. Tiel Coder's three, measured later
-with the engine of 1212621baadf, took it to 21.8, 24.9 and 29.9 GiB. Setup does not stop a PC below the 32 GB that
-Qwen3.8 needs when one of these families is named.
+Against llama.cpp on the same file (`llama-server -ot exps=CPU`, every expert on the CPU), with llama.cpp choosing
+each token and strata-poly following it (`laguna/parity.py`), six prompts of 64 steps each: strata-poly's first choice
+was the same at 95.3% of the 384 steps, and in every prompt the first difference was a near tie. KL over llama.cpp's
+top 10: mean 5.4e-2, median 2.9e-3. With every expert on the CPU and one token a call on both sides the agreement was
+94.9% of 256 steps, about the same, so the GPU path adds little to the difference. llama.cpp's own speed
+there: writing 11.3 to 11.5 tokens/s, reading 51 to 73. The tools are in [laguna/](../laguna/README.md).
 
 ## How a backend works
 
@@ -173,7 +97,7 @@ that could miss something.
 A picture goes through a second child, `strata-vision`: llama.cpp's image code with the model's encoder file. It
 turns the picture into rows as wide as a token's embedding. The server puts one placeholder token a row into the
 prompt and sends `GENI` with the rows' file and `image_pad=`, the placeholder's id; the engine reads a row where
-a placeholder stands. The template says where a picture goes: Qwen's writes the tokens around it, Gemma 4's
+a placeholder stands. The template says where a picture goes: Occamy's (Qwen's) writes the tokens around it, Gemma 4's
 writes one token and the server adds the two that llama.cpp puts around the rows.
 
 **The engine.** Inside `strata-poly`, `Engine` (src/poly/engine.hpp) is what every architecture shares:
@@ -189,7 +113,7 @@ writes one token and the server adds the two that llama.cpp puts around the rows
 - CUDA graphs for a token's fixed launches
 - the serve protocol, sampling, statistics
 
-An architecture is a class derived from `Engine` (`Glm5Next`, `Qwen35`, `Gemma4`). It supplies:
+An architecture is a class derived from `Engine` (`Laguna`, `Qwen35`, `Gemma4`). It supplies:
 
 | Hook | What it does |
 | --- | --- |
@@ -212,7 +136,7 @@ architecture sets (`gelu_` for the experts' activation, the distance between exp
 
 Pictures show it. The shared code puts a picture's rows where token embeddings go and gives the conversation
 cache a number for each row made from the picture, so that it tells one picture from another of the same size.
-The rest is the architecture's. Qwen3.6's rotary embedding has three axes: text has one position on all of them,
+The rest is the architecture's. Occamy's (qwen35moe's) rotary embedding has three axes: text has one position on all of them,
 a picture's rows share a position on the first and add their line and their column on the other two, and the
 text after a picture goes on as many positions later as the picture has lines or columns, whichever is more.
 Gemma 4 counts a picture's rows like text, lets them see each other in its window layers and keeps its full
@@ -226,30 +150,22 @@ key, so a model the engine cannot run is listed as unavailable with the reason i
 
 | `general.architecture` | Class |
 | --- | --- |
-| `glm5-next`, `glm5next` | `Glm5Next` |
+| `laguna` | `Laguna` |
 | `qwen35moe` | `Qwen35` |
 | `gemma4` | `Gemma4` |
-| `deepseek4` | `DeepSeek4` |
-| `lfm2moe` | `Lfm2Moe` |
-| `kolibri1` | `Kolibri1` |
-| `clover_moe` | `Qwen35` |
 
 Within an architecture the shape comes from the file: layer counts, widths, head counts, expert counts, which
-layers have which attention, whether there is a draft block. Qwen3.6 and Ornith 1.5 are one class because their
-files describe the same layout with other weights.
+layers have which attention, whether there is a draft block. Laguna-S and Laguna-XS are one class because their
+files describe the same layout with other sizes (48 and 40 layers).
 
 The server takes how a model talks from its tokenizer directory: the chat template, the tokens that end a reply,
 and, by the tokenizer's `pre` name, how the model writes its reasoning and its tool calls (`serve/frontend.py`).
 
 | Model | Reasoning | A tool call |
 | --- | --- | --- |
-| Qwen3.8, Qwen3.6, Ornith, Clover | the prompt opens it, `</think>` ends it | `<tool_call><function=NAME><parameter=P>...` |
-| GLM | the same | `<tool_call>NAME<arg_key>K</arg_key><arg_value>V</arg_value>...` |
+| Laguna | the prompt opens it, `</think>` ends it | GLM's: `<tool_call>NAME<arg_key>K</arg_key><arg_value>V</arg_value>...` |
+| Occamy | the prompt opens it, `</think>` ends it | `<tool_call><function=NAME><parameter=P>...` |
 | Gemma 4 | `<\|channel>thought` to `<channel\|>`, opened by the model | `<\|tool_call>call:NAME{key:value,...}<tool_call\|>` |
-| DeepSeek V4 | the prompt opens it, `</think>` ends it | `<｜DSML｜invoke name="NAME"><｜DSML｜parameter name="K" string="true">V...` |
-| LFM2.5 | the prompt opens it, `</think>` ends it | `<\|tool_call_start\|>[NAME(K='V', ...), NAME2()]<\|tool_call_end\|>` |
-| Flint | `<think>` to `</think>`, opened by the model | as GLM's |
-| Kolibri 1 | the prompt opens it, `</think>` ends it | a JSON object in the wrapper: `{"name": NAME, "arguments": {...}}` |
 
 Gemma 4's template thinks only when it is told to, reads a tool in OpenAI's shape and starts with the tokenizer's
 `<bos>`; the server gives it all three. A tool's answers are put in the order of their calls for every model,
@@ -264,7 +180,7 @@ because a model reads them by position.
 | --- | --- |
 | `id` | the config's `model_name` |
 | `display_name` | the config's `display_name` (setup writes it), else the GGUF's `general.name` |
-| `backend` | the GGUF's architecture (`qwen4exp` for a pack) |
+| `backend` | the GGUF's architecture |
 | `path` | the config's `--model` |
 | `quantization` | the file's name (`UD-Q3_K_M`, `3.0bit`), else its most common tensor type |
 | `params_total`, `params_active` | the GGUF's size label (`35B-A3B`) |
@@ -278,7 +194,7 @@ because a model reads them by position.
 `models.json` in the same folder may add to an entry or correct it:
 
 ```json
-{"qwen3.6-35b-a3b-ud-q3_k_m": {"display_name": "Qwen3.6 35B-A3B", "notes": "the daily one"}}
+{"laguna-s-2.1": {"display_name": "Laguna S 2.1", "notes": "the daily one"}}
 ```
 
 The estimates are rough. `least` leaves out the attention caches, which grow with the context.
@@ -292,7 +208,7 @@ python polystrata.py --list-models
 ```
 
 ```bash
-python polystrata.py --model qwen3.6
+python polystrata.py --model laguna-s
 ```
 
 `--model` chats with a model. If a server is already running on the port it is switched to the model; if none is,
@@ -328,7 +244,8 @@ All three ways go through `Service.switch_model()` in the server. A switch:
 5. on failure starts the earlier model again and says which one is loaded
 6. on success takes over the new model's tokenizer, chat template, stop tokens, sampling defaults and aliases
 
-Measured: 8 to 16 s a switch between the four models on the machine above, with their files in the page cache.
+Measured by PolyStrata: 8 to 16 s a switch between four models (Qwen3.6, Ornith 1.5, Gemma 4, GLM 5.3 Flash) on an
+RTX 5090 machine, with their files in the page cache.
 
 With `"memory_debug": true` in a run config, or `STRATA_MEMORY_DEBUG=1`, a switch prints the free VRAM before it,
 after the old engine ended and with the new one:
@@ -339,8 +256,13 @@ after the old engine ended and with the new one:
 
 ## Benchmark
 
+The measurements from here on are PolyStrata's. Unless a section says otherwise they are from one machine: an
+RTX 5090 (32 GB), 24 threads of a Xeon Platinum 8470Q, 120 GiB of RAM, Linux, CUDA 12.8, where the models fit in
+VRAM whole. [One section](#with-8-gb-of-vram) holds the 5090 to 8 GB, and [one](#on-a-laptop-with-8-gb-of-vram) is
+from a Windows laptop whose card has 8 GB.
+
 ```bash
-python polystrata.py benchmark --model qwen3.6 --json qwen36.json
+python polystrata.py benchmark --model laguna-s --json laguna-s.json
 ```
 
 It sends a short prompt and two long ones (2000 and 8000 tokens, roughly; `--prompt-tokens` changes them), 256
@@ -584,10 +506,8 @@ from hand-written configs, as for the last table below.
 | GLM 5.3 Flash REAP50-Q3_K_M | 32 GB | 29,364 | 22.8 to 22.9 | 1,289 to 1,292 | 62 | 60 to 64 | 58% to 59% |
 | DeepSeek V4 Flash UD-IQ2_XXS | 32 GB | 29,750 | 28.7 to 28.8 | 1,038 to 1,040 | 56 | 39 to 44 | 73% |
 
-DeepSeek V4 Flash's row is of 2026-10-15, as setup installs the model, with the build that added it
-([DEEPSEEK.md](DEEPSEEK.md)). LFM2.5-24B-A2B's five sizes ran the same test on this machine and on the laptop
-below; their tables are in [LFM.md](LFM.md#how-fast). So did Flint 40B-A2.5B's four, but for UD-Q6_K_XL, which ran on
-the laptop only ([FLINT.md](FLINT.md#how-fast)).
+DeepSeek V4 Flash's row is of 2026-10-15, as PolyStrata's setup installed the model, with the build that added
+it.
 
 Tiel Coder's three sizes ran again that day with the same build, whose prompt batches route on the card and skip
 cuBLAS for small products. The documents had grown to 32,165 tokens. UD-Q3_K_XL read them at 8,083 to 8,114
@@ -1249,41 +1169,6 @@ the picture in the same place, which gives the same ids, is read from the start 
 tokens. Through the server each of the three models answered the three prompts, the first one with the other
 picture in its place, and a prompt without pictures after them.
 
-### Clover-35B-A3B-Preview
-
-Clover is Qwen3.6-35B-A3B trained further by DiffuSpace to also write a block of tokens at once. Its GGUFs come from
-the converter of llama.cpp's pull request 31306, as `clover_moe`, and the `Qwen35` class runs them. A file differs
-from Qwen3.6's in two places: `ssm_a` holds A_log itself, of which the engine takes -exp as it loads, and there are no
-`rope.dimension_sections`, since Clover reads text only. Four small tensors in every recurrent layer and a mask token
-are for the block.
-
-Against that pull request's llama.cpp (4838ffb0c8ad) on an RTX PRO 6000 with every expert of maternion's Q3_K_M in
-VRAM, greedy, 128 tokens: the engine's likeliest token was llama.cpp's at 127 of 128 steps after a 27-token prompt
-and at 125 of 128 after a 5,573-token prompt, and at the other steps llama.cpp's token was in its top three. Setup's
-figure for the VRAM beside the experts, 3.4 GB for Q3_K_M, is that card's at a 32K context after a 30,476-token
-prompt.
-
-**The block guesses,** off unless `STRATA_BLOCK_GUESS=1`. The token the engine has and seven masks go through the
-model together. The gated delta nets read their state without changing it, add the block's next three inputs to their
-convolution and weigh the block's values and the state by a softmax; the attention layers see the whole block; the
-block routes among the experts that hold 90% of its weight. Each mask's own row of the output picks the token at its
-place, and a window checks the guesses as it checks a draft block's, so the answer is the one without them. After the
-5,573-token prompt the first block was llama.cpp's `draft-self` block token for token.
-
-They did not pay. With every expert in VRAM on the RTX PRO 6000:
-
-| Prompt | Without the guesses | With them | Guesses right |
-| --- | ---: | ---: | ---: |
-| 27 tokens | 242 tokens/s | 179 | 78% |
-| 5,573 tokens | 205 | 192 | 86% |
-| 30,476 tokens, a build before the block was recorded | 204 | 157 | 74% |
-
-A token alone took 4.4 ms there, a block 12 ms after a short prompt and 16 ms after 30,000 tokens, and a window of 2
-tokens 1.5 times a token alone, of 4 tokens 1.8 times. Each token of a call brings experts of its own, so a call costs
-about as much more as it has tokens, and the block is one more such call a round. On the 8 GB laptop, with half the
-experts in RAM, Q3_K_M wrote 57.7 tokens/s after a 32K prompt with the guesses and 61.6 without; the engine guesses
-blocks only while the card holds every expert, and then only under the switch.
-
 ## What was tuned
 
 | Change | Model | Before | After |
@@ -1730,7 +1615,7 @@ the engine keeps half the reserve free, 128 MiB at least. It looks before each r
 taken VRAM and less than half of that is free, the cache gives up its least used experts, and when 64 MiB more
 than that has come free, it takes the most used experts it lacks. Sized again whole, as it was, it went down with
 every program that held VRAM a moment and never came back up. The server's `POST /v1/vram` still sizes it again
-whole ([DETAILS.md](DETAILS.md)): the cache is emptied and filled for another reserve with the experts used most
+whole ([API.md](API.md#sharing-the-gpu-with-other-programs)): the cache is emptied and filled for another reserve with the experts used most
 so far, in 11 ms to give up 1.6 GiB and 262 ms to take it back.
 
 A read took up to 8,192 tokens, and each read copies every layer's experts outside the cache to the card once:
@@ -2137,7 +2022,7 @@ the 256 tokens of each of the three answers were the same as with every expert i
 cannot hand their memory to another program. Without it they are pages of the file, which Windows counts in the
 engine's working set and Linux in its page cache, and either takes them back when memory runs short; a token that
 needs one then reads it from the disk again. A user's 16.7 GB file had 3.4 GB of it left in memory under Linux
-([issue 79](https://github.com/VecSzn/PolyStrata/issues/79)). The engine locks them once the load has read them
+([issue 79](https://github.com/simplexai-labs/PolyStrata/issues/79)). The engine locks them once the load has read them
 in (mlock under Linux, VirtualLock under Windows), and between requests unlocks the ones the cache has taken and
 locks the ones it has given up. Linux locks no more than `ulimit -l` allows; past it the engine says how much it
 locked and the rest stay in the file cache. It does not go with `--ram-experts-mib`.
@@ -2202,34 +2087,142 @@ of 16 MiB preads at 61.8, where 63.1 without either, with no limit.
 
 Windows decides the same way and was not measured; the budget's reads there are the ReadFile ones measured above.
 
-### Qwen3.6 on two engines
+## Switches
 
-Since its 0.1.44 the [Strata](https://github.com/Niko1221/Strata) project runs Qwen3.6-35B-A3B on an engine path of
-its own, strata-q36: setup installs it with `--family qwen36-strata` (UD-Q4_K_XL, UD-Q6_K_XL and Q8_0, 32 GB of RAM or more).
-That engine refuses files with Q3_K experts, which Qwen3.6's UD-Q2_K_XL and UD-Q3_K_M and every Tiel Coder size have
-(a few layers each), so those stay on strata-poly (`--family qwen36`, `--family tiel`).
+Options of strata-poly's own, with what they were measured on. They apply to qwen35moe models (Occamy) unless a
+section says otherwise.
 
-The Strata project's 0.1.45 gives strata-q36 pictures (`--vision`), several requests at once (`--parallel`) and
-faster decode kernels ([QWEN36.md](QWEN36.md)). The table below was measured with 0.1.44.1's strata-q36.
+### Flash attention for prompt reading (on by default; `STRATA_FATTN=0` turns it off)
 
-Both engines on the same file, UD-Q4_K_XL, on the RTX 5090 with 25 cores of a Xeon Platinum 8470Q: greedy, the two
-in turn, two rounds each. strata-q36 ran with `--mtp 2`, as its setup writes it; strata-poly with its draft
-block and repeats. "3 GiB of experts" gives both the same expert budget (strata-q36's `--expert-vram 3.0`, strata-poly's
-`--vram-reserve-mib 25000`, 1,684 experts). It is not an 8 GB card: strata-q36 keeps more beside the experts
-(its attention caches in fp32), so on a real 8 GB card it would hold fewer.
+For qwen35moe models (Occamy, and upstream's Qwen3.6 and Ornith; heads of 256 values, 8 or 16 heads a group), on an
+Ampere or later NVIDIA card. A prompt batch's attention runs through llama.cpp's flash-attention kernel
+(`src/poly/fattn_mma.cuh`, a copy of `fattn-mma-f16.cuh` with the causal mask computed in the kernel) instead of
+two cuBLAS products and a softmax over scores in memory. Under the q8_0 cache (`--kv int8`) blocks of keys are
+dequantized to fp16 in the attention's existing score scratch; an fp16 cache is read where it lies. No VRAM is added.
+The server logs `STRATA_FATTN: prompt attention through llama.cpp's flash-attention kernel`. Decode, Turing, HIP and
+other models keep the old path, and so does `STRATA_FATTN=0`. It was opt-in (`STRATA_FATTN=1`) until two cards beside
+the one below showed the same gain ([PolyStrata issue 107](https://github.com/simplexai-labs/PolyStrata/issues/107) and the measurement at
+the end of the next section).
 
-| Tokens/s | strata-q36 | strata-poly |
+**Measured** on an RTX 3070 8 GB (PCIe 3.0 x16; Ryzen 5 2600X, 32 GB DDR4-3200; Cyber-Tiel-Coder 35B-A3B
+UD-Q4_K_XL, `--max-context 262144`, q8_0 cache), a coding-agent conversation of growing turns: prompt read 1,437 -> 1,824 tokens/s at 32K of context, 749 -> 1,268 at 103K,
+610 -> 1,066 at 143K (+65-85% at 103-143K against the range of earlier control runs); decode the same within 1
+token/s; a 107K recall test 3 of 3. The kernel sums the value products in halves, so its results are further from
+the arithmetic in doubles (up to 7.7e-3 on results up to 2.9) than the old path's (2.3e-3); `poly_fattn_test` checks
+both caches. Greedy answers part from the old path's after a few dozen characters, at near-ties where the old path
+also parts from itself between runs.
+
+### Tensor-core decode attention (on by default from 4,096 tokens of context; `STRATA_FDEC=0` turns it off)
+
+The decode side of the same layers: the few tokens of an answer's step (one, or a window of guesses). Once the cache
+holds 4,096 positions they go through a kernel of this project's own (`fdec_q8()` / `fdec_f16()` in `src/poly/fattn.cu`)
+instead of `attend()`'s score, softmax and value kernels, which write every score to memory and read it back twice.
+One CUDA block takes 1,024 keys of a KV head's group for up to 4 tokens (group 8) or 2 tokens (group 16) as flash
+attention on the tensor cores. The cache is read once for those tokens, and the blocks are merged by their softmax
+max and sum. q8_0 and fp16 caches, heads of 256 values, 8 or 16 heads a group, Ampere or later NVIDIA.
+A token gets the same bits alone or in a window, as
+with `attend()`. No VRAM is added. The server logs `STRATA_FDEC: decode attention through the tensor-core decode
+kernel from 4,096 tokens of context`; Turing, HIP and other models keep the old path, and so does `STRATA_FDEC=0`.
+Below 4,096 positions the old path stays, since its kernel is the faster one there (below); `STRATA_FDEC=1` uses
+the new one from the first position, as the opt-in did.
+
+**Measured** on the RTX 3070 setup above (q8_0 cache, 256K, with `STRATA_FATTN=1`), the same conversation, two runs
+each: decode 53.8 -> 63.9 tokens/s at 32K of context, 35.1 -> 53.0 at 103K, 29.3 -> 48.7 at 143K, 26.6 -> 45.6 at
+174K; short prompts the same (62-78 tokens/s either way). With an fp16 cache at 128K (one run): 53.0 -> 62.6 at
+32K, 32.5 -> 43.2 at 103K. One layer's attention at 140K of context (`poly_fattn_test dec`): 0.45 ms against 1.94
+for one token with q8_0, 0.72 against 1.82 with fp16; below about 4K of context it is the slower one (0.05 against
+0.02 ms a layer). The scores and values go through the tensor cores as halves, so results are within 1.8e-3 of the
+arithmetic in doubles where `attend()` is within 1e-6. A long-context question set (39K to 196K tokens of this
+repository's source, temperature 0) got the same 11 of 12 checkable answers right with and without it, and its
+answers part from the old path's about as early as two runs of the old path part from each other. The 107K and a
+247K recall test passed.
+
+**Both, measured again before they became the default** on an RTX PRO 6000 (sm_120, CUDA 12.8) held to 12 GB with
+`--vram-reserve-mib`, Qwen3.6-35B-A3B UD-Q3_K_M with setup's own flags, fp16 cache, the expert split frozen, a
+prompt of this repository's documentation with a code hidden in its middle and a question about it at the end,
+the median of two runs:
+
+| Prompt | Neither: reads / writes, tokens/s | Both: reads / writes |
 | --- | ---: | ---: |
-| Writing, every expert on the card | 378.9, 379.5 | 402.1, 400.3 |
-| Writing, 3 GiB of experts | 195.5, 200.9 | 179.6, 183.2 |
-| Reading 4,035 tokens, every expert on the card | 8,958, 8,957 | 5,666, 5,497 |
-| Reading 4,035 tokens, 3 GiB of experts | 5,347, 5,351 | 3,299, 3,277 |
-| Reading 31,167 tokens, every expert on the card | 6,621, 6,602 | 6,339, 6,402 |
-| Reading 31,167 tokens, 3 GiB of experts | 5,236, 5,232 | 5,650, 5,561 |
+| 21 tokens | 129 / 226 | 131 / 225 |
+| 4,833 | 3,911 / 178 | 4,216 / 188 |
+| 32,046 | 7,039 / 188 | 8,555 / 252 |
+| 100,046 | 5,837 / 106 | 8,210 / 230 |
 
-Writing is a 256-token answer to a 45-token code prompt (strata-poly's answers ended at token 243); the prompts are
-that one repeated. strata-q36 reads a short prompt 1.6 times as fast; at 31K the two are close, and with the
-smaller expert budget strata-poly is ahead. The time strata-poly loses on a short prompt is the next thing to look at.
+Every run at 32K and 100K answered the hidden code. With the fixed flags of a regression run the greedy answers of
+both and of neither were the same 128 tokens at 32K and parted at token 85 at 100K. The RTX 4060 Laptop of
+[PolyStrata issue 107](https://github.com/simplexai-labs/PolyStrata/issues/107) at 118K: 1.62x reading, 1.60x writing.
+
+### Chunked GDN prefill
+
+`STRATA_GDN_MMA=1` requests the shared CUDA tensor-core GDN kernel for eligible reads in the Qwen35 backend.
+Unset or `0` keeps the stock recurrence. The request is captured at engine initialization; restart to change
+it. The server's existing model `env` map accepts the same setting, and an explicit `"0"` overrides an
+inherited `1`. There is no new API parameter or installer default.
+
+The capability decision is logged once per engine, including fallback on unsupported shapes, devices or
+backends. Eligible calls have 128 values per head, 16 key heads, 16/32/48/64 value heads and at least 64
+contiguous rows from one sequence. Decode, short reads, separate sequence rows, recorded launches and MTP
+intermediate snapshots keep the stock path. No extra persistent GPU buffer is added.
+
+The shared `strata_gdn_mma` library exposes prepared inputs through `include/strata/kernels/gdn_mma.hpp`
+in `strata::kernels`. Qwen35 (`qwen35moe`) is currently the only integrated caller; other compatible models
+can add thin adapters using the same kernel and capability checks.
+
+Supported CUDA targets are SM 86/89/120/121, subject to sufficient shared memory; SM100 is not enabled.
+Runtime measurements used SM89. CUDA 13.3 compilation was checked for the SM120/121 kernel and SM120
+adapter, but Blackwell runtime testing is still needed. HIP was not built here; the CUDA library is excluded
+there. This experimental opt-in changes floating-point accumulation and can change
+outputs. Prefill gains do not guarantee faster generation; some measured long-response TG runs regressed.
+
+### Streaming CPU copies for expert staging
+
+`STRATA_POLY_STREAM_STAGE=1` uses SSE2 streaming stores when packing experts into the existing host upload
+buffers during prefill. Unset or `0` keeps the stock copies. The setting is captured at engine initialization;
+restart to change it. It can also be set in the server model's `env` map. Builds without SSE2 keep stock copies.
+This applies to the shared strata-poly staging path, for every architecture; background expert swaps are unchanged. No extra host or GPU buffer is allocated, and the model file mapping is unchanged.
+
+### Size-class MMQ launches for staged experts
+
+While a prompt is read, the experts that are not in VRAM are copied through the staging buffer and multiplied by
+llama.cpp's quantized matrix kernels (MMQ), the experts of a round in one launch. That launch takes its tile
+width, the number of rows of a tile, from its largest expert (`mul_mat_q_switch_J`), and a tile computes all of
+its columns whatever rows are in them. A prompt batch spreads its rows unevenly: on the RX 5700 XT run below
+the median staged expert had 15 rows and the largest 463, so every launch used the widest tile (64) and only 43%
+of the columns it computed held a row.
+
+`STRATA_POLY_STAGED_TILES=8,16,32` puts the experts of a round in size classes (up to 8 rows, up to 16, up to
+32, more) and makes one launch for each class that has rows, so that each uses the tile its experts need. The
+numbers are ascending row counts, at most 7 of them. Unset, empty or invalid (a message is printed) keeps the
+single launch. The setting is read when the engine starts, so restart to change it, and it can be set in the
+server model's `env` map. A round's rows lie class after class, and each class has its own bounds in which the
+other classes' experts have no rows, as the cached experts' classes already do. A row's products are then
+the single launch's to the bit on a card whose MMQ does not use stream-k (AMD RDNA and GCN, NVIDIA Pascal). On
+one that does (NVIDIA from Volta, AMD CDNA) stream-k shares a tile's sum between blocks by the launch's tile
+count, so the class launches add the same parts in another order and agree within rounding: on an RTX PRO 6000
+the rows differed in the last bit or two, and a 256-token Qwen3.6 answer to a 32K prompt (experts frozen)
+left the single launch's at token 180. `poly_mmq_tiles_test` checks the first to the bit and the second within rounding. The
+tables grow by
+`2 x 8 x (2 x experts + 2)` integers (33 KB for 256 experts), allocated whether or not it is set. Experts already in VRAM keep
+their own classes.
+
+Measured on an RX 5700 XT 8 GB (gfx1010), Windows, Tiel Coder 35B-A3B UD-Q4_K_XL, `--kv q8_0`,
+`--vram-reserve-mib 384`, a cold prompt of 18,932 tokens (the repository's docs text), one engine start for
+each run, tokens/s of the prompt read:
+
+| `STRATA_POLY_STAGED_TILES` | run 1 | run 2 |
+|---|---|---|
+| unset | 246.9 | 248.5 |
+| `8,16,32` | 272.8 | 270.9 |
+| `4,8,16,32` | 274.4 | |
+
+That is +10%. On the same card with the engine's other gfx1010 changes (not in this tree: the SDWA int8 dot
+product, the FP32 prompt attention) the prompt read of 77,136 tokens went from 297 to 339 tokens/s (+14%) and
+of 18,932 tokens from 390 to 471 (+21%): the staged experts' launches are a larger share of the prompt there.
+More classes than `8,16,32` gained nothing measurable. The gain depends on how unevenly the rows fall, so on the
+number of tokens in a batch, the number of experts, how many are cached in VRAM and the card's tile table; a
+card with a different MMQ tile table (`mmq-config-*.cuh`) may gain more, less or nothing. Only gfx1010 was
+measured.
 
 ## Adding a model of an architecture that is there
 
@@ -2243,18 +2236,18 @@ Setup knows the files in the table above. Another file of one of these architect
    ```
 
    It writes `packs/<name>/tokenizer/` with the vocabulary, the merges and the model's chat template. Byte-level
-   BPE (`gpt2`: Qwen, GLM) and Gemma 4's `gemma4` are read.
+   BPE (`gpt2`: Laguna, Occamy) and Gemma 4's `gemma4` are read.
 3. Write `strata-<name>.json` beside `setup.py`:
 
    ```json
-   {"exe": "engine/strata-poly", "args": ["--model", "/path/model.gguf", "--max-context", "32768"],
+   {"exe": "engine-poly/strata-poly", "args": ["--model", "/path/model.gguf", "--max-context", "32768"],
     "cwd": ".", "tokenizer": "packs/<name>/tokenizer", "model_name": "<name>", "port": 8080}
    ```
 4. `python polystrata.py --list-models` should list it as available, and `python polystrata.py --model <name>`
    should answer.
 5. Check it against llama.cpp before trusting it: the same prompt's token ids into both, greedy, and compare the
    tokens that come out.
-6. To have setup install it, give it a family in `FAMILIES` in `setup.py`, next to `qwen36`: the repository at a
+6. To have setup install it, give it a family in `FAMILIES` in `setup.py`, next to `occamy`: the repository at a
    pinned revision, the file's name, size and SHA-256, the size of its routed experts and the VRAM it takes before
    any expert. Steps 2 and 3 are then setup's.
 
@@ -2265,59 +2258,24 @@ Setup knows the files in the table above. Another file of one of these architect
    `gemma4.cpp` shows the hooks for a model that departs further.
 3. Put what the layers need that no kernel does yet in `src/poly/kernels.cu`, next to the others. Keep a kernel's
    result for a token independent of the tokens beside it when it runs in a window of guessed tokens.
-4. Name the class in `Engine::open()` and the file in `CMakeLists.txt`.
+4. Name the class in `Engine::open()` and the file in `CMakeLists.txt` (and `metal/CMakeLists.txt` for a Mac).
 5. Check it against llama.cpp on the same file before any tuning: tokens and probabilities on short and long
    prompts, with every expert on the CPU, and with and without guessed tokens.
 
 ## Limits
 
-- NVIDIA cards only. Built and run on one Linux machine, and the three new models' nine sizes on one Windows
-  laptop as well. GLM 5.3 Flash was not run on Windows. Two cards can share a model since 2026-10-11
-  ([MULTI_GPU.md](MULTI_GPU.md#the-strata-poly-models)); that ran with Qwen3.6 and Gemma 4 on two RTX 3080
-  under Linux only. An AMD card runs them through the HIP build as well
-  ([AMD_HIP.md](AMD_HIP.md#strata-poly-on-amd-beta)): Qwen3.6 and Ornith on an RX 7600 under Linux, Tiel Coder on
-  an RX 9070 XT under Windows; nothing else on either.
-- The changes that came from the laptop were built on Windows first, and on Linux on 2026-10-10 (gcc 11.4,
-  CUDA 12.8), where the first sizes were checked against llama.cpp and with and without guesses again, and the
-  benchmark of [A prompt of 30,000 tokens](#a-prompt-of-30000-tokens) was run. GLM 5.3 Flash, which only that
-  machine has the RAM for, stopped in the middle of an answer with them until the pool of the CPU's threads was
-  fixed that day. The engine's leaving of the power throttling is Windows' alone. The pool sleeps with
-  `std::atomic`'s `wait`, which on Linux needs libstdc++ 11 or newer.
-- The target of 8 GB of VRAM with 32 GB of RAM was measured on that one laptop. Each model's largest file
-  takes its RAM to 28.6 to 31.4 GiB of 31.8 with what else runs there, and the two largest of all then read
-  part of a prompt from the disk.
-- On the laptop an answer on another subject than the one before starts with fewer of its experts in VRAM
-  than it ends with: the cache makes that up over the answer's first windows. That was not worked on.
-- Writing on the laptop still moves with what else it does. On a day with its owner at work on it, runs of
-  two short prompts wrote at 40 to 84 tokens/s.
-- Setup installed the three new models from files that were already on the disk, on both machines. Of the new
-  files its own download fetched Gemma 4's draft model (0.46 GB, through a mirror) and found the pinned
-  SHA-256; the three addresses of the model files were asked for their headers only, and each states the
-  pinned size. For the laptop the files were fetched by setup's download and checksum functions, called from
-  a script. The CUDA Toolkit and Visual Studio were on the laptop before setup ran, so its install of the
-  two was not run for this engine.
-- Setup's RAM figures for them are estimates.
-- Pictures were read with the encoder on the GPU of the first machine. Setup puts it on the CPU of a card with
-  less than 16 GB: that was run through the server with Qwen3.6 on the first machine (a new picture took 3 to
-  5 s with 12 threads), and on the laptop with the nine sizes, a picture each (3.8 to 7.4 s).
-- Setup's install with images ran on the test machine for the three models, with the encoder files already
-  beside the models' files: it compiled the encoder and wrote the run configs, and the server read pictures
-  with them. The files had been fetched before with setup's download and checked against the pinned SHA-256.
+- Puddle's models have run on one machine: echo, two RTX 5060 Ti 16 GB under Linux (Laguna-S UD-Q3_K_XL, Laguna-XS
+  Q4_K_M and Occamy APEX-Quality, with both cards). Laguna-S UD-Q4_K_XL and Q4_K_M, Occamy APEX-I-Compact and
+  APEX-Balanced have not been run; Gemma 4 was run by PolyStrata (above). Nothing of Puddle's has run on Windows, on
+  an AMD card or on a Mac.
+- Setup's RAM figures are estimates.
+- An AMD card runs strata-poly through the HIP build ([AMD_HIP.md](AMD_HIP.md#what-was-measured)); upstream ran
+  Qwen3.6 and Ornith on an RX 7600 under Linux and Tiel Coder on an RX 9070 XT under Windows.
 - A picture of Gemma 4's goes into the model in one prompt batch, 1,024 rows unless `--prompt-batch` says more;
   one with more rows is refused. Setup holds pictures to 1,024 rows (`--vision-tokens` changes it).
 - Video and audio are not read.
-- With everything in VRAM, llama.cpp reads prompts faster on the same card, 6,000 to 9,000 tokens/s against
-  4,100 to 5,800. It writes 165 to 180 tokens/s; this engine writes 150 to 205 a token at a
-  time and more with guesses ([Benchmark](#benchmark)). The router's scores still go to the host and back in
-  every layer, which a model that fits does not need.
-- Ornith's guessed tokens pay less than Qwen3.6's, though the two are one architecture. Its block offers fewer
-  guesses and fewer of them are right: in a 256-token answer about code 127 of 153, at 291 tokens/s, where
-  Qwen3.6 has 166 of 190 and 342, and in a short story 28 of 41 and 237 against 160 of 187 and 335. Their
-  matrices are of other formats too, and what a window costs each of them was not compared.
-- GLM's recurrent layers use the step the delta net had before it was rewritten for Qwen3.6 in every call of
-  fewer than 32 tokens, which is all of them while it writes. Its writing is bound by the experts that are not
-  in VRAM, so it was left. Its window of guessed tokens stays at four: its kernels were not given the choice of
-  the tokens that leave a state, as GLM could not be run where that was made.
-- No test runs the engine without a GPU and the model files: what is said of it here was measured by hand on the
-  two machines.
+- With everything in VRAM, llama.cpp reads prompts faster on the same card (upstream's RTX 5090: 6,000 to 9,000
+  tokens/s against 4,100 to 5,800). The router's scores still go to the host and back in every layer, which a model
+  that fits does not need.
+- No test runs the engine without a GPU and the model files: what is said of it here was measured by hand.
 - The benchmark's VRAM and RAM figures are the machine's, not the engine's alone.

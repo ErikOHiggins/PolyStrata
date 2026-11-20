@@ -1,8 +1,8 @@
 # Image generation (FLUX.2 klein 4B in stable-diffusion.cpp's Web UI)
 
-PolyStrata's web app can also make images: its **Images** tab shows the Web UI of
+Puddle's web app can also make images: its **Images** tab shows the Web UI of
 [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) ([sdcpp-webui](https://github.com/leejet/sdcpp-webui)),
-and PolyStrata's server runs stable-diffusion.cpp's own server (`sd-server`) behind it. The model is
+and Puddle's server runs stable-diffusion.cpp's own server (`sd-server`) behind it. The model is
 [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) (4 steps, CFG 1) in
 [leejet's GGUF quants](https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF). Setup compiles `sd-server` and its Web UI
 for your GPU. Image generation is optional and stays off unless you ask for it.
@@ -58,7 +58,7 @@ On Vulkan, setup adds `--vae-tiling --vae-tile-overlap 0.25`. An untiled 1024x10
 GPU job long enough to trip the kernel driver's job timeout. A quarter's overlap decoded in half the time of sd.cpp's
 default half overlap (measured with Qwen-Image's VAE, before this change).
 
-An install set up with the earlier Qwen-Image version keeps working for chat. Its `"images"` section (sd-cli) is not
+An install set up by PolyStrata with its earlier Qwen-Image version keeps working for chat. Its `"images"` section (sd-cli) is not
 used: the server says so at its start and leaves image generation off until you run `--images flux2-klein`. The old
 files in `models/qwen-image-2.1-turbo/` are not used any more, and you can delete them.
 
@@ -76,12 +76,12 @@ own tab**). This is sd.cpp's own Web UI, with all its controls:
 Its upstream guide is the
 [server README](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/README.md#web-ui).
 
-The Web UI's **Enhance prompt** sends the prompt to an OpenAI-compatible API. PolyStrata fills in its own `/v1` and
+The Web UI's **Enhance prompt** sends the prompt to an OpenAI-compatible API. Puddle fills in its own `/v1` and
 model name (and the web app's API key, if it has one) the first time the page opens, so the button asks the text model
-running here. You can change these values in the Web UI's Settings; PolyStrata does not overwrite a value you have set.
+running here. You can change these values in the Web UI's Settings; Puddle does not overwrite a value you have set.
 
-What PolyStrata's server passes on is `sd-server`'s native API, `/sd/sdcpp/v1/*`. `sd-server`'s OpenAI
-(`/v1/images/generations`) and sdapi routes are not passed on, and PolyStrata's own `/v1/images/generations` is gone
+What Puddle's server passes on is `sd-server`'s native API, `/sd/sdcpp/v1/*`. `sd-server`'s OpenAI
+(`/v1/images/generations`) and sdapi routes are not passed on, and PolyStrata's old `/v1/images/generations` is gone
 with this version. `sd-server` listens on `127.0.0.1` on a random port.
 
 With an API key (`--api-key`), the page needs it too. When the Images tab opens, the web app sends the key to
@@ -95,7 +95,7 @@ are refused (`Sec-Fetch-Site`, `Origin`).
 stops after `"idle_s"` seconds (default 600; 0 = never) without a job, a model change or another action. An open page
 that only polls does not keep it running. Stopping gives its RAM back.
 
-While it is stopped, PolyStrata answers the page's catalog and status requests with what `sd-server` said last, so the
+While it is stopped, Puddle answers the page's catalog and status requests with what `sd-server` said last, so the
 page still shows the model as loaded. The next job starts `sd-server` again, loads the model that was loaded last (the
 one you chose in the Web UI, if you changed it), and then runs. That job takes the start's time longer. Each start
 writes `sd-server`'s log to `sd-server.log` in the images folder (`"out_dir"`, default a temporary folder).

@@ -1,5 +1,9 @@
 # Radeon 780M / 760M (Ryzen 7040 / 8040, gfx1103): build from source on Linux
 
+> **In Puddle:** this page is PolyStrata's, measured with its Qwen3.8 engine, which Puddle does not have. What
+> still applies: setup recognizes the chip and compiles strata-poly for it with the toolchain below. strata-poly
+> has not been run on it. [AMD_HIP.md](AMD_HIP.md) is the AMD page for Puddle.
+
 The Radeon 780M (Phoenix / Hawk Point, RDNA3, `gfx1103`) runs PolyStrata through the same HIP backend as the Radeon
 cards in [AMD_HIP.md](AMD_HIP.md). **Status: experimental and opt-in** (`STRATA_EXPERIMENTAL_GFX1103=1`): the port
 is measured on one machine (the numbers below), the maintainers have not run one, and the chip is not Strix Halo.
@@ -128,5 +132,5 @@ context cost, not the drafter). Memory stays flat: 38.1 of 50 GiB GTT at 131K. R
 - CUDA and SYCL were not built here (no toolchains on this box); the added gfx1103 macros are undefined for them.
 - Reset stability looks good but is one machine: a 2 h 07 m soak (`tools/serve_load.py`, 924 requests) and the
   reset-prone combination from 7.10 (partial expert cache + `STRATA_IO_PREFETCH=1` + the adaptive tier) both ran
-  with zero `amdgpu` resets in the kernel log. The known 780M issue ([DETAILS.md](DETAILS.md)) was seen on ROCm
+  with zero `amdgpu` resets in the kernel log. The known 780M issue ([PolyStrata's DETAILS.md](https://github.com/simplexai-labs/PolyStrata/blob/67dde645dd94190733cca8ad78d2faa68b930e2a/docs/DETAILS.md)) was seen on ROCm
   7.10; with `cwsr_enable=0` and this stack it did not reproduce.

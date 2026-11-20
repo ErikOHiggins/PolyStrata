@@ -1,207 +1,118 @@
-# Questions people ask
+# Questions
 
-Answers to what people asked about PolyStrata when it was first posted. The numbers are measured on the machines
-named next to them; how is in [BACKENDS.md](BACKENDS.md).
+The numbers are measured on the machines named next to them; how is in [BACKENDS.md](BACKENDS.md).
 
-### Why not contribute this to Strata instead of a separate repo?
+### What is Puddle, and how does it relate to PolyStrata and Strata?
 
-Someone asked Strata for GLM and DeepSeek in [issue 310](https://github.com/Niko1221/Strata/issues/310), and the
-maintainer closed it: "Other MoE architectures (DeepSeek, GLM) aren't planned: the kernels and the pack format are
-built around this model." So the other models got an engine of their own, next to Strata's.
-
-The repo keeps Strata's git history and merges its releases, and Strata's own engine is in it unchanged. There are
-now open PRs in Strata for GLM 5.3 Flash (#1315) and DeepSeek V4 Flash (#1518). If Strata starts taking other
-architectures, I'd like this work to go there, and I'm glad to help with that.
-
-### Is the second engine related to Strata at all?
-
-Yes. It is built on Strata's own code: its quantized matvec kernels, its GGUF reader, its draft policy and suffix
-drafter, its conversation memory and the llama.cpp MMQ kernels Strata compiles. You can see the list in
-`CMakeLists.txt` (the `strata-poly` target). What is new is the model code for the five architectures and the
-part that decides which experts sit in VRAM and which run on the CPU.
+Puddle is a fork of [PolyStrata](https://github.com/simplexai-labs/PolyStrata), which is built on
+[Strata](https://github.com/Niko1221/Strata). Strata runs Qwen3.8-Flash-Next on its own engine; PolyStrata added a
+second engine, strata-poly, for other mixture-of-experts models, built on Strata's code (its quantized matvec kernels,
+GGUF reader, draft policy, conversation memory and the llama.cpp MMQ kernels). Puddle keeps strata-poly with
+PolyStrata's server, web app and installer, offers four models (Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 and Gemma 4
+26B-A4B), and added Laguna's architecture. Strata's Qwen3.8 engine and PolyStrata's other models are being removed.
 
 ### How do I know the output is right?
 
-It reads the same GGUF files llama.cpp reads, and its output is compared with llama.cpp's on the same file: greedy
-decoding, 64 tokens after five chat prompts, token by token. On the laptop, Qwen3.6-35B-A3B UD-Q3_K_M matched all
-64 tokens on all five prompts. The other sizes and models, with the few places where they part ways and why, are
-in [docs/BACKENDS.md](BACKENDS.md#how-each-backend-was-checked).
-Guessing tokens ahead does not change the answer: with every expert on the CPU, the tokens are the same with and
-without guesses.
-Those checks left out no experts. Setup starts Qwen3.6 with `--tail-skip 6`, which skips a few low-ranked
-experts that are not in VRAM and moves its answers a little; `STRATA_ROUTE_TAIL_SKIP=0` turns that off
-([measured](BACKENDS.md#what-was-tuned)).
-
-Every speed in the README says which machine, which file and which prompt, and the benchmark that produced it is in
-the repo, so you can run it on your own PC.
+It reads the same GGUF files llama.cpp reads, and its output is compared with llama.cpp's on the same file. For
+Laguna-S UD-Q3_K_XL on echo (two RTX 5060 Ti), with llama.cpp choosing each token: the same first choice at 95.3% of
+384 steps over six prompts, and every first difference a near tie ([BACKENDS.md](BACKENDS.md#laguna-on-two-16-gb-cards)).
+`laguna/parity.py` runs that comparison. PolyStrata's checks of Gemma 4 and the qwen35moe models are in
+[BACKENDS.md](BACKENDS.md#how-each-backend-was-checked). Guessing tokens ahead does not change the answer: the guesses
+are checked like any token.
 
 ### How fast will it be on my card?
 
-The README's numbers are from two machines: a laptop with an 8 GB RTX 4070 and a workstation with an RTX 5090.
-What people measured on their own cards is in the
-[community results](COMMUNITY_BENCHMARKS.md#the-models-polystrata-adds): so far an RTX 4070 SUPER and an
-RTX 4070 Ti with 12 GB, and a laptop's RTX 5060 with 8 GB. Yours can go there too; the page says what to send.
+What was measured is in the [README](../README.md#how-fast-is-it): Laguna-S on two 16 GB cards, Gemma 4 on PolyStrata's
+machines. Laguna-XS and Occamy have not been measured yet. `./bench.sh` (`BENCH.bat`) measures your PC, and
+[COMMUNITY_BENCHMARKS.md](COMMUNITY_BENCHMARKS.md) says what to send.
 
 ### How can I compare it with llama.cpp myself?
 
-With `bench/bench_vs_llama.py`, the script Strata used for its own comparison. It runs PolyStrata and llama.cpp's
-`llama-server` in turns on the same GGUF and the same prompts and prints the medians of both
-([how to run it](COMMUNITY_BENCHMARKS.md#comparing-with-llamacpp)). On the README's 8 GB laptop, with Qwen3.6
-and with Tiel Coder, PolyStrata read the prompts 2.7 to 3.5 times as fast as llama.cpp b11540 and wrote 1.5 to 1.8
-times as fast (the two runs are linked there).
+With `bench/bench_vs_llama.py`. It runs Puddle and llama.cpp's `llama-server` in turns on the same GGUF and the same
+prompts and prints the medians of both ([how to run it](COMMUNITY_BENCHMARKS.md#comparing-with-llamacpp)). On echo,
+llama.cpp with every expert on the CPU wrote Laguna-S at 11.3 to 11.5 tokens/s and read prompts at 51 to 73.
 
 ### Does it run on Radeon / AMD?
 
-Qwen3.8-Flash-Next, yes: on a Radeon with 12 GB or more it runs through Strata's AMD backend. The added
-models run on AMD since 0.1.42-poly.4, as a beta: setup compiles their engine for the card on your PC
-(there is no ready-made AMD engine), on Linux with ROCm from your system or AMD's wheels, and on
-Windows with AMD's TheRock wheels as well. A contributor's port was tested with Qwen3.6 UD-Q2_K_XL and
-Ornith APEX-I-Mini on an RX 7600 with 8 GB: 74 and 40 tokens/s in a short chat, 53 and 43 after a 32K prompt,
-read at 481 and 444. One Windows run, Tiel Coder UD-Q3_K_XL on an RX 9070 XT, wrote at 55 to 75 tokens/s and
-read a 7,376-token prompt at 2,750. GLM 5.3 Flash, DeepSeek V4, Flint and Kolibri 1 have not been tried on an AMD
-card, and setup says so when you pick them. I don't have an AMD card myself, so reports from one help; see
-[AMD_HIP.md](AMD_HIP.md#strata-poly-on-amd-beta).
+strata-poly compiles for AMD cards (setup compiles it on your PC: ROCm from your system or AMD's wheels on Linux,
+AMD's wheels on Windows), as a beta. Puddle's models have not been run on an AMD card yet; PolyStrata's contributors
+ran other models of the same engine on an RX 7600 and an RX 9070 XT ([AMD_HIP.md](AMD_HIP.md)). No pictures on AMD.
 
-### Will it run on a 6 GB card, or 4 GB?
+### Will it run on a smaller card?
 
-It has only run on 8 GB cards and up. With a context of 32K, Qwen3.6 takes about 5 GB of VRAM beside its experts,
-Ornith about 4 GB, Gemma 4 about 6 GB, Tiel Coder about 5 GB, LFM2.5 about 4 GB, Flint about 4 GB and Kolibri 1
-about 4 GB. The
-attention caches are part of that and take their share as a conversation grows, so a short chat leaves more room.
-On a 6 GB card Ornith and LFM2.5 are the ones to try; LFM2.5's caches grow the least, 20 KB a token.
-That is untested. On 4 GB, none of them leaves room for experts.
+Setup's figures for the VRAM a model takes beside its experts: Laguna-S about 8 GB (from echo), Laguna-XS about 5 GB and
+Occamy about 4.2 to 4.4 GB (estimates), Gemma 4 about 4.1 to 5.8 GB by size. Setup wants 2 GB more than that on the
+card. Laguna-XS, Occamy and Gemma 4 are the ones to try on an 8 GB card.
 
 ### What about older cards like a GTX 1050?
 
-The new engine needs an RTX 20 series card or newer. GTX 10 series cards are not supported by it. Strata has an
-experimental build for older cards, but that is for Qwen3.8-Flash-Next only
-([docs/OLDER_GPUS.md](OLDER_GPUS.md)).
-
-### Can you add Bonsai, LFM2.5, Ling or DeepSeek V4 Flash?
-
-This engine helps MoE models that don't fit in VRAM. A dense model like Bonsai uses all its weights for every
-token, so there are no experts to split, and the 1-bit Bonsai models already fit on a small card. LFM2.5-8B-A1B
-fits whole on an 8 GB card, so plain llama.cpp is fine there. LFM2.5-24B-A2B, the larger one, runs now
-(`--family lfm25`, [LFM.md](LFM.md)). Bigger MoEs are the good fit. DeepSeek V4 Flash runs now (`--family
-deepseek`, [DEEPSEEK.md](DEEPSEEK.md)), and so does Flint 40B-A2.5B (`--family flint`, [FLINT.md](FLINT.md)).
-Ling-2.6-flash (104B, 7.4B active) is on the list. Requests go in the issues, and the ones people ask for most come
-first.
+Pascal and Volta cards have an experimental CUDA 12 path ([OLDER_GPUS.md](OLDER_GPUS.md)); nobody has run Puddle's
+models on one.
 
 ### Can I run a fine-tune, or another model with the same architecture?
 
-People have, on their own PCs. On Reddit, one ran HauhauCS's uncensored Qwen3.6-35B-A3B at Q4_K_M, which was not
-tried here, and another Tiel Coder 35B-A3B, a quantization of Ornith 1.5 that setup now installs (`--family tiel`).
-Their numbers are in the
-[community results](COMMUNITY_BENCHMARKS.md#the-models-polystrata-adds). The engine reads the architecture and the
-weights from the GGUF, so a fine-tune that keeps the architecture of Qwen3.6, Ornith 1.5 or Gemma 4 should run.
-Setup only knows the files it offers. To give it another, put the file in a folder under the name of the size
-closest to it, `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` for a Q4_K_M of Qwen3.6, and run setup with
-`--family qwen36 --model UD-Q4_K_M --gguf-dir <that folder>`. Setup checks that the file is a whole GGUF of the
-family's architecture (`qwen35moe` for Qwen3.6, Ornith 1.5 and Tiel Coder, `gemma4` for Gemma 4), says that it is
-not the file it offers, and uses it as it is; it never deletes a file in that folder. Its RAM and VRAM estimates
-are those of the size whose name the file took.
+The engine reads the architecture and the weights from the GGUF, so a fine-tune that keeps the architecture of Laguna
+(`laguna`), Occamy (`qwen35moe`) or Gemma 4 (`gemma4`) should run. `./setup.sh --custom-gguf <file>` reads its header,
+picks the family and installs it as it is; `./setup.sh --inspect <file>` says what it holds first. Setup's RAM and
+VRAM estimates are then those of the nearest size.
 
 ### How do I remove a model?
 
 There is no command for it. A model's files are these, where `<model>` is the name in its run config's file name
-(`qwen36-ud-q3_k_m` for `strata-qwen36-ud-q3_k_m.json`):
+(`laguna-s21-ud-q3_k_xl` for `strata-laguna-s21-ud-q3_k_xl.json`):
 
-- its folder in `models/` (the same name, in capitals where the file has them): the GGUF, and `mmproj` for pictures
+- its folder in `models/`: the GGUF files, and `mmproj` for pictures
 - `packs/<model>/`: its tokenizer and expert profile
 - `strata-<model>.json` and `strata-<model>.json.bak`: its run config
 - `strata-<model>.log`
 - `run-<model>.bat` or `run-<model>.sh`
 
-`models/` and `packs/` are in the PolyStrata folder unless setup was given another data folder. The engines
-(`engine-poly/`, `engine/`) are shared by every model: keep them.
+`models/` and `packs/` are in the `Puddle-data` folder. The engine (`engine-poly/`) is shared by every model: keep it.
 
-### Can I use any GLM 5.3 Flash GGUF?
+### Which size should I take?
 
-The installer offers three files, and those are the ones that were run: neuralll's 3.0bit (114 GB), Unsloth's
-UD-IQ2_XXS (102 GB) and patrickbdevaney's REAP50-Q3_K_M (79 GB, half of the routed experts removed). Other GGUFs
-from the same converters should load, but they haven't been run. If you already have one:
-`./setup.sh --family glm --gguf-dir /folder/with/the/file`.
-
-GLM needs a lot of RAM: beside a 32 GB card, 96 GB for the 3.0bit file, 82 GB for UD-IQ2_XXS and 60 GB for REAP50.
-So far it has run on Linux only.
-
-### Why Q3 and Q2 by default on the smaller models? Isn't that a big quality loss?
-
-A 4-bit size is there for all four smaller models: `--model UD-Q4_K_M`, for Ornith `APEX-I-QUALITY` and for Tiel
-Coder `UD-Q4_K_XL`. The installer picks UD-Q3_K_M because on an 8 GB card more of its experts fit and its file is
-lighter on 32 GB of RAM. The speeds are close on the laptop: Qwen3.6 writes a short chat at 94 to 100 tokens/s
-with Q3 and 84 to 85 with Q4. It only takes Q2 when the RAM is too small for Q3. On a card that holds the whole
-model, Q3 and Q4 run at about the same speed, so take Q4 if you have the memory.
-
-### What about NVFP4?
-
-The strata-poly engine reads NVFP4 GGUFs, llama.cpp's NVFP4 type, including files converted from NVIDIA's
-checkpoints that keep a global scale beside each matrix. Setup doesn't offer one yet. On an RTX PRO 6000, Qwen3.6's
-NVFP4 file ran about as fast as UD-Q4_K_M with the whole model in VRAM, and nobody has measured its quality next to
-the Unsloth files. To try one, give strata-poly its path with `--model`. On an RTX 50 card,
-`STRATA_PREFILL_NVFP4=w4a4` reads the prompt on the FP4 tensor cores: 10% faster on LFM2.5, no faster on Qwen3.6, and
-further from the exact result, so it is off by default. The numbers are in [NVFP4.md](NVFP4.md).
-
-For GLM, NVFP4 would make the model around 204 GB, which doesn't fit in RAM on a normal PC; the 2- and 3-bit GGUFs
-(79 to 114 GB) are what lets the experts stay in RAM.
+Setup takes the default size when your PC has the RAM for it: Laguna-S's UD-Q3_K_XL, Occamy's APEX-Quality, Gemma 4's
+UD-Q3_K_M. The larger sizes keep more bits in the experts and want more RAM; poolside's Laguna-S Q4_K_M (96 GB) has 8
+of its expert layers in BF16, which run on the processor, and has not been run yet.
 
 ### Does it work on Windows?
 
-The four smaller models (Qwen3.6, Ornith 1.5, Gemma 4, Tiel Coder) and Qwen3.8-Flash-Next do. Setup downloads the
-new engine ready-made from the latest release, built for RTX 20 to RTX 50 cards. On a processor without AVX2, or
-when the engine's code changed after that release, it compiles the engine instead with Visual Studio's build tools
-and the CUDA toolkit, and offers to install them. GLM 5.3 Flash has only run on Linux.
+Setup compiles strata-poly on Windows with Visual Studio's build tools and the CUDA toolkit, and offers to install them.
+PolyStrata ran Gemma 4 there; Laguna and Occamy have not been run on Windows, and setup says so before it installs
+them.
 
 ### Can I use it with Claude Code, Codex or other apps?
 
 Yes. It serves OpenAI- and Anthropic-compatible APIs on localhost, with tool calls. Claude Code:
-`ANTHROPIC_BASE_URL=http://127.0.0.1:8080`. Codex CLI uses the Responses API at `/v1/responses`
-([setup](DETAILS.md#the-responses-api-and-codex-cli)).
-
-For Claude Code, also add `"anthropic_thinking": "on_request"` and `"fit_max_tokens": true` to
-`strata-<model>.json` and restart. Claude Code first asks for a session title, and without the first setting the
-model thinks that over instead, and runs out of the 512 tokens the request allows before it has a title: 5 s a
-request with Qwen3.6 on an 8 GB laptop ([more](DETAILS.md#using-it)). The second one it needs with the 32K context
-setup suggests: Claude Code asks for
-32,000 tokens of room for the answer in every request, and the server refuses a request when the prompt leaves less
-than that. With the setting the server gives it the room that is left. With `"warm_start": true` as well, the server
-keeps Claude Code's system prompt and tool list and reads them when it starts, so the first request after a restart
-reads only the rest: 3.5 s instead of 11.1 s in a test.
+`ANTHROPIC_BASE_URL=http://127.0.0.1:8080`, and add `"anthropic_thinking": "on_request"` and `"fit_max_tokens": true`
+to `strata-<model>.json`. Codex CLI uses the Responses API at `/v1/responses`. poolside's pool agent needs
+`"keepalive_events": true`. Details: [API.md](API.md#apps-and-agents).
 
 ### A long chat stops with "request exceeds the context window". Can it drop old messages instead?
 
-Yes, if you ask for it. By default the server never cuts a conversation: when it no longer fits the context, the
-request gets that error and the engine keeps running. Add `"drop_oldest": true` to `strata-<model>.json` and restart,
-and the server leaves out the oldest turns (a question with its answers and tool results) until the prompt leaves
-room for the answer, as LM Studio's rolling window does. The system prompt and the last message stay, and the server
-window says how many messages it left out. Each request is cut again from the full conversation the app sends, so
-the model has forgotten what was dropped. Claude Code, Codex and OpenCode compact the conversation themselves and do
-not need it. A larger context (`--max-context` in the same file) keeps more of the chat.
-
-If one very long message still does not fit, `"truncate_middle": true` trims the middle of the rendered text prompt,
-keeping its beginning (including the system prompt in a normal-sized prompt) and its newest ending. The setting is off
-by default. It does not truncate prompts containing images.
+Yes, if you ask for it: `"drop_oldest": true` in `strata-<model>.json` leaves out the oldest turns until the prompt
+leaves room for the answer (the system prompt and the last message stay), and `"truncate_middle": true` trims the
+middle of one very long text prompt. Both are off by default ([API.md](API.md#context)).
 
 ### Can the model see what it thought in earlier turns?
 
-With Qwen3.6, Ornith and Tiel Coder, if you ask for it. Their template leaves the thinking of earlier answers out of
-the prompt, so a model that thought of two numbers and said one makes the other up when asked for it later. Add
-`"preserve_thinking": true` to `strata-<model>.json` and restart, or send `"chat_template_kwargs":
-{"preserve_thinking": true}` with a request, as with llama.cpp. The server also remembers the thinking of the
-answers it wrote, so an app that sends an answer back without it (the chat page, Open WebUI) still gets it, as long as
-the answer's text comes back unchanged.
+With Laguna and Occamy, if you ask for it: `"preserve_thinking": true` in `strata-<model>.json`, or
+`"chat_template_kwargs": {"preserve_thinking": true}` with a request. The server also remembers the thinking of the
+answers it wrote, so an app that sends an answer back without it still gets it, as long as the answer's text comes back
+unchanged.
+
+### Why are the answers the same every time?
+
+Without a `sampling` block in `strata-<model>.json`, a request that sends no temperature is answered greedy (the
+engine's default). Add one, for example `"sampling": {"temperature": 0.7, "top_p": 0.95, "top_k": 20}`, or set the
+sampling in your app ([API.md](API.md#sampling-and-limits)).
 
 ### Can several people use one server at once?
 
 Yes. By default the server answers one request at a time and the others wait their turn. With `"parallel": N` in
-`strata-<model>.json` (or `--parallel N` when you run setup) it answers up to N together, with every model.
-On a card that holds most of the model's experts that writes more tokens a second in all: on an RTX 5090 four
-Qwen3.6 chats at once came at 428 tokens/s together, one alone at 312 to 333. On a small card, where
-most experts run on the CPU, it gains less: on the 8 GB laptop three Qwen3.6 chats at once came at 105 tokens/s
-together, one after the other at 79. How it works, and how to check it on your PC:
-[BATCHING.md](BATCHING.md#the-strata-poly-models).
+`strata-<model>.json` (or `--parallel N` when you run setup) it answers up to N together ([BATCHING.md](BATCHING.md)).
 
 ### Who maintains it?
 
-Me, and it's MIT licensed. Strata's engine inside it comes from Strata's releases, and the added engine is all in
-`src/poly`. Issues and PRs are welcome.
+It is a personal fork, [ErikOHiggins/Puddle](https://github.com/ErikOHiggins/Puddle), MIT licensed like PolyStrata and
+Strata.

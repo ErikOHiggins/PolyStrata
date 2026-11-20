@@ -1,27 +1,30 @@
 # AGENTS.md
 
-PolyStrata runs the Qwen3.8-Flash-Next mixture-of-experts model (and its Coder, Swift 1.5 and Unsloth variants) on a
-normal PC: one NVIDIA or AMD graphics card plus system RAM, on Windows or Linux. It has a C++/CUDA/HIP engine
-(`src/`, `include/`), a Python server with an OpenAI- and Anthropic-compatible API and a web app (`serve/`), and a
-one-click installer (`setup.py`, started by `START-HERE.bat` / `setup.sh`).
+Puddle runs four mixture-of-experts models - Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 and Gemma 4 26B-A4B - on a normal
+PC: one or two NVIDIA or AMD graphics cards plus system RAM, on Windows or Linux (a Mac as a beta). Its engine is
+`strata-poly` (`src/poly/`), with a Python server that has an OpenAI- and Anthropic-compatible API and a web app
+(`serve/`), and a one-click installer (`setup.py`, started by `START-HERE.bat` / `setup.sh`) that compiles the engine
+on the PC.
 
-A second engine, `strata-poly` (`src/poly/`), runs GLM 5.3 Flash, Ornith 1.5 (35B and 122B), DeepSeek V4 Flash and other GGUF models on Linux or Windows: [docs/GLM.md](docs/GLM.md), [docs/ORNITH.md](docs/ORNITH.md), [docs/DEEPSEEK.md](docs/DEEPSEEK.md), [docs/BACKENDS.md](docs/BACKENDS.md). The Qwen engine, the installer, the server and the web app come from
-[Strata](https://github.com/Niko1221/Strata).
+Puddle is a fork of [PolyStrata](https://github.com/simplexai-labs/PolyStrata), which is built on
+[Strata](https://github.com/Niko1221/Strata). `src/` and `include/` still hold Strata's Qwen3.8 engine and the kernels
+strata-poly shares with it; Puddle is removing what strata-poly does not use.
 
-## Installing PolyStrata for a user
+## Installing Puddle for a user
 
 Follow **[docs/AI_SETUP.md](docs/AI_SETUP.md)**: check the PC, pick the model by RAM, run setup non-interactively,
 start and verify the server, and connect the user's apps. Never expose the server beyond `127.0.0.1` without
-`--api-key`. As an alternative to shell commands, PolyStrata's MCP server ([docs/MCP_SERVER.md](docs/MCP_SERVER.md))
+`--api-key`. As an alternative to shell commands, Puddle's MCP server ([docs/MCP_SERVER.md](docs/MCP_SERVER.md))
 offers the same steps as tools.
 
 ## Working on the code
 
-- How the engine works, every measured number, the API and all settings: [docs/DETAILS.md](docs/DETAILS.md) and
-  the [paper](docs/paper/Strata-Paper.pdf).
-- AMD (HIP) build and validation: [docs/AMD_HIP.md](docs/AMD_HIP.md); multi-GPU: [docs/MULTI_GPU.md](docs/MULTI_GPU.md).
-- Setup's own tests run without a GPU or downloads: `python tools/test_setup_<name>.py` (for example
-  `tools/test_setup_amd.py`, `tools/test_setup_choices.py`).
+- How strata-poly works, its backends and what was measured: [docs/BACKENDS.md](docs/BACKENDS.md). The server's API
+  and every setting: [docs/API.md](docs/API.md).
+- AMD (HIP) build and validation: [docs/AMD_HIP.md](docs/AMD_HIP.md); several GPUs: [docs/MULTI_GPU.md](docs/MULTI_GPU.md).
+- Laguna's bring-up and measurement tools: [laguna/README.md](laguna/README.md).
+- Tests that run without a GPU or downloads: setup's, `python -m unittest tools.test_setup_<name>`; the server's,
+  `python -m unittest serve.test_<name>`; the tools', `python -m unittest tools.test_<name>`.
 - Keep the docs' style: plain words, measured numbers with what they were measured on, no claims without a
   measurement.
 
@@ -30,8 +33,8 @@ offers the same steps as tools.
 - Search the open issues and pull requests first, and add to a thread that already covers your point.
 - Open an issue with the form that fits (bug report, feature request or question).
 - One change per pull request. Say what it changes and what it leaves alone.
-- A new feature is opt-in, and the default path stays byte-identical to the last release. Say how you checked.
-- Build every backend a file touches (CUDA, HIP, SYCL) before asking for review.
+- A new feature is opt-in, and the default path stays as it was. Say how you checked.
+- Build every backend a file touches (CUDA, HIP, Metal) before asking for review.
 - Change a default only where you measured it faster, and show the numbers with what they were measured on.
 - A report from hardware the maintainers do not have is welcome. Follow
   [docs/COMMUNITY_BENCHMARKS.md](docs/COMMUNITY_BENCHMARKS.md), compare against a same-day run of the build you are

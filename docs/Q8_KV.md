@@ -5,8 +5,14 @@ opt-in: `--kv q8_0`. The default, `--kv fp16`, is unchanged and byte-identical t
 option existed. The format halves the KV cache's VRAM. On the `qwen35moe` models the answers do not move; on
 Flint and LFM2.5 they move at about 2-3% of the steps (below).
 
-In this version it is offered for `qwen35moe` (Tiel, Ornith, Occamy), `kolibri1`, `flint`, `lfm2moe`
-(LFM2.5-24B-A2B) and `laguna` (Laguna S 2.1) files; another architecture is rejected at load.
+In this version it is offered for `qwen35moe` (Occamy, and upstream's Tiel and Ornith), `laguna` (Laguna-S and
+Laguna-XS 2.1), and the `kolibri1`, `flint` and `lfm2moe` files of PolyStrata's models; another architecture is
+rejected at load. Puddle's setup writes `--kv q8_0` for both Lagunas; Occamy and Gemma 4 keep fp16.
+
+Laguna-S UD-Q3_K_XL on echo (two RTX 5060 Ti 16 GB): with q8_0, the same first choice as llama.cpp at 95.7% of the
+steps, KL median 1.9e-3, every first difference a near tie; with fp16, code 64 of 64 and the same KL median. Laguna's
+full-layer decode kernel read the q8_0 cache at 263 GB/s and the fp16 one at 402 GB/s there; q8_0 holds twice the
+context in the same VRAM ([BACKENDS.md](BACKENDS.md#laguna-on-two-16-gb-cards)).
 
 Gemma 4 has its own two, in the same Q8_0 rule but its own layout: `--kv int8` and `--kv int8k`
 ([the int8 pair, below](#the-int8-pair-for-gemma-4-strata-poly---kv-int8-and---kv-int8k)).

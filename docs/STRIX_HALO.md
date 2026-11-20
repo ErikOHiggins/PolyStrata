@@ -1,5 +1,9 @@
 # Strix Halo (Ryzen AI Max, gfx1151): build from source on Linux
 
+> **In Puddle:** this page is PolyStrata's, measured with its Qwen3.8 engine, which Puddle does not have. What
+> still applies: setup recognizes the chip and compiles strata-poly for it with the toolchain below. strata-poly
+> has not been run on it. [AMD_HIP.md](AMD_HIP.md) is the AMD page for Puddle.
+
 PolyStrata runs on the Ryzen AI Max "Strix Halo" APUs (Radeon 8060S / 8050S, RDNA3.5, `gfx1151`, one pool of LPDDR5X shared by the
 CPU and the GPU) through the same HIP backend as the Radeon cards in [AMD_HIP.md](AMD_HIP.md). **Status: experimental.**
 Everything here was built and measured on one machine, the maintainers' Strix Halo box (Ryzen AI Max+ 395, 128 GB,
@@ -52,7 +56,7 @@ llama.cpp's `ggml` sources are pinned by this repository: CMake fetches the revi
 `STRATA_GGML_DIR` at a checkout of exactly that revision.
 
 ```sh
-git clone https://github.com/VecSzn/PolyStrata.git && cd PolyStrata
+git clone https://github.com/simplexai-labs/PolyStrata.git && cd PolyStrata
 cmake -S . -B build-halo -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DSTRATA_ENABLE_HIP=ON -DSTRATA_ENABLE_CUDA=OFF -DSTRATA_PREFILL_MMQ=ON \
   -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
@@ -78,7 +82,7 @@ export STRATA_HIPBLASLT_TUNING=$PWD/tools/hip/gfx1151-hipblaslt-100401.txt
 The engine accepts it only for the architecture and the hipBLASLt version named on the table's second line
 (`STRATA_HIPBLASLT_TUNING_V1 gfx1151 100401`: ROCm 7.14.1) and says so at start-up (`prefill gemm: hipBLASLt tuning enabled (90 rows,
 gfx1151, version 100401)`). Then run `strata` with the same arguments as on any other card (the model packs, `--serve`, the
-settings of [DETAILS.md](DETAILS.md)); a pack of the Unsloth UD-IQ4_XS or UD-Q4_K_XL GGUFs is what the numbers below used.
+settings of [PolyStrata's DETAILS.md](https://github.com/simplexai-labs/PolyStrata/blob/67dde645dd94190733cca8ad78d2faa68b930e2a/docs/DETAILS.md)); a pack of the Unsloth UD-IQ4_XS or UD-Q4_K_XL GGUFs is what the numbers below used.
 
 ## 4. What is on by default on gfx1151
 
@@ -136,7 +140,7 @@ It rounds differently from the int8 kernels. First-token KL against a run with n
 `STRATA_REFILL_PARTS=1` (opt-in, exact; HIP and CUDA, a GGUF read in place) refills the expert-cache slots a prompt borrowed straight from the GGUF mapping (an expert's gate, up and down tensors) instead of through an assembled 4 MB copy per expert: the same bytes in the slot (checked against the assembled blob on 162 slots), 0.1 to 0.3 s less at the end of a prompt; gfx1151, UD-Q4_K_XL and UD-IQ4_XS: a 4K-8K prompt +2.3% to +3.5%, 32K +1.1%. It is not in the table above because only gfx1151 has measured it.
 
 Two engine flags help on long contexts and are not Strix-specific: `--mtp-window 8192` (the draft layer attends to the last 8,192
-cells: 64K output +3.5%, 32K -0.4%) and `--spec`, `--lookup-chain`, `--mtp-q4` (see [DETAILS.md](DETAILS.md)).
+cells: 64K output +3.5%, 32K -0.4%) and `--spec`, `--lookup-chain`, `--mtp-q4` (see [PolyStrata's DETAILS.md](https://github.com/simplexai-labs/PolyStrata/blob/67dde645dd94190733cca8ad78d2faa68b930e2a/docs/DETAILS.md)).
 
 ## 6. Measured
 
