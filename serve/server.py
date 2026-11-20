@@ -17,7 +17,9 @@ An unset (or 0, or -1) max tokens means "unlimited": whatever the prompt leaves 
 
 The engine boundary is `Engine.generate(prompt_ids, max_new, sampling, cancel) -> iterator of token ids`.
 `StrataEngine` keeps one `strata-poly --serve` process resident (the model file mapped, its expert cache in VRAM) and
-talks to it over stdin/stdout; `MockEngine` is a scripted stand-in that makes every API path testable without a GPU.
+talks to it over stdin/stdout; `LlamaServerEngine` runs llama.cpp's llama-server for a config with "engine":
+"llama-server" (the prompt's ids go to its /completion, on 127.0.0.1 behind a key of its own); `MockEngine` is a
+scripted stand-in that makes every API path testable without a GPU.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ import collections
 import base64
 import hashlib
 import hmac
+import http.client
 import codecs
 import ctypes
 import json
@@ -34,6 +37,7 @@ import math
 import os
 import queue
 import re
+import secrets
 import select
 import signal
 import socket
@@ -2052,6 +2056,583 @@ class StrataEngine:
                 self.progress_ms, self.reused = 0, 0
 
 
+# ------------------------------------------------------------------------------------------------ llama-server
+# A run config with "engine": "llama-server" runs llama.cpp's llama-server as its engine (Nemotron 3.5 Bolt, until
+# Puddle's own engine runs the Mamba-2 hybrids).  Puddle sets these arguments itself: the config's must not.
+LLAMA_SERVER_OWN_ARGS = ("--host", "--port", "--api-key", "--api-key-file")
+# strata-poly's sampler chain (src/poly/main.cpp's Sampler): llama.cpp's default order without the samplers strata-poly
+# does not have, so a request samples the same way on either engine
+LLAMA_SAMPLERS = ["penalties", "top_k", "top_p", "min_p", "temperature"]
+LLAMA_TOP_K_DEFAULT = 20         # strata-poly's top_k when a request names none (src/poly/main.cpp's Sampling)
+LLAMA_BIND_TRIES = 3             # a start whose port another program took in the meantime tries another one
+LLAMA_EOS_DRAIN_S = 5.0          # after the end-of-turn token, the wait for the request's last event (its timings)
+
+
+def free_local_port() -> int:
+    """A TCP port that nothing listens on at 127.0.0.1 now (the OS picks it)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def llama_server_args_problem(args) -> str | None:
+    """The config's llama-server arguments must not set where it listens or its key: Puddle runs it on 127.0.0.1 at a
+    port and with a key of its own, so only Puddle reaches it.  None when they are fine."""
+    own = sorted({str(a).split("=", 1)[0] for a in args if str(a).split("=", 1)[0] in LLAMA_SERVER_OWN_ARGS})
+    if not own:
+        return None
+    return (f"the llama-server arguments must not set {', '.join(own)}: Puddle runs llama-server on 127.0.0.1 with a "
+            "port and a key of its own (the address and key clients use are Puddle's: --host, --port and --api-key "
+            "of serve/server.py)")
+
+
+def llama_error_message(text, status: int | None = None) -> str:
+    """The message of a llama-server error ({"error": {"message": ...}}), else the text as it came."""
+    try:
+        data = json.loads(text) if isinstance(text, (str, bytes)) else text
+        err = data.get("error") if isinstance(data, dict) else None
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+        if isinstance(err, str) and err:
+            return err
+    except ValueError:
+        pass
+    words = text.decode("utf-8", "replace") if isinstance(text, bytes) else str(text)
+    return (f"HTTP {status}: " if status else "") + (words.strip()[:300] or "no answer")
+
+
+class _LlamaStream(threading.Thread):
+    """One request to llama-server, read on a thread of its own.  Its events go to `out` as (kind, data): ("event",
+    the JSON of a `data:` line), ("ping", None) for an SSE comment, ("refused", message) for an HTTP error before the
+    stream, ("end", None) when the stream ended and ("lost", what) when the connection broke.  close() ends the
+    connection, which is how llama-server is told to stop the request."""
+
+    def __init__(self, port: int, key: str, path: str, body: dict, out: queue.Queue):
+        super().__init__(daemon=True, name="llama-server request")
+        self.path, self.out = path, out
+        self.body = json.dumps(body).encode("utf-8")
+        self.headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+        self.conn = http.client.HTTPConnection("127.0.0.1", port, timeout=None)
+        self.stop = threading.Event()
+
+    def run(self):
+        out = self.out
+        try:
+            self.conn.request("POST", self.path, body=self.body, headers=self.headers)
+            resp = self.conn.getresponse()
+            if resp.status != 200:
+                out.put(("refused", llama_error_message(resp.read(65536), resp.status)))
+                return
+            while not self.stop.is_set():
+                line = resp.readline()
+                if not line:
+                    out.put(("end", None))
+                    return
+                line = line.rstrip(b"\r\n")
+                if line.startswith(b"data: "):
+                    try:
+                        out.put(("event", json.loads(line[6:])))
+                    except ValueError:
+                        out.put(("lost", f"a line that is not JSON: {line[:120]!r}"))
+                        return
+                elif line.startswith(b":"):
+                    out.put(("ping", None))
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            if not self.stop.is_set():
+                out.put(("lost", str(e) or type(e).__name__))
+        finally:
+            self.close()
+
+    def close(self):
+        self.stop.set()
+        sock = getattr(self.conn, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)        # wakes the reader; llama-server sees the client leave
+            except OSError:
+                pass
+        try:
+            self.conn.close()
+        except Exception:  # noqa: BLE001 - closing a connection that is already gone
+            pass
+
+
+class LlamaServerEngine:
+    """llama.cpp's llama-server as the engine of a run config with "engine": "llama-server".  Puddle keeps its whole
+    front end - the chat template, the tokenizer, tool calls and reasoning, every endpoint and setting - and
+    llama-server only generates: the prompt goes to POST /completion as token ids, and each token comes back by its id.
+
+    llama-server listens on 127.0.0.1, at a port picked at each start, and takes a key made at each start (in its
+    environment, LLAMA_API_KEY, so it is not on its command line): only this server reaches it.  Clients reach
+    Puddle, at Puddle's address and with Puddle's key, as with any engine.  The config's "args" are llama-server's own
+    (the model, the context size, the GPU split ...) without --host, --port or --api-key.
+
+    Every sampling field is sent (sampling_fields), so a request means what it means with strata-poly: neither
+    llama-server's own defaults nor the ones a GGUF carries (general.sampling.*) apply.
+
+    llama-server streams a token only once the text ends on a whole character; the tokens of a character split over
+    several tokens come with the last of them (_rebuild).  It ends a reply at every end-of-generation token llama.cpp
+    knows, which can be one Puddle does not stop on (Bolt's </s>): such a reply ends as a stop, not as text (_holds)."""
+
+    batch = 0                            # one request at a time (Service's FIFO)
+    turn_ids = frozenset()               # Service sets these (as for StrataEngine)
+    eos_ids = frozenset()
+    silence_s = ENGINE_SILENCE_S         # start_model sets the config's engine_silence_s
+    silent_note = None
+    gpu_busy = None
+    RESTART_RETRY_S = 15.0
+
+    def __init__(self, exe: str, args: list[str], cwd: str | None = None, log: str | None = None,
+                 env: dict | None = None, lazy: bool = False, tokenizer=None):
+        self.spawn = (exe, list(args), cwd, log, env)
+        self.tok = tokenizer
+        self.model_path = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-m", "--model")), "model.gguf")
+        self.log_path, self.log, self.log_start = log, None, 0
+        self.proc, self.port, self.key = None, None, None
+        self.ended, self.unloaded, self.starting = True, True, False
+        self.max_context = self.known_ctx = 0
+        self.last: dict = {}
+        self.info: dict = {"engine": "llama-server", "version": None}
+        self.progress, self.progress_ms, self.reused, self.prefill_tok_s_mean = None, 0, 0, None
+        self.rebuilt = 0                 # tokens llama-server did not stream that were rebuilt from the text
+        self._by_bytes, self._longest = None, 1
+        ctx = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-c", "--ctx-size")), None)
+        if ctx is not None and str(ctx).isdigit():       # until it has started: what the config asks for
+            self.known_ctx = int(ctx)
+        if not lazy:
+            self._start()
+
+    # ---------------------------------------------------------------- process
+    def _get(self, path: str, timeout: float = 5.0) -> tuple[int | None, bytes]:
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+        try:
+            conn.request("GET", path, headers={"Authorization": f"Bearer {self.key}"})
+            r = conn.getresponse()
+            return r.status, r.read()
+        except (OSError, http.client.HTTPException):
+            return None, b""
+        finally:
+            conn.close()
+
+    def _close_log(self):
+        if self.log not in (None, subprocess.DEVNULL):
+            try:
+                self.log.close()
+            except OSError:
+                pass
+        self.log = None
+
+    def _start(self, attempt: int = 0):
+        exe, args, cwd, log, env = self.spawn
+        self.unloaded, self.ended, self.max_context = False, True, 0
+        self.key, self.port = secrets.token_urlsafe(24), free_local_port()
+        child = dict(env if env is not None else os.environ)
+        child["LLAMA_API_KEY"] = self.key
+        for k in ("LLAMA_ARG_HOST", "LLAMA_ARG_PORT", "LLAMA_ARG_API_KEY_FILE"):
+            child.pop(k, None)
+        self.log = open(log, "a", encoding="utf-8") if log else subprocess.DEVNULL
+        offset = self.log_start = os.path.getsize(log) if log else 0
+        cmd = [exe, *args, "--host", "127.0.0.1", "--port", str(self.port), "--no-ui"]
+        if log:                                          # #779: when it started (its key is not on the line)
+            try:
+                self.log.write(f"[strata] {time.strftime('%Y-%m-%d %H:%M:%S')} engine started: {' '.join(cmd)}\n")
+                self.log.flush()
+            except OSError:
+                pass
+        self.proc = popen("llama-server", cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=self.log,
+                          stderr=subprocess.STDOUT, env=child)
+        contain(self.proc)                               # ends with the server, however it ends (Windows)
+        started = said = time.monotonic()
+        deadline = None if ENGINE_READY_S is None else started + ENGINE_READY_S
+        while True:
+            rc = self.proc.poll()
+            if rc is not None:
+                tail = start_log_tail(log, offset)
+                self._close_log()
+                self.proc = None
+                if "couldn't bind HTTP server socket" in tail and attempt + 1 < LLAMA_BIND_TRIES:
+                    print(f"[strata] llama-server could not listen on 127.0.0.1:{self.port} (another program took the "
+                          "port meanwhile): starting it on another one", flush=True)
+                    return self._start(attempt + 1)
+                raise EngineDied("llama-server exited before it was ready" + (f" (see {log})" if log else "")
+                                 + start_exit_note(rc) + tail)
+            status, _ = self._get("/health", timeout=2.0)
+            if status == 200:
+                break
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                self._kill()
+                raise EngineDied(f"llama-server did not become ready within {ENGINE_READY_S:.0f} s"
+                                 + (f" (see {log})" if log else "") + start_log_tail(log, offset))
+            if now - said >= 30.0:
+                said = now
+                print(f"[strata] llama-server is still loading the model ({now - started:.0f} s) ...", flush=True)
+            time.sleep(0.25)
+        status, raw = self._get("/props")
+        try:
+            props = json.loads(raw) if status == 200 else {}
+        except ValueError:
+            props = {}
+        ctx = (props.get("default_generation_settings") or {}).get("n_ctx") if isinstance(props, dict) else None
+        if not isinstance(ctx, int) or ctx <= 0:
+            self._kill()
+            raise EngineDied(f"llama-server did not say its context size (GET /props: {status})")
+        self.max_context = self.known_ctx = ctx
+        self.info.update(version=f"llama-server {props.get('build_info') or '(unknown build)'}",
+                         vision=bool((props.get("modalities") or {}).get("vision")),
+                         media_marker=props.get("media_marker"), slots=props.get("total_slots"))
+        if isinstance(props.get("total_slots"), int) and props["total_slots"] > 1:
+            print(f"[strata] llama-server runs {props['total_slots']} slots, but Puddle sends one request at a time: "
+                  "\"-np\", \"1\" in the config's args gives the other slots' memory back", flush=True)
+        self.ended = False
+        print(f"[strata] llama-server is ready (context {ctx} tokens, {time.monotonic() - started:.0f} s)", flush=True)
+
+    def _kill(self):
+        proc = self.proc
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=20)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        self._close_log()
+        self.proc, self.ended = None, True
+
+    def alive(self) -> bool:
+        proc = self.proc
+        return proc is not None and not self.ended and proc.poll() is None
+
+    def exit_code(self):
+        proc = self.proc
+        if proc is None:
+            return None
+        try:
+            return proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            return None
+
+    def death_note(self) -> str:
+        if self.silent_note:
+            return self.silent_note
+        proc = self.proc
+        rc = proc.poll() if proc is not None else None
+        tail = start_log_tail(self.log_path, self.log_start or 0, 8).replace("the engine log's last lines",
+                                                                             "llama-server's last log lines")
+        if rc is not None and rc < 0 and -rc == getattr(signal, "SIGKILL", 9):
+            return ("llama-server was killed (SIGKILL): most often Linux ending the biggest program when RAM ran out "
+                    "(check: sudo dmesg | grep -i -E 'killed process|out of memory')." + tail)
+        return f"llama-server ended ({engine_exit_words(rc) or 'it may still be exiting'})." + tail
+
+    def close(self):
+        """End llama-server: terminate (it stops its slots and frees the model), then kill, each given 20 s; EngineStuck
+        when it still runs after both."""
+        proc = self.proc
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=20)
+                    except subprocess.TimeoutExpired:
+                        raise EngineStuck("llama-server is still releasing GPU/RAM; retry unloading after it exits") \
+                            from None
+        except OSError:
+            pass
+        finally:
+            if proc.poll() is not None:
+                self._close_log()
+                self.proc, self.ended = None, True
+                self.progress, self.last, self.progress_ms, self.reused = None, {}, 0, 0
+
+    def unload(self):
+        self.close()
+        self.unloaded = True
+
+    def restart(self, tries: int = 3):
+        """Start llama-server again (after it died, or was unloaded); a start that fails is tried again after
+        RESTART_RETRY_S (a dead process's VRAM can take a while to come back)."""
+        self.starting = True
+        try:
+            self.close()
+            for i in range(tries):
+                try:
+                    self._start()
+                    break
+                except RuntimeError:
+                    if i == tries - 1:
+                        raise
+                    print(f"[strata] llama-server did not start (try {i + 1} of {tries}); again in "
+                          f"{self.RESTART_RETRY_S:g} s", flush=True)
+                    time.sleep(self.RESTART_RETRY_S)
+        finally:
+            self.starting = False
+
+    def _silent(self, what: str) -> EngineSilent:
+        """#481: llama-server stopped answering in the middle of a request: it is ended, and the next request starts
+        it again."""
+        self.silent_note = ("llama-server stopped answering in the middle of a request and was ended (a very slow PC "
+                            "can raise \"engine_silence_s\" in the config, 0 = wait for ever).")
+        self._kill()
+        return EngineSilent(f"{what}; the server ended llama-server")
+
+    # ---------------------------------------------------------------- requests
+    @staticmethod
+    def sampling_fields(sampling: dict) -> dict:
+        """A request's sampling as llama-server's /completion fields, with the meaning StrataEngine.sampling_keys gives
+        them for strata-poly: no temperature (or 0) is greedy, top_k is 1..64 (0 and wider lists: 64; none: 20), a
+        penalty counts over penalty_last_n tokens (64 when not given), and a seed above 0 repeats a reply.  Every field
+        is sent, and the sampler chain is strata-poly's."""
+        s = sampling or {}
+
+        def num(key, default, ok=lambda v: True):
+            v = s.get(key)
+            return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and ok(float(v)) else default
+
+        top_k = s.get("top_k")
+        if isinstance(top_k, int) and not isinstance(top_k, bool) and top_k >= 0:
+            top_k = top_k if 1 <= top_k <= 64 else 64
+        else:
+            top_k = LLAMA_TOP_K_DEFAULT
+        out = {"temperature": num("temperature", 0.0, lambda v: v > 0.0), "dynatemp_range": 0.0,
+               "top_k": top_k, "top_p": num("top_p", 1.0, lambda v: v < 1.0),
+               "min_p": num("min_p", 0.0, lambda v: 0.0 < v <= 1.0),
+               "repeat_penalty": num("repetition_penalty", 1.0), "frequency_penalty": num("frequency_penalty", 0.0),
+               "presence_penalty": num("presence_penalty", 0.0), "mirostat": 0, "n_probs": 0,
+               "samplers": list(LLAMA_SAMPLERS)}
+        penalized = out["repeat_penalty"] != 1.0 or out["frequency_penalty"] != 0.0 or out["presence_penalty"] != 0.0
+        last_n = s.get("penalty_last_n")
+        out["repeat_last_n"] = (last_n if isinstance(last_n, int) and not isinstance(last_n, bool) and last_n > 0
+                                else 64) if penalized else 0
+        seed = s.get("seed")
+        if isinstance(seed, int) and not isinstance(seed, bool) and seed > 0:
+            out["seed"] = seed
+        return out
+
+    def _special(self, t: int) -> bool:
+        types = getattr(self.tok, "token_types", None)
+        return bool(types) and 0 <= t < len(types) and types[t] in (3, 4)
+
+    def _holds(self, t: int) -> bool:
+        """A special token Puddle does not end a reply on waits for the next event: when that is the end of the reply
+        by llama.cpp's end-of-generation (stop_type "eos"), the token was its end (Bolt's </s>), and the reply ends
+        as a stop instead of showing the token as text."""
+        return bool(self.eos_ids) and t not in self.eos_ids and self._special(t)
+
+    def _rebuild(self, content: str, tok: int, k: int) -> list[int]:
+        """The ids of the k tokens llama-server generated before `tok` but did not stream (their text is the start of
+        `content`).  One token is exact: no two tokens have the same bytes.  Two or more are split into k vocabulary
+        tokens, the longest first pieces first: the same text, though the ids can differ from the sampled ones.  A
+        text no split fits goes as its byte tokens (the same text, more tokens)."""
+        tb = self.tok.token_bytes(tok) if hasattr(self.tok, "token_bytes") else None
+        data = content.encode("utf-8")
+        if tb is None or not data.endswith(tb):
+            print(f"[strata] llama-server did not stream {k} token(s), and their text could not be told from its "
+                  "reply; they are left out", flush=True)
+            return []
+        miss = data[:len(data) - len(tb)]
+        if self._by_bytes is None:                       # the tokens that can end a text mid-character, and every byte
+            table = {}
+            for i in range(len(getattr(self.tok, "tokens", ()))):
+                if self._special(i):
+                    continue
+                try:
+                    b = self.tok.token_bytes(i)
+                except (KeyError, IndexError):
+                    continue
+                try:
+                    b.decode("utf-8")
+                    if len(b) != 1:
+                        continue
+                except UnicodeDecodeError:
+                    pass
+                table.setdefault(b, i)
+            self._by_bytes, self._longest = table, max((len(b) for b in table), default=1)
+        table, longest = self._by_bytes, self._longest
+        memo: dict = {}
+
+        def split(i: int, j: int):
+            if (i, j) in memo:
+                return memo[(i, j)]
+            out = None
+            if i == len(miss):
+                out = () if j == 0 else None
+            elif j > 0:
+                for n in range(min(longest, len(miss) - i), 0, -1):
+                    t = table.get(miss[i:i + n])
+                    if t is not None:
+                        rest = split(i + n, j - 1)
+                        if rest is not None:
+                            out = (t,) + rest
+                            break
+            memo[(i, j)] = out
+            return out
+
+        ids = split(0, k)
+        if ids is None:
+            ids = tuple(table[bytes([b])] for b in miss if bytes([b]) in table)
+        self.rebuilt += len(ids)
+        return list(ids)
+
+    def _finish(self, ev: dict, prompt_tokens: int):
+        """The request's figures from llama-server's last event (its own clock)."""
+        tm = ev.get("timings") if isinstance(ev.get("timings"), dict) else {}
+        last = {"generated": int(ev.get("tokens_predicted") or tm.get("predicted_n") or 0),
+                "prompt_tokens": int(ev.get("tokens_evaluated") or prompt_tokens),
+                "prompt_ms": float(tm.get("prompt_ms") or 0.0), "decode_ms": float(tm.get("predicted_ms") or 0.0),
+                "finish": {"eos": "stop", "word": "stop", "limit": "length"}.get(ev.get("stop_type"), "cancel"),
+                "reused": int(tm.get("cache_n") or 0), "prompt_read": int(tm.get("prompt_n") or 0)}
+        if tm.get("draft_n") is not None:
+            last.update(drafts_offered=int(tm["draft_n"]), drafts_accepted=int(tm.get("draft_n_accepted") or 0))
+        self.last = last
+
+    def _own_figures(self, prompt_tokens: int, got: int, started: float, first: float | None, cancelled: bool):
+        """The figures of a request that ended before llama-server's last event (the client left, a stop string, a
+        thinking budget): this server's own clock."""
+        now = time.monotonic()
+        read = prompt_tokens - int(self.reused or 0)
+        if cancelled and self.progress is not None:
+            read = max(0, int(self.progress[0]) - int(self.reused or 0))
+        self.last = {"generated": got, "prompt_tokens": prompt_tokens,
+                     "prompt_ms": ((first or now) - started) * 1000.0,
+                     "decode_ms": (now - first) * 1000.0 if first else 0.0,
+                     "finish": "cancel" if cancelled else "stop", "reused": int(self.reused or 0), "prompt_read": read}
+
+    def generate(self, ids, max_new, sampling, cancel, embeddings=None):
+        """Yields token ids, and None as a heartbeat (each prompt-progress event, and every 10 s of quiet).  A consumer
+        that stops early (or `cancel`) closes the connection, and llama-server stops the request."""
+        if embeddings:
+            raise ValueError("llama-server reads a request's pictures itself; this engine takes no embeddings file")
+        if not self.alive():
+            raise EngineDied("the engine is unavailable; this request was not sent")
+        self.progress, self.progress_ms, self.reused, self.prefill_tok_s_mean = None, 0, 0, None
+        body = {"prompt": [int(t) for t in ids], "n_predict": int(max_new), "stream": True, "return_tokens": True,
+                "return_progress": True, "cache_prompt": True, **self.sampling_fields(sampling)}
+        out: queue.Queue = queue.Queue()
+        stream = _LlamaStream(self.port, self.key, "/completion", body, out)
+        stream.start()
+        started = heard = beat = time.monotonic()
+        first = None                     # when the first token came
+        got = 0                          # the generated tokens accounted for (llama-server's tokens_predicted)
+        held = None                      # a special token waiting for the next event (_holds)
+        last_out = None                  # the last token yielded
+        done = False
+        # #481: how long llama-server may stay silent: until the first event, the prompt's first chunk at the slowest
+        # prompt reading on top of engine_silence_s; after it, engine_silence_s
+        silence = float(self.silence_s or 0)
+        allow = silence + min(len(ids), PP_CHUNK_MAX) / PP_FLOOR_TOK_S if silence > 0 else 0.0
+        try:
+            while True:
+                try:
+                    kind, data = out.get(timeout=0.5)
+                except queue.Empty:
+                    if cancel.is_set():
+                        return
+                    now = time.monotonic()
+                    if allow > 0 and now - heard >= allow:
+                        done = True
+                        raise self._silent(f"llama-server said nothing for {now - heard:.0f} s during the request")
+                    if now - beat >= 10.0:
+                        beat = now
+                        yield None
+                    continue
+                heard = beat = time.monotonic()
+                if kind == "ping":
+                    continue
+                if kind == "refused":
+                    done = True
+                    raise ValueError(data)
+                if kind in ("end", "lost"):
+                    done = True
+                    try:
+                        self.proc.wait(timeout=2)
+                    except (subprocess.TimeoutExpired, AttributeError):
+                        pass
+                    if not self.alive():
+                        self.ended = True
+                        raise EngineDied(f"llama-server stopped unexpectedly ({engine_exit_words(self.exit_code())})")
+                    raise ValueError("llama-server ended the reply without its last event"
+                                     + (f" ({data})" if data else ""))
+                ev = data if isinstance(data, dict) else {}
+                if ev.get("error"):
+                    done = True
+                    raise ValueError(llama_error_message(ev))
+                if ev.get("stop"):                       # the last event: the figures, and why it ended
+                    done = True
+                    self._finish(ev, len(ids))
+                    eos, n = ev.get("stop_type") == "eos", int(ev.get("tokens_predicted") or got)
+                    if held is not None:
+                        t, held = held, None
+                        if eos and n == got:             # the held token was llama.cpp's end of generation
+                            yield min(self.eos_ids)
+                            return
+                        yield t
+                    if eos and n > got and self.eos_ids:   # it ended after bytes that never made a character
+                        yield min(self.eos_ids)
+                    return
+                pp = ev.get("prompt_progress")
+                if isinstance(pp, dict):
+                    total, cache = int(pp.get("total") or len(ids)), int(pp.get("cache") or 0)
+                    read, ms = int(pp.get("processed") or 0), float(pp.get("time_ms") or 0.0)
+                    self.progress, self.progress_ms, self.reused = (read, total), ms, cache
+                    self.prefill_tok_s_mean = (read - cache) / (ms / 1000.0) if ms > 0 and read > cache else None
+                    if silence > 0:
+                        allow = silence
+                    if cancel.is_set():
+                        return
+                    yield None
+                    continue
+                toks = ev.get("tokens") or []
+                if not toks:
+                    continue
+                tok = int(toks[-1])
+                n = int(ev.get("tokens_predicted") or got + 1)
+                if first is None:
+                    first = time.monotonic()
+                if silence > 0:
+                    allow = silence
+                these = (self._rebuild(ev.get("content") or "", tok, n - got - 1) if n - got > 1 else []) + [tok]
+                got = max(got + 1, n)
+                for t in these:
+                    if held is not None:
+                        h, held = held, None
+                        last_out = h
+                        yield h
+                    if self._holds(t):
+                        held = t
+                        continue
+                    if cancel.is_set():
+                        return
+                    last_out = t
+                    yield t
+        finally:
+            if not done:
+                finished = False
+                if last_out is not None and last_out in self.eos_ids and not cancel.is_set():
+                    # Puddle stopped at the end-of-turn token: llama-server's last event follows it at once
+                    end = time.monotonic() + LLAMA_EOS_DRAIN_S
+                    while not finished:
+                        left = end - time.monotonic()
+                        if left <= 0:
+                            break
+                        try:
+                            kind, data = out.get(timeout=left)
+                        except queue.Empty:
+                            break
+                        if kind == "event" and isinstance(data, dict) and data.get("stop"):
+                            self._finish(data, len(ids))
+                            finished = True
+                        elif kind in ("end", "lost", "refused"):
+                            break
+                if not finished:
+                    self._own_figures(len(ids), got, started, first, cancel.is_set())
+            stream.close()
+
+
 IMAGE_URL_MAX = 32 << 20        # an image URL is read up to this (the web app attaches pictures of up to 20 MB)
 
 
@@ -2922,7 +3503,10 @@ class Service:
         self.literals = literal_tags(getattr(tokenizer, "control_tokens", ()))
         im_end = tokenizer.encode(IM_END, parse_special=True)
         if len(im_end) == 1:
-            self.stop_ids = set(im_end + tokenizer.encode("<|endoftext|>", parse_special=True))
+            # <|endoftext|> where the vocabulary has it: Nemotron 3.5's has not, and the plain tokens of its text
+            # ("<", "|", "end" ...) ended every reply that wrote one
+            eot = tokenizer.encode("<|endoftext|>", parse_special=True)
+            self.stop_ids = set(im_end + (eot if len(eot) == 1 else []))
         else:   # not a ChatML model (Laguna, Gemma): the ids its GGUF names for the end of the text, the turn and
             # the message
             special = getattr(tokenizer, "special_ids", None) or {}
@@ -6808,6 +7392,11 @@ def start_model(cfg: dict, tok, lazy: bool = False):
     if sampling_defaults:
         pretty = ", ".join(f"{k}={v}" for k, v in sampling_defaults.items())
         print(f"[strata] sampling defaults from the config: {pretty}", flush=True)
+    kind = cfg.get("engine", "strata")
+    if kind not in ("strata", "llama-server"):
+        raise SystemExit(f'[strata] config "engine" must be "strata" or "llama-server", not {kind!r}')
+    if kind == "llama-server":
+        return start_llama_server(cfg, tok, lazy, env, sampling_defaults)
     if cfg.get("vision"):
         # relative paths are the config's cwd's, as for the engine below
         vcfg = {k: (os.path.abspath(os.path.join(cfg.get("cwd") or ".", v))
@@ -6852,6 +7441,30 @@ def start_model(cfg: dict, tok, lazy: bool = False):
     if note:                                        # #560 #516: before --open starts a browser on that card
         print(note, flush=True)
     return engine, vision, sampling_defaults, groups
+
+
+def start_llama_server(cfg: dict, tok, lazy: bool, env: dict, sampling_defaults: dict):
+    """start_model() for a config with "engine": "llama-server": (engine, no vision encoder, sampling defaults,
+    no replica groups).  The config's "args" are llama-server's own; what strata-poly's configs add (a vision
+    section, replicas, parallel slots) is refused rather than left without effect."""
+    problem = llama_server_args_problem(cfg.get("args") or [])
+    if problem:
+        raise SystemExit(f"[strata] config: {problem}")
+    for key, why in (("vision", "pictures go through llama-server's own --mmproj argument"),
+                     ("replicas", "one llama-server runs the model on all its cards"),
+                     ("parallel", "Puddle sends llama-server one request at a time")):
+        if cfg.get(key) not in (None, False, 0, 1):
+            raise SystemExit(f'[strata] config "{key}" is not for a llama-server model: {why}')
+    try:
+        silence = engine_silence_s(cfg)
+    except ValueError as e:
+        raise SystemExit(f"[strata] config {e}")
+    print("model unloaded; the first request loads it ..." if lazy else
+          "loading the model with llama-server (the first start takes a minute or two) ...", flush=True)
+    engine = LlamaServerEngine(engine_exe(cfg), [str(a) for a in cfg.get("args") or []], cwd=cfg.get("cwd"),
+                               log=cfg.get("log"), env=env, lazy=lazy, tokenizer=tok)
+    engine.silence_s = silence
+    return engine, None, sampling_defaults, []
 
 
 def start_replicas(cfg: dict, groups: list[list[int]], exe: str, lazy: bool):
@@ -6959,7 +7572,9 @@ def shutdown(svc: Service, httpd, hub=None) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--engine", choices=["mock", "strata"], default="mock")
+    ap.add_argument("--engine", choices=["mock", "strata"], default="mock",
+                    help="strata: the engine the --config names (strata-poly, or llama-server for a config with "
+                         "\"engine\": \"llama-server\"); mock: a scripted one, for clients and tests")
     ap.add_argument("--config", help="strata engine config (JSON: exe, args, cwd, tokenizer, model_name), "
                                      "written by setup.py")
     ap.add_argument("--host", default=None,

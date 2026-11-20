@@ -103,10 +103,13 @@ def describe(config: Path) -> dict | None:
         return None
     args = [str(a) for a in cfg["args"]]
     cwd = Path(cfg.get("cwd") or ROOT)
-    model = _arg(args, "--model")
+    # "engine": "llama-server": llama.cpp's server runs the model, with llama-server's own arguments
+    llama = cfg.get("engine") == "llama-server"
+    model = _arg(args, "--model") or (_arg(args, "-m") if llama else None)
     path = (cwd / model) if model and not Path(model).is_absolute() else Path(model) if model else None
     exe = Path(cfg["exe"]) if Path(cfg["exe"]).is_absolute() else cwd / cfg["exe"]
-    ctx = _arg(args, "--max-context") or _arg(args, "--ctx")
+    ctx = _arg(args, "--max-context") or _arg(args, "--ctx") or \
+        ((_arg(args, "-c") or _arg(args, "--ctx-size")) if llama else None)
     e = {
         "id": str(cfg.get("model_name") or Path(config).stem.replace("strata-", "", 1)),
         "config": str(config),
@@ -144,7 +147,7 @@ def describe(config: Path) -> dict | None:
                     e["ram_gb"] = round((g["dense_bytes"] + g["expert_bytes"]) / 1e9, 1)
                     e["vram_gb"] = {"least": round(g["dense_bytes"] / 1e9 + 1.0, 1),
                                     "all": round((g["dense_bytes"] + g["expert_bytes"]) / 1e9 + 1.0, 1)}
-                if not g["runnable"]:
+                if not g["runnable"] and not llama:    # llama-server's own architectures are its to know
                     e["status"], e["problem"] = "unavailable", f"no engine here runs a '{g['backend']}' model"
     # the name setup gave it, else the file's own (a file's can be a converter's leftover), else the id
     e["display_name"] = cfg.get("display_name") or e["display_name"] or e["id"]
