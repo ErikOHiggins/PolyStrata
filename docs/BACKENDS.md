@@ -4,7 +4,7 @@ Puddle has one engine, strata-poly (`src/poly/`), which came from PolyStrata. It
 says which models it runs for Puddle, how it is put together, how a model is recognized, how to add one and how to
 change the model that answers, and then keeps the engine's record: the benchmarks and tuning PolyStrata measured,
 each with what it was measured on. Most of those were measured on Qwen3.6-35B-A3B and Ornith 1.5, which are
-qwen35moe models like Occamy, on Gemma 4, and on GLM 5.3 Flash; Puddle offers none of them except Gemma 4.
+qwen35moe models, on Gemma 4, and on GLM 5.3 Flash; Puddle offers none of them except Gemma 4.
 
 One model is in memory at a time.
 
@@ -14,21 +14,20 @@ One model is in memory at a time.
 | --- | --- | --- | --- | --- |
 | Laguna-S 2.1 | `laguna` | `Laguna` | Unsloth UD-Q3_K_XL and UD-Q4_K_XL (three files each), poolside's Q4_K_M, 54.1 to 96.0 GB | repeats only: there is no draft block |
 | Laguna-XS 2.1 | `laguna` | `Laguna` | poolside's Q4_K_M, 20.3 GB | repeats only: there is no draft block |
-| Occamy 1.0 35B-A3B | `qwen35moe` | `Qwen35` | Accio-Lab's APEX-Quality, APEX-I-Compact and APEX-Balanced, 16.5 to 25.3 GB | a draft block if the file has one (not checked), and repeats |
 | Gemma 4 26B-A4B | `gemma4` | `Gemma4` | Unsloth UD-Q3_K_M, UD-Q2_K_XL, UD-Q4_K_M and QAT-UD-Q4_K_XL, 10.5 to 16.9 GB | its draft model, a file of 0.46 GB |
 
-PolyStrata's other architectures (`glm5-next`, `deepseek4`, `lfm2moe`, `flint`, `kolibri1`, `clover_moe`) are removed
-from the engine; the measurements below that name those models are PolyStrata's record. The Metal build has no
+The engine also keeps its `qwen35moe` class (`Qwen35`) as the test case for recurrent layers until the Nemotron
+(Mamba-2) port works; setup offers no qwen35moe model. PolyStrata's other architectures (`glm5-next`, `deepseek4`,
+`lfm2moe`, `flint`, `kolibri1`, `clover_moe`) are removed from the engine; the measurements below that name those models are PolyStrata's record. The Metal build has no
 `Laguna` class yet ([MAC.md](MAC.md)).
 
 ## Install
 
-Setup installs all four; each has a family name that goes straight to it:
+Setup installs all three; each has a family name that goes straight to it:
 
 ```bash
 ./setup.sh --family laguna-s
 ./setup.sh --family laguna-xs
-./setup.sh --family occamy
 ./setup.sh --family gemma4
 ```
 
@@ -38,15 +37,12 @@ Setup installs all four; each has a family name that goes straight to it:
 | | UD-Q4_K_XL | 73.4 GB | about 71 GB beside a 16 GB card |
 | | Q4_K_M (poolside's; 8 of its 47 expert layers in BF16, run on the processor; not run yet) | 96.0 GB | about 93 GB beside a 16 GB card |
 | `laguna-xs` | Q4_K_M | 20.3 GB | about 17 GB beside a 16 GB card |
-| `occamy` | APEX-Quality (the default) | 22.8 GB | about 18 GB beside a 16 GB card |
-| | APEX-I-Compact (not run yet) | 16.5 GB | about 12 GB beside a 16 GB card |
-| | APEX-Balanced (not run yet) | 25.3 GB | about 21 GB beside a 16 GB card |
 | `gemma4` | UD-Q3_K_M and its draft model (the default) | 13.2 GB | about 18 GB beside an 8 GB card |
 | | UD-Q2_K_XL and the draft model | 11.0 GB | about 15 GB beside an 8 GB card |
 | | UD-Q4_K_M and the draft model | 17.4 GB | about 21 GB beside an 8 GB card |
 
 The RAM figure is the experts the card does not hold plus room for the rest; `./setup.sh --check` prints it for this
-PC's card. Laguna-S and Laguna-XS keep their attention caches in q8_0 (`--kv q8_0`); Occamy and Gemma 4 in fp16.
+PC's card. Laguna-S and Laguna-XS keep their attention caches in q8_0 (`--kv q8_0`); Gemma 4 in fp16.
 
 Setup asks the context and whether to keep several conversations in RAM, compiles `strata-poly` (always, from this
 repository's source: there are no ready-made engines), downloads the model's files from a pinned revision (for
@@ -54,13 +50,13 @@ Gemma 4 also its draft model), checks the SHA-256, writes the tokenizer director
 script, and starts the model. `--gguf-dir /folder/with/the/files` takes files you already have. On Windows it
 compiles with the CUDA Toolkit and Visual Studio's 2022 compiler (the newest that CUDA 13 takes), which it offers to
 install; on an AMD card it compiles from AMD's ROCm wheels in `.venv` (Linux) or `.rocm-win` (Windows)
-([AMD_HIP.md](AMD_HIP.md)). After a `git pull` that changes the source, the engine is compiled again. Laguna and
-Occamy have not been run on Windows, and setup says so before it installs them there.
+([AMD_HIP.md](AMD_HIP.md)). After a `git pull` that changes the source, the engine is compiled again. Laguna has
+not been run on Windows, and setup says so before it installs it there.
 
-Occamy and Gemma 4 read pictures: say yes to setup's question about images, or pass `--vision yes`. Setup then
-downloads the model's image encoder too (Occamy's 0.9 GB, Gemma 4's 1.2 GB), compiles `strata-vision` beside the
-engine and writes both into the run config. On the GPU the encoder holds 1.6 GB of VRAM (Gemma 4's 2.4 GB), so on a
-card with less than 15.5 GB it runs on the CPU and a picture takes a few seconds.
+Gemma 4 reads pictures: say yes to setup's question about images, or pass `--vision yes`. Setup then downloads its
+image encoder too (1.2 GB), compiles `strata-vision` beside the engine and writes both into the run config. On the
+GPU the encoder holds 2.4 GB of VRAM, so on a card with less than 15.5 GB it runs on the CPU and a picture takes a few
+seconds.
 
 ## Laguna on two 16 GB cards
 
@@ -97,7 +93,7 @@ that could miss something.
 A picture goes through a second child, `strata-vision`: llama.cpp's image code with the model's encoder file. It
 turns the picture into rows as wide as a token's embedding. The server puts one placeholder token a row into the
 prompt and sends `GENI` with the rows' file and `image_pad=`, the placeholder's id; the engine reads a row where
-a placeholder stands. The template says where a picture goes: Occamy's (Qwen's) writes the tokens around it, Gemma 4's
+a placeholder stands. The template says where a picture goes: a qwen35moe model's (Qwen's) writes the tokens around it, Gemma 4's
 writes one token and the server adds the two that llama.cpp puts around the rows.
 
 **The engine.** Inside `strata-poly`, `Engine` (src/poly/engine.hpp) is what every architecture shares:
@@ -136,7 +132,7 @@ architecture sets (`gelu_` for the experts' activation, the distance between exp
 
 Pictures show it. The shared code puts a picture's rows where token embeddings go and gives the conversation
 cache a number for each row made from the picture, so that it tells one picture from another of the same size.
-The rest is the architecture's. Occamy's (qwen35moe's) rotary embedding has three axes: text has one position on all of them,
+The rest is the architecture's. qwen35moe's rotary embedding has three axes: text has one position on all of them,
 a picture's rows share a position on the first and add their line and their column on the other two, and the
 text after a picture goes on as many positions later as the picture has lines or columns, whichever is more.
 Gemma 4 counts a picture's rows like text, lets them see each other in its window layers and keeps its full
@@ -164,7 +160,7 @@ and, by the tokenizer's `pre` name, how the model writes its reasoning and its t
 | Model | Reasoning | A tool call |
 | --- | --- | --- |
 | Laguna | the prompt opens it, `</think>` ends it | GLM's: `<tool_call>NAME<arg_key>K</arg_key><arg_value>V</arg_value>...` |
-| Occamy | the prompt opens it, `</think>` ends it | `<tool_call><function=NAME><parameter=P>...` |
+| qwen35moe models | the prompt opens it, `</think>` ends it | `<tool_call><function=NAME><parameter=P>...` |
 | Gemma 4 | `<\|channel>thought` to `<channel\|>`, opened by the model | `<\|tool_call>call:NAME{key:value,...}<tool_call\|>` |
 
 Gemma 4's template thinks only when it is told to, reads a tool in OpenAI's shape and starts with the tokenizer's
@@ -2089,12 +2085,12 @@ Windows decides the same way and was not measured; the budget's reads there are 
 
 ## Switches
 
-Options of strata-poly's own, with what they were measured on. They apply to qwen35moe models (Occamy) unless a
+Options of strata-poly's own, with what they were measured on. They apply to qwen35moe models unless a
 section says otherwise.
 
 ### Flash attention for prompt reading (on by default; `STRATA_FATTN=0` turns it off)
 
-For qwen35moe models (Occamy, and upstream's Qwen3.6 and Ornith; heads of 256 values, 8 or 16 heads a group), on an
+For qwen35moe models (upstream's Qwen3.6 and Ornith; heads of 256 values, 8 or 16 heads a group), on an
 Ampere or later NVIDIA card. A prompt batch's attention runs through llama.cpp's flash-attention kernel
 (`src/poly/fattn_mma.cuh`, a copy of `fattn-mma-f16.cuh` with the causal mask computed in the kernel) instead of
 two cuBLAS products and a softmax over scores in memory. Under the q8_0 cache (`--kv int8`) blocks of keys are
@@ -2236,7 +2232,7 @@ Setup knows the files in the table above. Another file of one of these architect
    ```
 
    It writes `packs/<name>/tokenizer/` with the vocabulary, the merges and the model's chat template. Byte-level
-   BPE (`gpt2`: Laguna, Occamy) and Gemma 4's `gemma4` are read.
+   BPE (`gpt2`: Laguna, the qwen35moe files) and Gemma 4's `gemma4` are read.
 3. Write `strata-<name>.json` beside `setup.py`:
 
    ```json
@@ -2247,7 +2243,7 @@ Setup knows the files in the table above. Another file of one of these architect
    should answer.
 5. Check it against llama.cpp before trusting it: the same prompt's token ids into both, greedy, and compare the
    tokens that come out.
-6. To have setup install it, give it a family in `FAMILIES` in `setup.py`, next to `occamy`: the repository at a
+6. To have setup install it, give it a family in `FAMILIES` in `setup.py`, next to `laguna-xs`: the repository at a
    pinned revision, the file's name, size and SHA-256, the size of its routed experts and the VRAM it takes before
    any expert. Steps 2 and 3 are then setup's.
 
@@ -2264,9 +2260,8 @@ Setup knows the files in the table above. Another file of one of these architect
 
 ## Limits
 
-- Puddle's models have run on one machine: echo, two RTX 5060 Ti 16 GB under Linux (Laguna-S UD-Q3_K_XL, Laguna-XS
-  Q4_K_M and Occamy APEX-Quality, with both cards). Laguna-S UD-Q4_K_XL and Q4_K_M, Occamy APEX-I-Compact and
-  APEX-Balanced have not been run; Gemma 4 was run by PolyStrata (above). Nothing of Puddle's has run on Windows, on
+- Puddle's models have run on one machine: echo, two RTX 5060 Ti 16 GB under Linux (Laguna-S UD-Q3_K_XL and Laguna-XS
+  Q4_K_M, with both cards). Laguna-S UD-Q4_K_XL and Q4_K_M have not been run; Gemma 4 was run by PolyStrata (above). Nothing of Puddle's has run on Windows, on
   an AMD card or on a Mac.
 - Setup's RAM figures are estimates.
 - An AMD card runs strata-poly through the HIP build ([AMD_HIP.md](AMD_HIP.md#what-was-measured)); upstream ran

@@ -75,8 +75,8 @@ driver (a Studio one, or an older one) and a lower power limit.
 
 **Pictures are refused, or slow.**
 "this server was started without the vision encoder": the model was set up for text only; run setup again with
-`--vision yes` (Occamy and Gemma 4 only). A picture that takes several seconds is read by the encoder on the CPU, which
-setup chooses on a card under 15.5 GB; `--vision gpu` puts it on the card (1.6 GB of VRAM for Occamy, 2.4 GB for
+`--vision yes` (Gemma 4 only). A picture that takes several seconds is read by the encoder on the CPU, which
+setup chooses on a card under 15.5 GB; `--vision gpu` puts it on the card (2.4 GB of VRAM for
 Gemma 4).
 
 ## AMD cards

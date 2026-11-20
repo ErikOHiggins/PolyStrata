@@ -1,7 +1,7 @@
 # Installing Puddle for a user (instructions for AI agents)
 
 This page is written for an AI coding assistant (Claude Code, Cursor, Codex, GitHub Copilot, ...) that a user asked to
-set up Puddle on their PC. Puddle runs Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 or Gemma 4 26B-A4B locally on one or two
+set up Puddle on their PC. Puddle runs Laguna-S 2.1, Laguna-XS 2.1 or Gemma 4 26B-A4B locally on one or two
 NVIDIA or AMD graphics cards plus system RAM, on its engine strata-poly, and serves an OpenAI- and Anthropic-compatible
 API on `http://127.0.0.1:8080`. The human-oriented version of everything below is [INSTALL.md](INSTALL.md).
 
@@ -50,7 +50,7 @@ Requirements (details: [INSTALL.md](INSTALL.md#what-you-need)):
   driver. If the driver is missing or too old, tell the user to update it and restart; do not install drivers
   yourself unless they ask.
 - **RAM and disk:** by model, in step 3. An NVMe SSD is best. **CPU:** x86-64 with AVX2.
-- **OS:** Linux or Windows 10/11. Laguna and Occamy have run on Linux only so far: on Windows setup says so and asks
+- **OS:** Linux or Windows 10/11. Laguna has run on Linux only so far: on Windows setup says so and asks
   first (with `--yes`, an explicit `--family` is the consent).
 
 If the PC does not meet them, say which part is missing and stop.
@@ -74,11 +74,10 @@ PC):
 | --- | --- | --- | --- | --- |
 | Laguna-S 2.1 | `laguna-s` | UD-Q3_K_XL 54 GB (default), UD-Q4_K_XL 73 GB, Q4_K_M 96 GB | about 51 / 71 / 93 GB beside a 16 GB card | no |
 | Laguna-XS 2.1 | `laguna-xs` | Q4_K_M 20 GB | about 17 GB beside a 16 GB card | no |
-| Occamy 1.0 | `occamy` | APEX-Quality 23 GB (default), APEX-I-Compact 17 GB, APEX-Balanced 25 GB | about 18 / 12 / 21 GB beside a 16 GB card | yes (`--vision yes`, about 1 GB more) |
 | Gemma 4 26B-A4B | `gemma4` | UD-Q3_K_M 13 GB (default), UD-Q2_K_XL, UD-Q4_K_M, QAT-UD-Q4_K_XL | about 15 to 21 GB beside an 8 GB card | yes |
 
-Ask the user what they want it for. Laguna-S is the largest and the default; Laguna-XS and Occamy fit a PC with
-less RAM, and Occamy and Gemma 4 read pictures. With `--yes` and no `--model`, setup takes the first size whose RAM
+Ask the user what they want it for. Laguna-S is the largest and the default; Laguna-XS and Gemma 4 fit a PC with
+less RAM, and Gemma 4 reads pictures. With `--yes` and no `--model`, setup takes the first size whose RAM
 estimate this PC meets. poolside's Laguna-S Q4_K_M keeps 8 of its expert layers in BF16 on the processor and has not
 been run yet: take it only when the user asks for it.
 
@@ -96,10 +95,10 @@ The flags (all of them: `./setup.sh --help`):
 | Flag | Meaning |
 | --- | --- |
 | `--yes` | take the recommended answer to every question (no prompts) |
-| `--family laguna-s\|laguna-xs\|occamy\|gemma4` | the model |
+| `--family laguna-s\|laguna-xs\|gemma4` | the model |
 | `--model SIZE` | the size (step 3) |
 | `--context N` | context in tokens (default asked; `--yes`: 32768); up to 1048576 |
-| `--vision yes\|no\|gpu\|cpu` | read pictures (Occamy, Gemma 4); `--yes` leaves images off; none on AMD cards |
+| `--vision yes\|no\|gpu\|cpu` | read pictures (Gemma 4); `--yes` leaves images off; none on AMD cards |
 | `--gpu N` / `--gpus 0,1` / `--gpus all` | one card, or several sharing the model |
 | `--backend cuda\|hip` | NVIDIA or AMD; chosen by itself on a PC with only one kind of card |
 | `--cuda 12\|13` | the CUDA toolkit the engine is compiled with (12 for Pascal / Volta or a driver older than 580) |
@@ -137,7 +136,7 @@ Notes:
 ## 6. Start the server
 
 Setup prints the start script it wrote (`start script: run-<model>.sh`). The name is the family's tag plus the size,
-lower case: `run-laguna-s21-ud-q3_k_xl`, `run-laguna-xs21-q4_k_m`, `run-occamy-apex-quality`, `run-gemma4-ud-q3_k_m`.
+lower case: `run-laguna-s21-ud-q3_k_xl`, `run-laguna-xs21-q4_k_m`, `run-gemma4-ud-q3_k_m`.
 
 ```
 Windows (PowerShell):  Start-Process -FilePath ".\run-laguna-xs21-q4_k_m.bat"     (opens its own window)

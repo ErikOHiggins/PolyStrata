@@ -1,14 +1,22 @@
 # AGENTS.md
 
-Puddle runs four mixture-of-experts models - Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 and Gemma 4 26B-A4B - on a normal
+Puddle runs three mixture-of-experts models - Laguna-S 2.1, Laguna-XS 2.1 and Gemma 4 26B-A4B - on a normal
 PC: one or two NVIDIA or AMD graphics cards plus system RAM, on Windows or Linux (a Mac as a beta). Its engine is
 `strata-poly` (`src/poly/`), with a Python server that has an OpenAI- and Anthropic-compatible API and a web app
 (`serve/`), and a one-click installer (`setup.py`, started by `START-HERE.bat` / `setup.sh`) that compiles the engine
 on the PC.
 
 Puddle is a fork of [PolyStrata](https://github.com/simplexai-labs/PolyStrata), which is built on
-[Strata](https://github.com/Niko1221/Strata). `src/` and `include/` still hold Strata's Qwen3.8 engine and the kernels
-strata-poly shares with it; Puddle is removing what strata-poly does not use.
+[Strata](https://github.com/Niko1221/Strata). Strata's Qwen3.8 engine and PolyStrata's other models have been removed:
+`src/` and `include/` hold strata-poly and the kernels it uses. strata-poly's `qwen35moe` class (`src/poly/qwen35.cpp`)
+stays as the test case for recurrent layers until the Nemotron (Mamba-2) port works; setup offers no qwen35moe model.
+
+## Which models belong
+
+Open-weight models whose license puts no restriction on their use: **OpenMDW first** (Laguna-S 2.1 and Laguna-XS 2.1
+are OpenMDW-1.1), **with Apache 2.0 accepted to fill a gap when required** (Gemma 4 26B-A4B, the model that reads
+pictures). A model is checked against this rule before it is added. The OpenMDW index,
+[models.openmdw.ai](https://models.openmdw.ai/), lists the candidates.
 
 ## Installing Puddle for a user
 

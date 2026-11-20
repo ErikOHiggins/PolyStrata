@@ -8,7 +8,7 @@ and label estimates separately.
 ## Puddle's models
 
 No community reports yet. What was measured: Laguna-S 2.1 on echo, two RTX 5060 Ti 16 GB
-([BACKENDS.md](BACKENDS.md#laguna-on-two-16-gb-cards)). Laguna-XS, Occamy, the larger Laguna-S sizes, Windows, AMD cards
+([BACKENDS.md](BACKENDS.md#laguna-on-two-16-gb-cards)). Laguna-XS, the larger Laguna-S sizes, Windows, AMD cards
 and Macs are all unmeasured, and a first report on any of them is welcome. Open an issue at
 [ErikOHiggins/Puddle](https://github.com/ErikOHiggins/Puddle/issues) with what [What to record](#what-to-record) lists.
 

@@ -8,8 +8,8 @@ Puddle is a fork of [PolyStrata](https://github.com/simplexai-labs/PolyStrata), 
 [Strata](https://github.com/Niko1221/Strata). Strata runs Qwen3.8-Flash-Next on its own engine; PolyStrata added a
 second engine, strata-poly, for other mixture-of-experts models, built on Strata's code (its quantized matvec kernels,
 GGUF reader, draft policy, conversation memory and the llama.cpp MMQ kernels). Puddle keeps strata-poly with
-PolyStrata's server, web app and installer, offers four models (Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 and Gemma 4
-26B-A4B), and added Laguna's architecture. Strata's Qwen3.8 engine and PolyStrata's other models are being removed.
+PolyStrata's server, web app and installer, offers three models (Laguna-S 2.1, Laguna-XS 2.1 and Gemma 4 26B-A4B),
+and added Laguna's architecture. Strata's Qwen3.8 engine and PolyStrata's other models have been removed.
 
 ### How do I know the output is right?
 
@@ -23,7 +23,7 @@ are checked like any token.
 ### How fast will it be on my card?
 
 What was measured is in the [README](../README.md#how-fast-is-it): Laguna-S on two 16 GB cards, Gemma 4 on PolyStrata's
-machines. Laguna-XS and Occamy have not been measured yet. `./bench.sh` (`BENCH.bat`) measures your PC, and
+machines. Laguna-XS has not been measured yet. `./bench.sh` (`BENCH.bat`) measures your PC, and
 [COMMUNITY_BENCHMARKS.md](COMMUNITY_BENCHMARKS.md) says what to send.
 
 ### How can I compare it with llama.cpp myself?
@@ -40,9 +40,9 @@ ran other models of the same engine on an RX 7600 and an RX 9070 XT ([AMD_HIP.md
 
 ### Will it run on a smaller card?
 
-Setup's figures for the VRAM a model takes beside its experts: Laguna-S about 8 GB (from echo), Laguna-XS about 5 GB and
-Occamy about 4.2 to 4.4 GB (estimates), Gemma 4 about 4.1 to 5.8 GB by size. Setup wants 2 GB more than that on the
-card. Laguna-XS, Occamy and Gemma 4 are the ones to try on an 8 GB card.
+Setup's figures for the VRAM a model takes beside its experts: Laguna-S about 8 GB (from echo), Laguna-XS about 5 GB
+(an estimate), Gemma 4 about 4.1 to 5.8 GB by size. Setup wants 2 GB more than that on the card. Laguna-XS and Gemma 4
+are the ones to try on an 8 GB card.
 
 ### What about older cards like a GTX 1050?
 
@@ -52,7 +52,7 @@ models on one.
 ### Can I run a fine-tune, or another model with the same architecture?
 
 The engine reads the architecture and the weights from the GGUF, so a fine-tune that keeps the architecture of Laguna
-(`laguna`), Occamy (`qwen35moe`) or Gemma 4 (`gemma4`) should run. `./setup.sh --custom-gguf <file>` reads its header,
+(`laguna`) or Gemma 4 (`gemma4`) should run. `./setup.sh --custom-gguf <file>` reads its header,
 picks the family and installs it as it is; `./setup.sh --inspect <file>` says what it holds first. Setup's RAM and
 VRAM estimates are then those of the nearest size.
 
@@ -71,15 +71,13 @@ There is no command for it. A model's files are these, where `<model>` is the na
 
 ### Which size should I take?
 
-Setup takes the default size when your PC has the RAM for it: Laguna-S's UD-Q3_K_XL, Occamy's APEX-Quality, Gemma 4's
-UD-Q3_K_M. The larger sizes keep more bits in the experts and want more RAM; poolside's Laguna-S Q4_K_M (96 GB) has 8
+Setup takes the default size when your PC has the RAM for it: Laguna-S's UD-Q3_K_XL, Gemma 4's UD-Q3_K_M. The larger sizes keep more bits in the experts and want more RAM; poolside's Laguna-S Q4_K_M (96 GB) has 8
 of its expert layers in BF16, which run on the processor, and has not been run yet.
 
 ### Does it work on Windows?
 
 Setup compiles strata-poly on Windows with Visual Studio's build tools and the CUDA toolkit, and offers to install them.
-PolyStrata ran Gemma 4 there; Laguna and Occamy have not been run on Windows, and setup says so before it installs
-them.
+PolyStrata ran Gemma 4 there; Laguna has not been run on Windows, and setup says so before it installs it.
 
 ### Can I use it with Claude Code, Codex or other apps?
 
@@ -96,7 +94,7 @@ middle of one very long text prompt. Both are off by default ([API.md](API.md#co
 
 ### Can the model see what it thought in earlier turns?
 
-With Laguna and Occamy, if you ask for it: `"preserve_thinking": true` in `strata-<model>.json`, or
+With Laguna, if you ask for it: `"preserve_thinking": true` in `strata-<model>.json`, or
 `"chat_template_kwargs": {"preserve_thinking": true}` with a request. The server also remembers the thinking of the
 answers it wrote, so an app that sends an answer back without it still gets it, as long as the answer's text comes back
 unchanged.

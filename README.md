@@ -1,7 +1,7 @@
 <h1 align="center">Puddle</h1>
 
 <p align="center"><b>Large AI models on your own PC</b><br>
-Laguna-S 2.1, Laguna-XS 2.1, Occamy 1.0 and Gemma 4 26B-A4B · free and open source</p>
+Laguna-S 2.1, Laguna-XS 2.1 and Gemma 4 26B-A4B · free and open source</p>
 
 Puddle runs mixture-of-experts models that usually need a server on a normal PC: one or two graphics cards and the
 PC's RAM. They chat, write code and work with your apps and coding agents over an OpenAI- and Anthropic-compatible
@@ -18,11 +18,13 @@ are not part of Puddle.
 | --- | --- | --- | --- |
 | **[Laguna-S 2.1](https://huggingface.co/poolside/Laguna-S-2.1)** | poolside; quantized by Unsloth | UD-Q3_K_XL (54 GB, the default), UD-Q4_K_XL (73 GB), poolside's own Q4_K_M (96 GB) | no |
 | **[Laguna-XS 2.1](https://huggingface.co/poolside/Laguna-XS-2.1)** | poolside | Q4_K_M (20 GB) | no |
-| **[Occamy 1.0 35B-A3B](https://huggingface.co/Accio-Lab/occamy-1.0-GGUF)** | Accio-Lab (APEX quantization) | APEX-Quality (23 GB, the default), APEX-I-Compact (17 GB), APEX-Balanced (25 GB) | yes |
 | **[Gemma 4 26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it)** | Google; quantized by Unsloth | UD-Q3_K_M (13 GB, the default), UD-Q2_K_XL, UD-Q4_K_M, QAT-UD-Q4_K_XL | yes |
 
-All four are experimental. poolside's Laguna-S Q4_K_M keeps 8 of its 47 expert layers in BF16, which run on the
+All three are experimental. poolside's Laguna-S Q4_K_M keeps 8 of its 47 expert layers in BF16, which run on the
 processor every token, and it has a 1M-token rope where Unsloth's files have 262K; it has not been run yet.
+
+Which models Puddle offers: open-weight models whose license puts no restriction on their use, OpenMDW first (both
+Lagunas are OpenMDW-1.1), with Apache 2.0 where a gap needs filling (Gemma 4, which reads pictures).
 
 ## How fast is it?
 
@@ -42,7 +44,7 @@ choice was the same at 95.3% of the 384 steps, and in every prompt the first dif
 **Gemma 4 26B-A4B UD-Q3_K_M**, measured by PolyStrata: writes 92-93 tokens/s and reads a prompt at 2,240 on a laptop
 with an RTX 4070 Laptop (8 GB), a Core i7-14700HX and 32 GB of RAM; 353-356 and 8,420-8,480 on an RTX 5090.
 
-Laguna-XS and Occamy have not been measured here yet. `./bench.sh` (`BENCH.bat`) measures your own PC and writes a
+Laguna-XS has not been measured here yet. `./bench.sh` (`BENCH.bat`) measures your own PC and writes a
 report ([how](docs/COMMUNITY_BENCHMARKS.md)).
 
 ## What you need
@@ -51,14 +53,13 @@ report ([how](docs/COMMUNITY_BENCHMARKS.md)).
 | --- | --- | --- | --- |
 | Laguna-S 2.1 | NVIDIA RTX 20 series or newer; it has run on two 16 GB cards | about 51 GB beside a 16 GB card (UD-Q3_K_XL) | 54 to 96 GB |
 | Laguna-XS 2.1 | same | about 17 GB beside a 16 GB card | 20 GB |
-| Occamy 1.0 | same | about 12 to 21 GB beside a 16 GB card | 17 to 25 GB |
 | Gemma 4 26B-A4B | NVIDIA RTX 20 series or newer, 8 GB or more | about 15 to 21 GB beside an 8 GB card | 11 to 17 GB |
 
 A larger card needs less RAM, and two or three cards can share a model ([multi-GPU](docs/MULTI_GPU.md)). Laguna
-and Occamy have run on Linux only so far; setup says so and asks before it installs them on Windows. AMD cards
+has run on Linux only so far; setup says so and asks before it installs it on Windows. AMD cards
 (Linux and Windows) and Pascal / Volta cards (with CUDA 12) are experimental: [AMD](docs/AMD_HIP.md),
 [older cards](docs/OLDER_GPUS.md). On a Mac (Apple Silicon), setup builds strata-poly's Metal engine; Laguna does not
-run on it yet, and Occamy and Gemma 4 have not been run there ([docs/MAC.md](docs/MAC.md)).
+run on it yet, and Gemma 4 has not been run there ([docs/MAC.md](docs/MAC.md)).
 
 ## Install
 
@@ -83,7 +84,7 @@ installs the build tools first, and asks; the first compile takes 10 to 20 minut
 it. If the download stops, run it again: it continues where it stopped. Your browser opens the app at
 `http://127.0.0.1:8080`.
 
-`./setup.sh --family laguna-s` (or `laguna-xs`, `occamy`, `gemma4`) goes straight to one model, and `--model SIZE`
+`./setup.sh --family laguna-s` (or `laguna-xs`, `gemma4`) goes straight to one model, and `--model SIZE`
 to one size. Every option: [docs/INSTALL.md](docs/INSTALL.md).
 
 **Next time**, run `START-HERE.bat` (or `./setup.sh`) again: it starts right away and downloads nothing twice. Close
@@ -97,7 +98,7 @@ its window to stop the model. `UPDATE.bat` (`./update.sh`) updates Puddle withou
   Apps that use Anthropic's API: `http://127.0.0.1:8080/v1/messages` (Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`).
   The OpenAI Responses API (Codex CLI): `/v1/responses`. All of it: [docs/API.md](docs/API.md).
 - **Thinking:** off, low, medium or high, in the chat menu or your app's "reasoning effort".
-- **Pictures** (Occamy, Gemma 4): say yes to "Images?" in setup, then attach pictures in the chat or your app.
+- **Pictures** (Gemma 4): say yes to "Images?" in setup, then attach pictures in the chat or your app.
 - **From your phone or another PC:** `./setup.sh --setup --host 0.0.0.0 --api-key <secret>`. Always set a key.
 
 ## Something went wrong?
@@ -117,9 +118,8 @@ are used and keeps the counts for its next start, when the most-used ones go to 
 ## Credits and license
 
 Laguna-S 2.1 and Laguna-XS 2.1 are by [poolside](https://huggingface.co/poolside), under the OpenMDW-1.1 license;
-Laguna-S in [Unsloth](https://huggingface.co/unsloth)'s quantization and poolside's own. Occamy 1.0 is by
-[Accio-Lab](https://huggingface.co/Accio-Lab), under Apache 2.0. Gemma 4 is by Google, under its own terms, in
-Unsloth's quantization.
+Laguna-S in [Unsloth](https://huggingface.co/unsloth)'s quantization and poolside's own. Gemma 4 is by Google,
+under Apache 2.0, in Unsloth's quantization.
 
 Puddle is built on [PolyStrata](https://github.com/simplexai-labs/PolyStrata) by VecSzn and its contributors, which is
 built on [Strata](https://github.com/Niko1221/Strata) by Niko1221 and its contributors (how Strata's engine works:

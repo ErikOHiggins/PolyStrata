@@ -110,7 +110,7 @@ settings ("Use for other apps too") and a request's own level win over it.
   sentence in place of Qwen3.8's "xhigh" one. It was written for that template: where the prompt does not have the
   sentence it does nothing, and the reply goes on. Use `"stop"` with Puddle's models.
 - **Thinking of earlier turns.** `"preserve_thinking": true` keeps the thinking of earlier assistant turns in the
-  prompt, for templates that support it (Laguna, Occamy).
+  prompt, for templates that support it (Laguna).
 
 ## Answers and streams
 
@@ -129,7 +129,7 @@ settings ("Use for other apps too") and a request's own level win over it.
   one, which is not sent (`finish_reason` "stop"; `stop_reason` "stop_sequence").
 - **A reply stuck on one token is ended.** When a reply repeats the same token 256 times in a row, the server ends it
   with `finish_reason` `"length"` and says so. `"repeat_stop_tokens": N` sets the run length; `0` turns it off.
-- **Tool calls in other forms (opt-in, Occamy's format).** `"tool_call_recovery": true` also reads a call of a declared
+- **Tool calls in other forms (opt-in, the XML `<function=NAME>` format).** `"tool_call_recovery": true` also reads a call of a declared
   tool written as `<parameter=NAME>` instead of `<function=NAME>`, as JSON inside `<tool_call>`, as a `<function=NAME>`
   block without `<tool_call>`, or as a second call inside the same `<tool_call>`.
 - **opencode's environment block (opt-in).** `"env_to_user": true` moves the `<env>` block opencode writes into its
@@ -257,8 +257,8 @@ One request is answered at a time unless `"parallel": N` is set (up to N decoded
 `sampling` block sets the defaults for requests that leave them out (`"sampling": {"temperature": 1.0, "top_p": 0.95,
 "top_k": 20}`); the web page's shared Chat settings win over it, and a request's own fields win over both.
 Setup writes each family's sampling as the block: Laguna-S and Laguna-XS temperature 1.0, top_p 1.0, top_k 20,
-min_p 0.1 (what testing on echo settled on; poolside's own config has min_p 0); Occamy 1.0 / 0.95 / 20 with
-presence_penalty 1.5; Gemma 4 1.0 / 0.95 / 64 (Google's model card). A block you write yourself is kept when setup
+min_p 0.1 (what testing on echo settled on; poolside's own config has min_p 0); Gemma 4
+1.0 / 0.95 / 64 (Google's model card). A block you write yourself is kept when setup
 runs again. A config without a block (one made by hand, or before setup wrote them) answers a request with no sampling
 greedy (strata-poly's default, temperature 0). `top_k` takes at most 64.
 The penalties (`presence_penalty`, `frequency_penalty`, `repetition_penalty`, with `penalty_last_n`, default 64;
@@ -345,9 +345,9 @@ The other direction, your AI assistant managing Puddle, is [MCP_SERVER.md](MCP_S
 
 ## Pictures
 
-Occamy and Gemma 4 read pictures with their mmproj file and a small helper, `strata-vision` (from llama.cpp's `mtmd`).
+Gemma 4 reads pictures with its mmproj file and a small helper, `strata-vision` (from llama.cpp's `mtmd`).
 Say yes to "Images?" in setup, or run `./setup.sh --setup --vision yes`. The encoder runs on the GPU from 15.5 GB of
-VRAM (it keeps about 1.6 GB of VRAM for Occamy, 2.4 GB for Gemma 4, by setup's figures), else on the CPU (a few seconds
+VRAM (it keeps about 2.4 GB of VRAM for Gemma 4, by setup's figures), else on the CPU (a few seconds
 a picture). No pictures on AMD cards for now.
 
 The `"vision"` section of `strata-<model>.json`:
