@@ -93,7 +93,7 @@ class Update(unittest.TestCase):
             broken.write_text("{\"args\": [", encoding="utf-8")
             rc, pip, eng, _, start, call, out = self.run_update([other, broken, p])
         self.assertEqual(rc, 0, out)
-        self.assertIn('skipped strata-notes.json (no "exe" or "args"): it is not a PolyStrata model config', out)
+        self.assertIn('skipped strata-notes.json (no "exe" or "args"): it is not a Puddle model config', out)
         self.assertIn("skipped strata-cut.json (not valid JSON)", out)
         eng.assert_called_once()                                    # the real model is still refreshed
         self.assertIn("Gemma 4 UD-Q3_K_M: up to date", out)

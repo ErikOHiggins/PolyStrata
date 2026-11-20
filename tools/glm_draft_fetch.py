@@ -1,7 +1,7 @@
 """tools/glm_draft_fetch.py - GLM 5.3 Flash's draft block, without the file it is in.
 
 The model has one block more than its layers: it guesses the token after the next one, and the engine checks the
-guesses a few at a time (docs/GLM.md).  The block is the model's, not a file's, and one serves every size.  Some
+guesses a few at a time (PolyStrata's docs/GLM.md).  The block is the model's, not a file's, and one serves every size.  Some
 GGUFs leave it out (the 3.0BIT file), others carry it at their end.  A GGUF starts with a directory of its
 tensors (name, type, shape, offset), so HTTP range requests can read the directory and then only the block.
 

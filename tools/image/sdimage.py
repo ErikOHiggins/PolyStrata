@@ -1,4 +1,4 @@
-"""tools/image/sdimage.py - FLUX.2 [klein] 4B for PolyStrata's image page: stable-diffusion.cpp's own server (sd-server)
+"""tools/image/sdimage.py - FLUX.2 [klein] 4B for Puddle's image page: stable-diffusion.cpp's own server (sd-server)
 with its Web UI (sdcpp-webui) at pinned commits, built for this PC's GPU, and the model's three files at pinned Hugging
 Face revisions.
 
@@ -8,7 +8,7 @@ setup.py (--images flux2-klein) and tools/image/install.py use these pieces; ser
             (examples/server/frontend) and, for CUDA builds, CUTLASS 3.9.2 (thirdparty/cutlass: the CuTe attention and
             INT8 GEMM kernels).  GitHub's zips leave submodules out, so each comes as its own zip (no git).
   web UI    built by sd.cpp's CMake with pnpm (-DSD_SERVER_BUILD_FRONTEND=ON) into one HTML file; setup copies it beside
-            sd-server (WEBUI_FILE) and PolyStrata's server serves it at /sd/.  Needs Node.js 20 or newer.
+            sd-server (WEBUI_FILE) and Puddle's server serves it at /sd/.  Needs Node.js 20 or newer.
   backend   CUDA on an NVIDIA card, HIP on an AMD card with its own memory (Linux), Vulkan on an APU/iGPU (AMD's shared
             memory: the HIP path's queue evictions reset a 780M on current firmware), on Intel and on AMD under
             Windows; CPU without a GPU.  --image-backend picks another.

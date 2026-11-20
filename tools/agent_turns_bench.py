@@ -6,8 +6,8 @@ The workload is five simulated coding-agent sessions over this repository's own 
 expert cache, the hyper-connection kernels, the tokenizer): a system prompt, four tools, a task (three in English, two
 in French), then tool calls whose results are the real files, at most 2,000 lines per read as agents' read tools
 return them.  Every point right after a tool result is one turn the model continues - 23 turns from ~2.5K to ~100K
-tokens with the repository as of 0.1.41, consecutive turns sharing their prefix as in a real session.  Nothing
-personal and nothing downloaded: anyone with this checkout gets the same requests.
+tokens, consecutive turns sharing their prefix as in a real session.  The files are read at commit CORPUS (below), so
+nothing personal and nothing downloaded: anyone with this repository's history gets the same requests.
 
 Arms are given as ab_engine.py takes them (NAME:key=value,...; `exe` replaces the engine, `xargs` appends
 ';'-separated engine arguments, any other key goes to the engine's environment).  The rounds mirror the arm order
@@ -99,15 +99,22 @@ SESSIONS = [
 ]
 
 
+# The files are read at this commit, so the requests stay the same while Puddle removes files the sessions read
+# (docs/DETAILS.md, the Qwen engine's sources): the repository before the trim.
+CORPUS = "ac62d979"
+
+
 def tool_result(tool: str, arg: str) -> str:
     if tool == "read_file":
-        lines = (ROOT / arg).read_text(encoding="utf-8", errors="replace").splitlines()
+        r = subprocess.run(["git", "-C", str(ROOT), "show", f"{CORPUS}:{arg}"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", check=True)
+        lines = r.stdout.splitlines()
         text = "\n".join(lines[:2000])
         return text + (f"\n... (truncated: lines 1-2000 of {len(lines)})" if len(lines) > 2000 else "")
     if tool == "grep":
-        r = subprocess.run(["git", "-C", str(ROOT), "grep", "-n", "-I", "-E", arg], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
-        lines = r.stdout.splitlines()
+        r = subprocess.run(["git", "-C", str(ROOT), "grep", "-n", "-I", "-E", arg, CORPUS], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
+        lines = [line.removeprefix(CORPUS + ":") for line in r.stdout.splitlines()]
         return "\n".join(lines[:200]) + (f"\n... ({len(lines) - 200} more lines)" if len(lines) > 200 else "")
     raise ValueError(tool)
 

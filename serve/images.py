@@ -1,14 +1,14 @@
-"""serve/images.py - image generation: stable-diffusion.cpp's own server (sd-server) and its Web UI behind PolyStrata.
+"""serve/images.py - image generation: stable-diffusion.cpp's own server (sd-server) and its Web UI behind Puddle.
 
 The web app's Images tab shows sd.cpp's Web UI (sdcpp-webui, built with sd-server by setup --images flux2-klein) at
-/sd/.  The page calls sd-server's native API relative to its own address (/sd/sdcpp/v1/...), and PolyStrata's server
+/sd/.  The page calls sd-server's native API relative to its own address (/sd/sdcpp/v1/...), and Puddle's server
 passes those calls on to one sd-server it runs on 127.0.0.1 (ImageServer.handle), so every control of the Web UI
 (recipes and models, samplers, schedulers, guidance, reference images, LoRAs, VAE tiling, caches, previews) works as
 against a plain sd-server.  The model at the start is the config's recipe and files (FLUX.2 klein 4B); the Web UI can
 load another one from the model folder.  Only /sdcpp/v1/* is passed on: sd-server's OpenAI and sdapi routes are not.
 
 sd-server starts on first use (the page asks for its capabilities, or a job comes) and stops after "idle_s" seconds
-without a job or a model change (0: never), which gives its RAM back.  While it is stopped PolyStrata answers the
+without a job or a model change (0: never), which gives its RAM back.  While it is stopped Puddle answers the
 page's catalog and status requests with what sd-server said last, so the page still shows the model as loaded; the
 next job starts sd-server again, loads the model that was loaded before, and runs (it takes that much longer).
 
@@ -81,7 +81,7 @@ def free_port() -> int:
 
 
 def server_args(cfg: dict, port: int) -> list[str]:
-    """sd-server's command: 127.0.0.1 only (PolyStrata's server is the way in), the model folder whose catalog the Web
+    """sd-server's command: 127.0.0.1 only (Puddle's server is the way in), the model folder whose catalog the Web
     UI lists, and the config's own arguments (setup's: --offload-to-cpu, on Vulkan also the VAE tiling)."""
     return [str(cfg["exe"]), "--listen-ip", "127.0.0.1", "--listen-port", str(port),
             "--model-dir", str(cfg["model_dir"]), *[str(a) for a in cfg.get("args") or []]]
@@ -154,12 +154,12 @@ else:
 
 def _die_with_parent():
     """Linux (preexec_fn): sd-server gets SIGTERM when the thread that started it ends (PR_SET_PDEATHSIG) - the
-    launcher thread, which lives as long as PolyStrata's server, however that ends."""
+    launcher thread, which lives as long as Puddle's server, however that ends."""
     if _PRCTL is not None:
         _PRCTL(1, 15)
 
 
-# The page's own settings, seeded once (a key the user has set stays): its "Enhance prompt" button asks PolyStrata's
+# The page's own settings, seeded once (a key the user has set stays): its "Enhance prompt" button asks Puddle's
 # own text model (an OpenAI-compatible /v1 at the same address), with the web app's API key when it has one.
 SEED_SCRIPT = ("<script>(function(){try{var s=localStorage,base=location.origin+location.pathname.replace(/\\/sd\\/?$/,"
                "\"\")+\"/v1\",k={\"sdcpp-webui-enhance-base-url\":JSON.stringify(base),"
@@ -440,7 +440,7 @@ class ImageServer:
 
     def close(self) -> None:
         self._closed = True
-        self.stop("PolyStrata's server stopped")
+        self.stop("Puddle's server stopped")
         if self._launcher_thread is not None:
             self._launch_q.put(None)
 

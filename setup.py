@@ -682,7 +682,7 @@ def hybrid_pool_workers(cores) -> int | None:
 
 
 def cpu_info():
-    """(name, avx2, avx512): avx512 means everything PolyStrata's fast AVX-512 kernels use (F, BW, VL, VNNI, VBMI),
+    """(name, avx2, avx512): avx512 means everything Puddle's fast AVX-512 kernels use (F, BW, VL, VNNI, VBMI),
     the same test the engine makes (cpu_avx512_ok), not just AVX-512F."""
     name, avx2, avx512 = platform.processor() or "unknown CPU", False, False
     if WIN:
@@ -940,9 +940,9 @@ def config_toolkit(cfg: dict) -> int:
 
 
 def gpu_problem(g, together=False):
-    """Why PolyStrata cannot use this card, in plain words (None: it can)."""
+    """Why Puddle cannot use this card, in plain words (None: it can)."""
     if int(g["arch"]) < 75 and not (sm60_card(g["arch"]) and experimental_sm60()):
-        return (f"not supported - older than the RTX 20 series (compute capability {cc(g)}; PolyStrata needs 7.5 or "
+        return (f"not supported - older than the RTX 20 series (compute capability {cc(g)}; Puddle needs 7.5 or "
                 "newer" + ("; experimental: choose it with --gpu " + str(g["index"]) + " (the CUDA 12 engine, "
                           "docs/OLDER_GPUS.md)" if sm60_card(g["arch"]) else "") + ")")
     if together and g["vram_gb"] < SPLIT_MIN_VRAM_GB - 0.5:
@@ -985,7 +985,7 @@ def split_short(cards) -> list:
 def split_short_note(g) -> str:
     return (f"GPU {g['index']} ({g['name']}, {g['vram_gb']:.0f} GB) is too small to lend a split its prompt buffers: "
             "it would cap prompt reading at 512-2048-token chunks, several times slower than the first card alone "
-            "(#448). It can serve as a helper expert cache instead (docs/SECOND_GPU.md)")
+            "(#448)")
 
 
 def parse_gpus(text, found) -> list:
@@ -994,7 +994,7 @@ def parse_gpus(text, found) -> list:
         sel = [g["index"] for g in together_ok(found)]
         if not sel:
             gpu_table(found)
-            fail("--gpus all: this PC does not have two GPUs PolyStrata can use together")
+            fail("--gpus all: this PC does not have two GPUs Puddle can use together")
         return sel
     try:
         sel = [int(x) for x in str(text).split(",") if x.strip()]
@@ -1015,7 +1015,7 @@ def check_gpus(sel, found, what="", yes=False, named=False) -> None:
         p = "not found on this PC" if g is None else gpu_problem(g, together)
         if p is None:
             continue
-        if named and g is not None and gpu_problem(g) is None:     # it runs PolyStrata; only its VRAM is small
+        if named and g is not None and gpu_problem(g) is None:     # it runs Puddle; only its VRAM is small
             confirm_risk(f"GPU {i} ({g['name']}) has {g['vram_gb']:.0f} GB of VRAM: a card sharing the model needs "
                          f"{SPLIT_MIN_VRAM_GB} GB or more (it holds the dense weights of its layers and its own prompt "
                          "buffers), so the model may not start, or run slower than without it", True, yes,
@@ -1030,13 +1030,13 @@ def check_gpus(sel, found, what="", yes=False, named=False) -> None:
         ones = " or ".join(f"--gpu {x['index']}" for x in single)
         both = "--gpus " + ",".join(str(x["index"]) for x in can) if can else ""
         hint = ((f"use these together: {both}" + (f" (or one card: {ones})" if not together else "")) if can else
-                f"use one card: {ones}" if single else "PolyStrata needs an NVIDIA RTX 20 series or newer card")
+                f"use one card: {ones}" if single else "Puddle needs an NVIDIA RTX 20 series or newer card")
         fail(f"GPU {i}{'' if g is None else ' (' + g['name'] + ')'} {what}cannot be used: {p}", hint)
 
 
 def start_gpus(text):
     """--gpus when starting an installed model: NVIDIA cards as nvidia-smi numbers them, or on a PC whose AMD cards
-    are the ones PolyStrata can use, AMD cards as setup lists them ("all": every supported AMD card)."""
+    are the ones Puddle can use, AMD cards as setup lists them ("all": every supported AMD card)."""
     if not text:
         return None
     found = gpus()
@@ -1064,12 +1064,12 @@ def choose_gpus(a, found) -> list:
     single = sorted([g for g in found if gpu_problem(g) is None], key=lambda x: (-round(x["vram_gb"]), x["index"]))
     if not single:
         gpu_table(found)
-        fail("none of your GPUs can run PolyStrata", "it needs an NVIDIA RTX 20 series or newer (compute capability 7.5+)")
+        fail("none of your GPUs can run Puddle", "it needs an NVIDIA RTX 20 series or newer (compute capability 7.5+)")
     can = together_ok(found)
     if not can:
         return [single[0]["index"]]
     say()
-    say(f"  PolyStrata can run the model on one GPU, or share it across {'these' if len(can) > 2 else 'both'}: then each"
+    say(f"  Puddle can run the model on one GPU, or share it across {'these' if len(can) > 2 else 'both'}: then each"
         " card holds the")
     say("  experts of its own layers, so together they hold about twice as many, and prompts are read about 20%")
     say("  faster (details: docs/MULTI_GPU.md). A much slower extra card can also make it slower.")
@@ -1104,7 +1104,7 @@ def model_shards(fam: dict, model: str) -> int:
 
 
 def gpu_info(pick=None):
-    """The GPU PolyStrata runs on: `pick` (nvidia-smi's number) if given, else the one with the most VRAM (ties: the
+    """The GPU Puddle runs on: `pick` (nvidia-smi's number) if given, else the one with the most VRAM (ties: the
     lower number).  None when there is no NVIDIA GPU.  The dict also says how many there are ("count")."""
     found = gpus()
     if not found:
@@ -1538,7 +1538,7 @@ def get_llama_cpp(vision=False):
     try:
         with zipfile.ZipFile(z) as f:
             # llama.cpp's own web UI (tools/ui) is not used, and its deep paths passed Windows' 260-character limit in a
-            # folder like Downloads\PolyStrata-main\PolyStrata-main (#206)
+            # folder like Downloads\Puddle-main\Puddle-main (#206)
             f.extractall(tmp, [m for m in f.namelist() if "/tools/ui/" not in m])
     except zipfile.BadZipFile:
         # #1797: do not let the .done mark make every later run reuse a damaged source archive.
@@ -2005,7 +2005,7 @@ def amd_gpus(sysfs="/sys"):
 
 def amd_problem(g):
     if g["arch"] not in AMD_ARCHS:
-        return (f"not supported - PolyStrata's AMD backend runs on {AMD_CARDS} only, this is {g['arch']}"
+        return (f"not supported - Puddle's AMD backend runs on {AMD_CARDS} only, this is {g['arch']}"
                 + (" (an integrated Radeon, not Strix Halo)" if g["arch"] in ("gfx1150", "gfx1152", "gfx1103") else ""))
     if g.get("cannot_run"):                            # Windows: the installed engine's own check (--list-devices)
         return g["cannot_run"]
@@ -2031,7 +2031,7 @@ def amd_gpus_win() -> list[dict]:
 
 def amd_parse_gpus(text, amd) -> list:
     """--gpus with AMD cards, numbered as HIP numbers them (setup's list): "1,0", or "all" (every supported card, the
-    most VRAM first).  Every chosen card must be one PolyStrata supports (AMD_ARCHS; they may be of different
+    most VRAM first).  Every chosen card must be one Puddle supports (AMD_ARCHS; they may be of different
     architectures: the engine is compiled for each).  Returns the cards, the main one first."""
     usable = [g for g in amd if amd_problem(g) is None]
     if str(text).strip().lower() == "all":
@@ -2043,7 +2043,7 @@ def amd_parse_gpus(text, amd) -> list:
             fail(f"--gpus takes AMD GPU numbers as setup lists them, e.g. --gpus 1,0 (or --gpus all), not {text!r}")
     if len(sel) < 2 or len(set(sel)) != len(sel):
         fail("--gpus takes two or more different GPUs, e.g. --gpus 1,0 (one GPU: --gpu 1)",
-             "this PC has " + (f"{len(usable)} AMD card{'s' if len(usable) != 1 else ''} PolyStrata can use"
+             "this PC has " + (f"{len(usable)} AMD card{'s' if len(usable) != 1 else ''} Puddle can use"
                                + (": " + ", ".join(f"GPU {g['index']} ({g['name']})" for g in usable) if usable else "")))
     byid = {g["index"]: g for g in amd}
     for i in sel:
@@ -2136,7 +2136,7 @@ def _pci_device_id(text: str) -> int | None:
 
 
 def win_amd_arch(device_id: int | None, name: str) -> str:
-    """A Windows AMD adapter's architecture from its PCI device id, else its name; "" when it is none PolyStrata knows
+    """A Windows AMD adapter's architecture from its PCI device id, else its name; "" when it is none Puddle knows
     (an integrated Radeon, an older card)."""
     if device_id in _WIN_AMD_DID:
         return _WIN_AMD_DID[device_id]
@@ -2145,7 +2145,7 @@ def win_amd_arch(device_id: int | None, name: str) -> str:
 
 def amd_gpus_windows(adapters=None, registry=None) -> list[dict]:
     """The AMD display adapters present, in display-adapter order (setup's numbering until the HIP engine is
-    installed), with the arch PolyStrata would run them as ("" = unknown: listed, not supported).  adapters / registry:
+    installed), with the arch Puddle would run them as ("" = unknown: listed, not supported).  adapters / registry:
     tools/test_setup_amd.py passes mocked ones."""
     adapters = _win_display_adapters() if adapters is None else adapters
     registry = _win_display_registry() if registry is None else registry
@@ -2284,7 +2284,7 @@ def hip_runtime_beside_exe(eng: Path) -> None:
                 shutil.copy2(src, dst)
             except OSError as e:                   # e.g. the engine is running and holds the old copy
                 warn(f"could not put {src.name} next to the AMD engine ({e}); if the engine stops on its first "
-                     "request, close PolyStrata and run START-HERE.bat again")
+                     "request, close Puddle and run START-HERE.bat again")
 
 
 def rocm_version(root):
@@ -2317,7 +2317,7 @@ def rocm_root(archs):
         if (ver is None or ver >= ROCM_SYSTEM_MIN) and not missing:
             return sysroot, [str(sysroot / "lib")]
         if ver is not None and ver < ROCM_SYSTEM_MIN:
-            warn(f"the ROCm in {sysroot} is {ver[0]}.{ver[1]}; PolyStrata needs {ROCM_SYSTEM_MIN[0]}.{ROCM_SYSTEM_MIN[1]} "
+            warn(f"the ROCm in {sysroot} is {ver[0]}.{ver[1]}; Puddle needs {ROCM_SYSTEM_MIN[0]}.{ROCM_SYSTEM_MIN[1]} "
                  "or newer: using AMD's wheels in .venv instead")
         else:                                          # #446: a runtime-only ROCm (no -dev packages): cmake would fail
             warn(f"the ROCm in {sysroot} has no HIP development files ({', '.join(missing)}): using AMD's wheels in "
@@ -2345,7 +2345,7 @@ def rocm_root(archs):
         run(pip + [f"rocm[libraries,devel]=={wheel}"])
         stamp.write_text(json.dumps({"version": wheel, "index": index}))
     # the module, not .venv/bin/rocm-sdk: pip's script names this venv's Python by its path, and stops working when the
-    # PolyStrata folder is moved (issue 78's cmake); the venv's Python itself still runs
+    # Puddle folder is moved (issue 78's cmake); the venv's Python itself still runs
     root = Path(out([sys.executable, "-m", "rocm_sdk", "path", "--root"]).strip())
     if not (root / "llvm" / "bin" / "clang++").exists():
         fail(f"ROCm was installed but its compiler is missing ({root})",
@@ -3283,7 +3283,7 @@ def model_config(path: Path) -> bool:
         why = e.strerror or str(e)
     except ValueError:
         why = "not valid JSON"
-    warn(f"skipped {path.name} ({why}): it is not a PolyStrata model config")
+    warn(f"skipped {path.name} ({why}): it is not a Puddle model config")
     return False
 
 
@@ -3525,7 +3525,7 @@ def write_run_script(model, cfg_path, port, open_browser=True):
              "--port", str(port)] + (["--open"] if open_browser else [])
     if WIN:
         script = ROOT / f"run-{model.lower()}.bat"
-        script.write_text("@echo off\r\ntitle PolyStrata " + model + "\r\ncd /d \"" + str(ROOT) + "\"\r\n" +
+        script.write_text("@echo off\r\ntitle Puddle " + model + "\r\ncd /d \"" + str(ROOT) + "\"\r\n" +
                           " ".join(f'"{x}"' for x in serve) + "\r\nif errorlevel 1 pause\r\n", encoding="utf-8")
     else:
         script = ROOT / f"run-{model.lower()}.sh"
@@ -4002,7 +4002,7 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
         say("  Context length = how much text the model can see at once (your chat, files, tool output).")
         say("  Longer takes VRAM from the expert cache:")
         row = fam.get("row_bytes", GLM_ROW_BYTES)
-        # writing after a prompt that fills the context, tokens/s, on the 8 GB laptop (docs/BACKENDS.md, docs/LFM.md)
+        # writing after a prompt that fills the context, tokens/s, on the 8 GB laptop (docs/BACKENDS.md)
         laptop = fam.get("laptop_tps") or ({32768: "52-58", 65536: "42-46", 131072: "28-30"}
                                            if fam.get("ran_on_gb") == 8 else {})
         for i, c in enumerate(POLY_CONTEXTS, 1):
@@ -4041,7 +4041,7 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
         fail(f"{models_dir} has no {absent[0]}",
              "put the file there under that name, or leave out --gguf-dir and setup downloads it")
     if not a.gguf_dir and not all(s.exists() and done(s) for s in shards):
-        for r in elsewhere:                            # already downloaded in a PolyStrata folder on another drive
+        for r in elsewhere:                            # already downloaded in a Puddle folder on another drive
             cand = [r / "models" / tag / s.name for s in shards]
             if all(c.exists() and done(c) for c in cand):
                 models_dir, shards = cand[0].parent, cand
@@ -4138,7 +4138,7 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
         ok(f"vision encoder: {mmproj}")
     ok("model file present")
 
-    step(6, "preparing the model for PolyStrata")
+    step(6, "preparing the model for Puddle")
     pack = find_in([data, *elsewhere], f"packs/{tag.lower()}") or data / "packs" / tag.lower()
     if not (pack / "tokenizer" / "vocab.json").exists():
         run([sys.executable, str(ROOT / "tools" / "strata_tokenizer.py"), "--gguf", str(gguf), "--out", str(pack)],
@@ -4325,7 +4325,7 @@ def resolve_custom_gguf(path_str: str) -> tuple[str, str, list[Path]]:
         else:  # layout
             matches = [k for k, v in known.items() if v["expert_bytes"] == fp["expert_bytes"]]
         if len(matches) > 1:
-            say(f"PolyStrata: {sentence}")
+            say(f"Puddle: {sentence}")
             fail(f"this GGUF's header matches several entries ({', '.join(sorted(matches))})",
                  "use --inspect to read the full explanation, then pick explicitly with --family X --model Y")
         fam_model = matches[0].split("/")
@@ -4337,7 +4337,7 @@ def resolve_custom_gguf(path_str: str) -> tuple[str, str, list[Path]]:
         fam, models_dict = next(((k, v["models"]) for k, v in FAMILIES.items() if v.get("title") == title),
                                 (None, None))
         if not fam:
-            say(f"PolyStrata: {sentence}")
+            say(f"Puddle: {sentence}")
             fail("cannot install this GGUF with --custom-gguf",
                  "use --inspect to read the full explanation, or give it to --gguf-dir")
         # derive the size from the filename's quant token (e.g. "Q4_K_M" in "...-Q4_K_M.gguf")
@@ -4347,12 +4347,12 @@ def resolve_custom_gguf(path_str: str) -> tuple[str, str, list[Path]]:
                       or m.lower().endswith(quant.lower())), None)
         if not model:
             model = sorted(models_dict)[0]
-            warn(f"PolyStrata: {sentence}\n  your file's quant '{quant}' is not one setup offers "
+            warn(f"Puddle: {sentence}\n  your file's quant '{quant}' is not one setup offers "
                  f"{', '.join(sorted(models_dict))}: it will run as-is; the RAM and VRAM estimates are for "
                  f"{FAMILIES[fam]['title']}'s --model {model}")
         return fam, model, files
 
-    say(f"PolyStrata: {sentence}")
+    say(f"Puddle: {sentence}")
     fail("cannot install this GGUF with --custom-gguf",
          "use --inspect to read the full explanation, or give it to --gguf-dir")
 
@@ -4420,7 +4420,7 @@ def main() -> int:
                          "(mainland China: the same files, checked against ModelScope's published SHA-256; "
                          "STRATA_SOURCE)")
     ap.add_argument("--inspect", nargs="+", metavar=("SOURCE", "VARIANT"),
-                    help="what a GGUF is and whether PolyStrata runs it, from its headers only (no download): a file, a "
+                    help="what a GGUF is and whether Puddle runs it, from its headers only (no download): a file, a "
                          "folder, a URL, ms:owner/repo (ModelScope) or hf:owner/repo, and optionally a variant name")
     ap.add_argument("--custom-gguf", metavar="PATH",
                     help="a .gguf file or folder of shards you already have: setup inspects it, matches it to a family "
@@ -4442,7 +4442,7 @@ def main() -> int:
                          "throughput for a model that fits fewer cards; each replica holds its own copy of the model)")
     ap.add_argument("--backend", choices=["cuda", "hip"],
                     help="cuda = NVIDIA (default), hip = AMD RX 7900 / 7800 / 7700 XT, RX 9060 XT / 9070 / AI PRO R9700 on "
-                         "Linux or Windows (chosen by itself when the PC has no NVIDIA card PolyStrata can use)")
+                         "Linux or Windows (chosen by itself when the PC has no NVIDIA card Puddle can use)")
     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     a._custom_gguf_shards = None                      # set by --custom-gguf; None means "not using your own file"
@@ -4490,7 +4490,7 @@ def main() -> int:
         return update_install(have, a)
     explicit = a.setup or a.model or a.family or a.check or a.no_start
     adopted = None                                     # #629: the earlier install this copy is set up like
-    if not have and not explicit:                      # a new copy of PolyStrata (an update unzipped elsewhere): set it
+    if not have and not explicit:                      # a new copy of Puddle (an update unzipped elsewhere): set it
         prev = previous_config(elsewhere, load_settings())   # up like the last one, from the files already here
         if prev is not None:
             ch = choices_from_config(prev)
@@ -4549,7 +4549,7 @@ def main() -> int:
     if a.backend is None and nv_ok and amd_ok:
         # both kinds of card: asked (a first run on such a PC used to take NVIDIA without mentioning the Radeon)
         say()
-        say("  This PC has NVIDIA and AMD cards PolyStrata can use:")
+        say("  This PC has NVIDIA and AMD cards Puddle can use:")
         say("  1) NVIDIA: " + ", ".join(f"{g['name']} ({g['vram_gb']:.0f} GB)" for g in found if gpu_problem(g) is None)
             + "   (recommended)")
         say("  2) AMD: " + ", ".join(f"{g['name']} ({g['vram_gb']:.0f} GB{', unified memory' if g.get('uma') else ''})"
@@ -4579,7 +4579,7 @@ def main() -> int:
                         "empty: ROCm cannot use it yet (docs/STRIX_HALO.md: the amdgpu driver and /dev/kfd access, "
                         "your user in the render and video groups)")
         if not usable:
-            fail("no AMD GPU PolyStrata can use", f"the AMD backend runs on {AMD_CARDS}")
+            fail("no AMD GPU Puddle can use", f"the AMD backend runs on {AMD_CARDS}")
         if a.gpus:                                     # a layer split across these cards, the first one the main
             chosen = amd_parse_gpus(a.gpus, amd)
             gpu = chosen[0]
@@ -4641,7 +4641,7 @@ def main() -> int:
                                            f"{CUDA12_MIN_DRIVER} or newer, docs/OLDER_GPUS.md)"))
     if gpu["vram_gb"] < 11:
         warn("less than 12 GB of " + ("GPU memory (this APU's carve-out + shared memory)" if gpu.get("uma") else "VRAM")
-             + ": PolyStrata will run, but most experts stay on the CPU and it will be slow")
+             + ": Puddle will run, but most experts stay on the CPU and it will be slow")
     ram = ram_gb()
     cpu, avx2, avx512 = cpu_info()
     # each family has its own estimate of the RAM it wants, by size and card (poly_setup); here only the floor
@@ -4660,12 +4660,12 @@ def main() -> int:
             warn(problem)
     floor = cpu_floor(avx2)
     if floor == "unsupported":
-        fail("this CPU has neither AVX2 nor SSE4.2; PolyStrata needs at least SSE4.2 (Intel Nehalem, 2008, or newer)")
+        fail("this CPU has neither AVX2 nor SSE4.2; Puddle needs at least SSE4.2 (Intel Nehalem, 2008, or newer)")
     if not avx2:
         # #394 #595 #623: an older CPU: the CPU's share of the experts runs on ggml-cpu's kernels for this CPU.
         # Experimental: measured only on newer CPUs with the older path forced, and by users on a few Xeons.  A
         # warning, not a stop.
-        warn("this CPU has no AVX2: PolyStrata support for it is EXPERIMENTAL and slow - the CPU's share of the "
+        warn("this CPU has no AVX2: Puddle support for it is EXPERIMENTAL and slow - the CPU's share of the "
              "experts runs on ggml-cpu's kernels, a few times slower than on an AVX2 CPU")
     if a.check:
         say()
@@ -4677,10 +4677,10 @@ def main() -> int:
         if not any_fits:
             # #977: every size says "does not fit", so the verdict says so too (and the exit code, for scripts). It only
             # reports: --model NAME --yes still installs one anyway.
-            say(f"\nThis PC cannot run PolyStrata yet: no model size fits {ram:.0f} GB of RAM (the smallest needs about "
+            say(f"\nThis PC cannot run Puddle yet: no model size fits {ram:.0f} GB of RAM (the smallest needs about "
                 f"{need} GB). --model NAME --yes installs one anyway, slowly.")
             return 1
-        say("\nThis PC can run PolyStrata. Run it again without --check to install.")
+        say("\nThis PC can run Puddle. Run it again without --check to install.")
         return 0
 
     # ---- 2. the questions

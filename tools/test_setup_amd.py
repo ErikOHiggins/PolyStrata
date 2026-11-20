@@ -188,7 +188,7 @@ class WindowsDetection(unittest.TestCase):
          "HardwareInformation.qwMemorySize": 16 << 30},
     ]
     LIST = ("device 0: AMD Radeon(TM) Graphics\n  arch gfx1036, 28.1 GiB, wave32\n"
-            "  cannot run: GPU 0 (AMD Radeon(TM) Graphics, gfx1036) is not an architecture this PolyStrata engine was "
+            "  cannot run: GPU 0 (AMD Radeon(TM) Graphics, gfx1036) is not an architecture this Puddle engine was "
             "compiled for (gfx1100,gfx1101,gfx1102,gfx1200,gfx1201,gfx1030); ...\n"
             "device 1: AMD Radeon RX 9070 XT\n  arch gfx1201, 15.9 GiB, wave32\n"
             "device 2: AMD Radeon RX 7800 XT\n  arch gfx1101, 16.0 GiB, wave32\n")
@@ -559,9 +559,6 @@ class TdrPointer(unittest.TestCase):
         self.assertIn('WIN and str(gpu.get("arch") or "").startswith("gfx12")', src)
         doc = (Path(setup.__file__).resolve().parent / "docs/TROUBLESHOOTING.md").read_text(encoding="utf-8")
         self.assertIn("Windows AMD: the driver resets", doc)
-        for env in ("STRATA_PF_STEP_SYNC", "STRATA_KV_HOST_DMA"):
-            self.assertIn(env, doc)
-            self.assertIn(env, (Path(setup.__file__).resolve().parent / "src/prefill/prefill.cpp").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """serve/runconfig.py - #564: the web page's Settings view of the run config (strata-<model>.json).
 
-A short list of documented keys can be read and changed from PolyStrata's own page (GET / POST /config).  Everything
+A short list of documented keys can be read and changed from Puddle's own page (GET / POST /config).  Everything
 else in the file - the keys setup writes, the network and security keys (host, api_key, cors_origins,
 trusted_origins, allowed_hosts), the MCP servers and before_load (which run programs), sampling keys not listed
 here - is kept as it is: a change touches only the keys it names (as setup run again keeps the user's keys, #629).
@@ -18,7 +18,7 @@ from pathlib import Path
 # of the "sampling" block, ("arg", flag) for an engine option kept in "args".
 EDITABLE = [
     ("sampling.temperature", ("sampling", "num>=0"),
-     "Default temperature for requests that send none (0 = greedy; without it the model card's: 1.0 thinking, 0.7 not)"),
+     "Default temperature for requests that send none (0 = greedy; without it such requests are greedy too)"),
     ("sampling.top_p", ("sampling", "0<x<=1"), "Default top_p for requests that send none"),
     ("sampling.top_k", ("sampling", "1..64"), "Default top_k for requests that send none (1-64)"),
     ("sampling.min_p", ("sampling", "0<=x<=1"), "Default min_p for requests that send none"),

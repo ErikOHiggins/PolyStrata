@@ -1,4 +1,4 @@
-// serve/web/app.js - the PolyStrata web app: Chat, Monitor, About. No framework, no network beyond this server.
+// serve/web/app.js - the Puddle web app: Chat, Monitor, About. No framework, no network beyond this server.
 // The Monitor tab rebuilds PR #22's dashboard idea (code-martin) on the server's own /metrics.
 "use strict";
 
@@ -275,7 +275,7 @@ function renderConvCache(c) {
   ]);
   $("cc-note").textContent = c.enabled
     ? "A request that continues a parked conversation gets its state back instead of reading it again; the oldest goes when the slots or the memory are full."
-    : "The engine keeps the last conversation's state, so a follow-up reads only what is new. To keep several conversations (agents taking turns), add \"--conversation-cache-mib\", \"8192\" to the run config's args (docs/DETAILS.md).";
+    : "The engine keeps the last conversation's state, so a follow-up reads only what is new. To keep several conversations (agents taking turns), add \"--conversation-cache-mib\", \"8192\" to the run config's args (docs/API.md).";
 }
 
 function renderTotals(t) {
@@ -596,10 +596,9 @@ function markdown(text) {
 }
 
 // ------------------------------------------------------------------ Chat
-// The sampling shown until the user changes it is the model card's thinking set. Untouched, the page sends NO sampling
-// fields: the server picks the card's set for the request's thinking state (thinking 1.0 / 0.95 / 20, not thinking
-// 0.7 / 0.8 / 20 with a presence penalty). Before 0.1.45 the page sent 0.6 itself; a stored 0.6 with the other two
-// values untouched counts as "not set" too.
+// The sampling shown until the user changes it is 1.0 / 0.95 / 20. Untouched, the page sends NO sampling fields: the
+// server uses the config's `sampling` block, and without one the engine's default (greedy). Before 0.1.45 the page
+// sent 0.6 itself; a stored 0.6 with the other two values untouched counts as "not set" too.
 const DEFAULTS = {thinking: "high", temperature: 1.0, top_p: 0.95, top_k: 20, max: "", seed: "", show: true, mcp: true};
 const OLD_DEFAULT_TEMPERATURE = 0.6;
 function samplingUntouched(s) {

@@ -1,5 +1,5 @@
 """tools/image/install.py - image generation (FLUX.2 [klein] 4B through stable-diffusion.cpp's sd-server and its Web UI)
-for an existing PolyStrata install, or on its own: compiles sd-server with its Web UI for the backend (setup.py's
+for an existing Puddle install, or on its own: compiles sd-server with its Web UI for the backend (setup.py's
 build_image_engine), downloads and checks the three model files, and writes the "images" section into a run config
 (or prints it).  setup.py --images flux2-klein does the same inside the normal setup; this is the way to add it
 without running the whole setup again.
