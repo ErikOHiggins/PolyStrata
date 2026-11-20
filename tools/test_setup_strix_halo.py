@@ -371,22 +371,6 @@ class WindowsDetection(unittest.TestCase):
             self.assertFalse(g.get("uma"))
             self.assertIsNotNone(setup.amd_problem(g))
 
-    def test_hip_listing_of_strix_halo(self):
-        """Once the HIP engine is installed the cards are numbered as HIP lists them; the carve-out still comes from the
-        registry, and an APU's HIP figure never lowers the GPU's memory."""
-        ad, reg = self.adapters()
-        text = "device 0: AMD Radeon(TM) 8060S Graphics\n  arch gfx1151, 64.0 GiB\ndevice 1: AMD Radeon RX 7900 XTX\n  arch gfx1100, 24.0 GiB\n"
-        hip = setup.hip_devices(text=text)
-        self.assertEqual([x["arch"] for x in hip], ["gfx1151", "gfx1100"])
-        with mock.patch.object(setup, "hip_devices", return_value=hip), \
-                mock.patch.object(setup, "amd_gpus_windows", return_value=setup.amd_gpus_windows(ad, reg)):
-            g = setup.amd_gpus_win()
-        self.assertTrue(g[0]["uma"])
-        self.assertAlmostEqual(g[0]["dedicated_gb"], 4.0)
-        self.assertGreaterEqual(g[0]["vram_gb"], 64.0)
-        self.assertFalse(g[1].get("uma"))
-        self.assertAlmostEqual(g[1]["vram_gb"], 24.0)
-
 
 class IgpuTextIsArchExact(unittest.TestCase):
     """The owner's rule: setup never takes one AMD iGPU for another.  gfx1103 (Radeon 780M / 760M) gets its own text,

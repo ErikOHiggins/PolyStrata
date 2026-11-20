@@ -243,43 +243,11 @@ class WindowsDetection(unittest.TestCase):
             self.assertEqual(setup.win_amd_arch(None, name), arch, name)
         self.assertEqual(setup.win_amd_arch(0x744C, "whatever"), "gfx1100")
 
-    def test_list_devices(self):
-        h = setup.hip_devices(text=self.LIST)
-        self.assertEqual([(x["index"], x["arch"]) for x in h], [(0, "gfx1036"), (1, "gfx1201"), (2, "gfx1101")])
-        self.assertAlmostEqual(h[1]["vram_gb"], 15.9)
-        self.assertIn("not an architecture", h[0]["cannot_run"])
-        self.assertIsNotNone(setup.amd_problem(h[0]))
-        self.assertIsNone(setup.amd_problem(h[1]))
-        cannot = setup.hip_devices(text="device 0: AMD Radeon RX 9070 XT\n  arch gfx1201, 15.9 GiB, wave32\n"
-                                        "  cannot run: GPU 0 runs wave64\n")
-        self.assertEqual(setup.amd_problem(cannot[0]), "GPU 0 runs wave64")   # the engine's own check counts
-        self.assertEqual(setup.hip_devices(text="(no GPU device)\n"), [])
-
-
     def test_windows_dispatch(self):
-        """amd_gpus() on Windows: HIP's numbering once the HIP engine answers, the display adapters before."""
+        """amd_gpus() on Windows: the display adapters, in their order."""
         with mock.patch.object(setup, "WIN", True), \
-                mock.patch.object(setup, "hip_devices", lambda probe=None, text=None: None), \
                 mock.patch.object(setup, "amd_gpus_windows", lambda adapters=None, registry=None: ["display"]):
             self.assertEqual(setup.amd_gpus(), ["display"])
-        with mock.patch.object(setup, "WIN", True), \
-                mock.patch.object(setup, "hip_devices", lambda probe=None, text=None: ["hip"]), \
-                mock.patch.object(setup, "amd_gpus_windows", lambda adapters=None, registry=None: ["display"]):
-            self.assertEqual(setup.amd_gpus(), ["hip"])
-
-    def test_no_hip_engine_no_probe(self):
-        with tempfile.TemporaryDirectory() as d:
-            eng = Path(d)
-            (eng / "strata-device.exe").write_text("x")
-            (eng / "BUILD.json").write_text('{"backend": "cuda"}')     # an NVIDIA engine is never asked
-            self.assertIsNone(setup.hip_devices(eng / "strata-device.exe"))
-
-
-_HIP_DEVICES = setup.hip_devices                      # the real parser, for the tests that mock setup.hip_devices
-
-
-def setup_hip(text):
-    return _HIP_DEVICES(text=text)
 
 
 class HipRuntimeBesideExe(unittest.TestCase):
@@ -353,51 +321,9 @@ class DeviceAccess(unittest.TestCase):
         self.assertIn("another program (or an engine that is still exiting)", src)
 
 
-class EngineLaunchEnv(unittest.TestCase):
-    """#2372: every engine program setup runs gets the ready-made HIP engine's rocm/bin on PATH, or Windows shows a
-    "hipblas.dll not found" dialog per DLL and `strata --families` prints nothing (setup then said the engine does
-    not run Qwen3.6)."""
-
-    def engine(self, tmp: Path) -> Path:
-        eng = tmp / "engine"
-        (eng / "rocm" / "bin").mkdir(parents=True)
-        (eng / "BUILD.json").write_text('{"backend": "hip", "lib_dirs": ["rocm/bin"]}', encoding="utf-8")
-        return eng
-
-    def test_engine_env_puts_rocm_bin_first(self):
-        with tempfile.TemporaryDirectory() as t:
-            eng = self.engine(Path(t))
-            with mock.patch.dict("os.environ", {"PATH": "C:\\Windows"}):
-                env = setup.engine_env(eng)
-            self.assertEqual(env["PATH"].split(setup.os.pathsep)[0], str(eng / "rocm" / "bin"))
-            self.assertTrue(env["PATH"].endswith("C:\\Windows"))
-
-    def test_engine_without_lib_dirs_keeps_the_environment(self):
-        with tempfile.TemporaryDirectory() as t:
-            with mock.patch.dict("os.environ", {"PATH": "/usr/bin"}):
-                self.assertEqual(setup.engine_env(Path(t))["PATH"], "/usr/bin")
-
-
-    def test_device_probe_runs_with_that_env(self):
-        seen = {}
-
-        def fake_run(cmd, **kw):
-            seen["env"] = kw.get("env")
-            return mock.Mock(returncode=0, stdout="device 0: AMD Radeon RX 7900 XT\n  arch gfx1100, 20.0 GiB, wave32\n")
-        with tempfile.TemporaryDirectory() as t:
-            eng = self.engine(Path(t))
-            probe = eng / ("strata-device.exe" if setup.WIN else "strata-device")
-            probe.write_text("x")
-            with mock.patch.object(setup.subprocess, "run", fake_run), \
-                    mock.patch.object(setup, "hip_runtime_beside_exe", lambda d: None):
-                found = setup.hip_devices(probe)
-            self.assertEqual(found[0]["arch"], "gfx1100")
-            self.assertEqual(seen["env"]["PATH"].split(setup.os.pathsep)[0], str(eng / "rocm" / "bin"))
-
-
 class PolyHipWindows(unittest.TestCase):
     """strata-poly on an AMD card under Windows: setup compiles it itself (AMD's TheRock wheels in .rocm-win), the
-    wheels' version coming from STRATA_ROCM_WIN_VERSION (or build_windows.bat's STRATA_ROCM_VERSION).
+    wheels' version coming from STRATA_ROCM_WIN_VERSION (or STRATA_ROCM_VERSION, PolyStrata's build script's name).
     No ROCm, no GPU, no downloads."""
 
     def test_an_installed_rocm_win_is_kept(self):
@@ -477,7 +403,7 @@ class PolyHipWindows(unittest.TestCase):
             return r.stdout.strip()
 
         self.assertEqual(constant(STRATA_ROCM_WIN_VERSION="9.9.9"), "9.9.9")
-        self.assertEqual(constant(STRATA_ROCM_VERSION="8.8.8"), "8.8.8")   # build_windows.bat's name
+        self.assertEqual(constant(STRATA_ROCM_VERSION="8.8.8"), "8.8.8")   # PolyStrata's build script's name
         self.assertEqual(constant(STRATA_ROCM_WIN_VERSION="9.9.9", STRATA_ROCM_VERSION="8.8.8"), "9.9.9")
         self.assertEqual(constant(), setup.ROCM_WIN_VERSION_DEFAULT)
 

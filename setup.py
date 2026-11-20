@@ -1147,8 +1147,7 @@ def find_vcvars(cuda_v=None):
     has the 2022 compiler in it.
 
     The version range is CUDA's requirement alone, so a caller with no CUDA (`cuda_v is None`) asks vswhere for no
-    range at all: the CPU image encoder is built by MSVC, which is happy with any version (tools/hip/build_windows.bat
-    already calls vswhere that way).  With the range applied to every caller, a machine whose only C++ tools are
+    range at all: the CPU image encoder is built by MSVC, which is happy with any version.  With the range applied to every caller, a machine whose only C++ tools are
     Visual Studio 2026 gets None back and nothing can be built there (#881).  STRATA_VCVARS=<vcvars64.bat> picks one
     by hand, for an install vswhere cannot use."""
     override = os.environ.get("STRATA_VCVARS")
@@ -1347,7 +1346,7 @@ def custom_gguf_tag(shards: list[Path] | None, model: str) -> str:
 
 def gguf_dir_shards(folder: Path, fam: dict, model: str) -> list[Path]:
     """--gguf-dir's shards (#305): every -0000i-of-0000N file of the model, N read from the first shard's name as the
-    engine and tools/iq_pack.py do.  The published name first; else the one first shard in the folder whose name has
+    engine does.  The published name first; else the one first shard in the folder whose name has
     the size in it (an upload split or named differently: -00001-of-00003, Unsloth's ...-00001-of-00004.gguf).  A
     missing shard is check_shards' error later, as before."""
     first = folder / model_file(fam, model, 1)
@@ -1639,11 +1638,10 @@ ROCM_FAMILY_PINS = {"gfx103X-all": "7.13.0a20260515",    # #1103: 7.13.0a2026051
                     "gfx1151": "7.14.0a20260608"}        # #1267: 7.14.0a20260529 to 20260608 run on kernel 7.2.8; the 7.10 wheel segfaults
 ROCM_VERSION_OVERRIDE = os.environ.get("STRATA_ROCM_VERSION") or None
 ROCM_SYSTEM_MIN = (7, 0)       # an older system ROCm is passed over for the wheels (gfx1201 needs ROCm 6.4 or newer)
-# Windows: the same ROCm from AMD's TheRock Windows wheels, into .rocm-win (the private venv tools/hip/build_windows.bat
-# uses; a package per card family, so the device wheels are asked for by arch).  The Windows HIP engine itself is
-# ready-made (WIN_HIP_ASSET); only strata-poly is compiled here, for its card (build_engine_poly_hip_win).
-# STRATA_ROCM_WIN_VERSION forces one exact version of those wheels, and so does STRATA_ROCM_VERSION, the name
-# build_windows.bat reads for the same venv; the index stays ROCM_WIN_INDEX.
+# Windows: the same ROCm from AMD's TheRock Windows wheels, into .rocm-win (a private venv; a package per card family,
+# so the device wheels are asked for by arch), and strata-poly is compiled here for its card (build_engine_poly_hip_win).
+# STRATA_ROCM_WIN_VERSION forces one exact version of those wheels, and so does STRATA_ROCM_VERSION (the name PolyStrata's
+# Windows build script read); the index stays ROCM_WIN_INDEX.
 ROCM_WIN_VERSION_DEFAULT = "10.2.0a20260930"               # what PolyStrata's Windows HIP build is tested with
 ROCM_WIN_VERSION_OVERRIDE = os.environ.get("STRATA_ROCM_WIN_VERSION") or \
     os.environ.get("STRATA_ROCM_VERSION") or None
@@ -1655,9 +1653,7 @@ ROCM_WIN_VENV = ".rocm-win"
 # and a hipBLASLt table when one matches (measured on one machine: Ryzen 7 8745HS).  Unset: unchanged.
 GFX1103_OPT_IN = os.environ.get("STRATA_EXPERIMENTAL_GFX1103") == "1"
 # STRATA_EXPERIMENTAL_GFX1150=1 (opt-in, unvalidated): the Radeon 890M / 880M iGPU (Ryzen AI 300, Strix Point, gfx1150)
-# is taken as a unified-memory AMD card like Strix Halo.  The engine builds and runs for gfx1150 from 0.1.40.2 (#1217;
-# tools/hip/gfx1150-hipblaslt-100401.txt is calibrated on it), but no release ships a ready-made Windows engine for it:
-# build one with `STRATA_HIP_ARCHS=gfx1150 tools\hip\build_windows.bat` and start setup with `--prebuilt dist\`.
+# is taken as a unified-memory AMD card like Strix Halo; setup compiles strata-poly for it as for any AMD card.
 # Unset: unchanged.
 GFX1150_OPT_IN = os.environ.get("STRATA_EXPERIMENTAL_GFX1150") == "1"
 AMD_ARCHS = ("gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201", "gfx1030", "gfx1031", "gfx1032", "gfx1010",
@@ -1863,10 +1859,8 @@ def gfx1150_notes(gpu, ram) -> list[str]:
     notes = [f"  Radeon 890M / 880M class (gfx1150, Strix Point): the CPU and the GPU share one memory pool ({ram:.0f} GB "
              f"seen by the OS + a {gpu.get('dedicated_gb', 0.0):.1f} GB BIOS carve-out), so the model's experts live in "
              "that pool and the expert cache is sized from the memory the OS can give back."]
-    notes.append("  " + ("The engine is compiled here for gfx1150" if not WIN else
-                         "Windows has no ready-made engine for gfx1150: build one with STRATA_HIP_ARCHS=gfx1150 "
-                         "tools\\hip\\build_windows.bat and start setup with --prebuilt dist\\")
-                 + " (experimental opt-in, STRATA_EXPERIMENTAL_GFX1150=1, unvalidated: docs/AMD_HIP.md).")
+    notes.append("  The engine is compiled here for gfx1150 (experimental opt-in, STRATA_EXPERIMENTAL_GFX1150=1, "
+                 "unvalidated: docs/AMD_HIP.md).")
     if not WIN and gpu.get("shared_gb", 0) < 0.75 * ram - 1:
         notes.append(f"!the GPU can reach {gpu.get('shared_gb', 0):.0f} GB of shared memory (the GTT pool; the kernel's "
                      "default is about half of the RAM). The kernel option ttm.pages_limit raises it; setup changes no "
@@ -1942,9 +1936,9 @@ def amd_pci_devices(sysfs="/sys") -> list[dict]:
 def amd_gpus(sysfs="/sys"):
     """AMD GPUs from the kernel's KFD topology (the amdgpu driver; no ROCm needed), numbered as HIP numbers them:
     the GPU nodes in order, the CPU nodes skipped.  Integrated GPUs are listed too (not supported).
-    sysfs: the tree to read (tools/test_setup_amd.py passes a mocked one).  Windows: amd_gpus_win."""
+    sysfs: the tree to read (tools/test_setup_amd.py passes a mocked one).  Windows: amd_gpus_windows."""
     if WIN:
-        return amd_gpus_win()
+        return amd_gpus_windows()
     base = Path(sysfs) / "class/kfd/kfd/topology/nodes"
     found = []
     if not base.is_dir():
@@ -1992,26 +1986,7 @@ def amd_problem(g):
     if g["arch"] not in AMD_ARCHS:
         return (f"not supported - Puddle's AMD backend runs on {AMD_CARDS} only, this is {g['arch']}"
                 + (" (an integrated Radeon, not Strix Halo)" if g["arch"] in ("gfx1150", "gfx1152", "gfx1103") else ""))
-    if g.get("cannot_run"):                            # Windows: the installed engine's own check (--list-devices)
-        return g["cannot_run"]
     return None
-
-
-def amd_gpus_win() -> list[dict]:
-    """Windows: the AMD GPUs as the HIP runtime numbers them once the HIP engine is installed (hip_devices), else in
-    the display-adapter order (amd_gpus_windows)."""
-    hip = hip_devices()
-    if not hip:
-        return amd_gpus_windows()
-    halo = [g for g in hip if is_uma_apu(g)]
-    if halo:                                           # an APU: the HIP runtime's figure is not the BIOS carve-out
-        reg = [r for r in amd_gpus_windows() if is_uma_apu(r)]
-        for k, g in enumerate(halo):
-            reported = g["vram_gb"]
-            g["vram_gb"] = reg[k]["dedicated_gb"] if k < len(reg) else 0.0
-            amd_apply_uma(g)
-            g["vram_gb"] = max(g["vram_gb"], reported)
-    return hip
 
 
 def amd_parse_gpus(text, amd) -> list:
@@ -2165,60 +2140,6 @@ def amd_gpus_windows(adapters=None, registry=None) -> list[dict]:
     return found
 
 
-def engine_env(eng: Path) -> dict:
-    """The environment for running an installed engine's own programs (`strata --families`, `strata-device
-    --list-devices`): the ready-made Windows HIP engine keeps hipblas.dll / libhipblaslt.dll in its rocm/bin, which the
-    loader finds through PATH only (#2372: a launch without it shows a "not found" dialog per DLL and prints nothing)."""
-    env = dict(os.environ)
-    dirs = [str(d) for d in hip_lib_dirs(eng)]
-    if dirs:
-        env["PATH"] = os.pathsep.join(dirs + [env.get("PATH", "")])
-    return env
-
-
-def hip_devices(probe: Path | None = None, text: str | None = None) -> list[dict] | None:
-    """The GPUs the HIP runtime enumerates, numbered as HIP_VISIBLE_DEVICES numbers them, from the installed engine's
-    `strata-device --list-devices`; None when there is no HIP engine here or it does not answer.  text: its output
-    (tests)."""
-    if text is None:
-        probe = probe or ROOT / "engine" / ("strata-device.exe" if WIN else "strata-device")
-        try:
-            hip_engine = json.loads((probe.parent / "BUILD.json").read_text(encoding="utf-8")).get("backend") == "hip"
-        except (OSError, ValueError):
-            hip_engine = False
-        if not probe.exists() or not hip_engine:
-            return None
-        try:
-            hip_runtime_beside_exe(probe.parent)       # #468 #461: not the driver's System32 copy
-            r = subprocess.run([str(probe), "--list-devices"], capture_output=True, text=True, timeout=120,
-                               cwd=str(probe.parent), env=engine_env(probe.parent))
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if r.returncode != 0:
-            return None
-        text = r.stdout
-    found = []
-    for line in text.splitlines():
-        m = re.match(r"device\s+(\d+):\s*(.*)$", line.strip())
-        if m:
-            found.append({"index": int(m.group(1)), "name": m.group(2).strip(), "vram_gb": 0.0, "arch": "",
-                          "driver": "hip", "vendor": "amd"})
-            continue
-        if not found:
-            continue
-        a = re.match(r"arch\s+(gfx[0-9a-f]+)\s*,\s*([\d.]+)\s*GiB", line.strip())
-        if a and not found[-1]["arch"]:
-            found[-1]["arch"], found[-1]["vram_gb"] = a.group(1), float(a.group(2))
-        elif line.strip().startswith("cannot run:"):
-            found[-1]["cannot_run"] = line.strip()[len("cannot run:"):].strip()
-    for g in found:
-        if not g["arch"]:
-            g["arch"] = "unknown"
-        if g["arch"] in AMD_NAMES and g["name"] in ("", "AMD Radeon Graphics"):
-            g["name"] = AMD_NAMES[g["arch"]]
-    return found
-
-
 def hip_lib_dirs(eng: Path) -> list[Path]:
     """Where the ready-made Windows HIP engine's ROCm DLLs are (its BUILD.json "lib_dirs", relative to engine/)."""
     try:
@@ -2359,7 +2280,7 @@ def rocm_win_version(venv):
 
 def rocm_win_root(archs):
     """Windows: ROCm for compiling the HIP engine for `archs` (one arch, or the cards of a layer split): the TheRock
-    wheels in .rocm-win (a private venv, the one tools/hip/build_windows.bat uses: no admin rights, no AMD GPU), with
+    wheels in .rocm-win (a private venv: no admin rights, no AMD GPU), with
     the device package of every arch.  An installation there holding the wanted version and all of them is kept as it
     is; another version (STRATA_ROCM_WIN_VERSION) is installed in its place.  Returns (root, the library
     folders)."""
@@ -2796,8 +2717,7 @@ def cached_compiler(bdir, defs):
 
 
 def cmake_build(src, bdir, target, defs, vcvars, bat_name):
-    """`target`: one CMake target, or a list of them (one `--target` each: the Windows HIP engine builds `strata` and
-    `strata-device` together, as tools/hip/build_windows.bat does)."""
+    """`target`: one CMake target, or a list of them (one `--target` each)."""
     cmake, ninja = find_tool("cmake"), find_tool("ninja")
     if cmake is None or ninja is None:
         fail("cmake / ninja not found after installing them", "run: .venv python -m pip install cmake ninja")
@@ -3753,7 +3673,7 @@ def build_engine_poly_hip_win(gpu, llama, portable=False) -> Path:
     """Compile strata-poly for this AMD GPU on Windows into engine-poly/ (again only when its source changed: a
     `git pull`).  ROCm comes from AMD's TheRock Windows wheels in .rocm-win (rocm_win_root), MSVC's headers, linker
     and runtime from the Visual Studio C++ build tools, and ROCm's clang compiles the host code too (CMake refuses to
-    mix it with cl.exe: tools/hip/build_windows.bat).  The DLLs and kernels it loads are .rocm-win's own: the
+    mix it with cl.exe).  The DLLs and kernels it loads are .rocm-win's own: the
     config's lib_dirs points there, so the libraries are not on the disk twice.
     portable (--max-compatibility): STRATA_PORTABLE, the release build (AVX2 baseline, static MSVC runtime), for other
     PCs.  There is no HIP image encoder: images stay off."""

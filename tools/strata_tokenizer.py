@@ -568,7 +568,7 @@ def extract(gguf_path, out_dir) -> dict:
     tpl = GGUFFile(pathlib.Path(gguf_path)).metadata.get("tokenizer.chat_template")
     if tpl:
         (out / "chat_template.jinja").write_text(tpl, encoding="utf-8", newline="\n")
-    # last: setup and iq_pack.py take vocab.json as the sign that the folder is complete, so an extraction that
+    # last: setup takes vocab.json as the sign that the folder is complete, so an extraction that
     # stops part way is run again instead of leaving a tokenizer without its merges
     (out / "vocab.json").write_text(json.dumps(tk.ids, ensure_ascii=False), encoding="utf-8")
     return cfg
