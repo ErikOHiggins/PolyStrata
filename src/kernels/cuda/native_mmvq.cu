@@ -1807,7 +1807,6 @@ void launch_check() {
     }
 }
 
-
 template<typename Weight, int Qi>
 void small_mmvq(const void* weights, const void* x_q8_1, float* y,
                 int n_in, int n_out, int ncols, void* stream) {

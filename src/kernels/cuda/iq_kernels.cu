@@ -302,7 +302,7 @@ __device__ __forceinline__ float vec_dot_iq4_xs_q8_1(const void* __restrict__ vb
 // Q4_K, Q5_K, Q5_1, Q5_0, Q4_1, Q4_0, Q8_0: llama.cpp's vec_dot_*_q8_1 (vecdotq.cuh, VDR 2 each), transcribed; the
 // Q5_1 min term is the one departure (below).  Via eddoursul/Strata 8029fa9 (iq_dot.cuh) and #255 (Q8_0,
 // gopinath87607), which agree with llama.cpp and with each other.
-constexpr int VDR_Q4_K = 2, VDR_Q5_K = 2, VDR_Q5_1 = 2, VDR_Q5_0 = 2, VDR_Q4_1 = 2, VDR_Q4_0 = 2, VDR_Q8_0 = 2, VDR_Q6_K = 1;
+constexpr int VDR_Q4_K = 2, VDR_Q5_K = 2, VDR_Q5_1 = 2, VDR_Q5_0 = 2, VDR_Q4_1 = 2, VDR_Q4_0 = 2, VDR_Q8_0 = 2;
 
 __device__ __forceinline__ float vec_dot_q4_K_q8_1_impl_vmmq(const int* __restrict__ v, const int* __restrict__ u,
                                                              const uint8_t* __restrict__ sc, const uint8_t* __restrict__ m,
@@ -511,41 +511,6 @@ __device__ __forceinline__ float vec_dot_q5_1_q8_1(const void* __restrict__ vbq,
     const float d8 = __low2float(bq8_1->ds);
     return sumi * (dm5.x * d8) + sumu * (dm5.y * d8);
 }
-// Q6_K: llama.cpp's integer chain verbatim (vecdotq.cuh vec_dot_q6_K_q8_1_impl_mmvq / vec_dot_q6_K_q8_1) -- signed
-// per-16-element scales, the -32 offset folded into the per-byte value, the q8_1 block's ds.low for the scales,
-// upstream exactly as pulled (no min-term choice exists: Q6_K has no learned min).
-__device__ __forceinline__ float vec_dot_q6_K_q8_1_impl_mmvq(const int vl, const int vh, const int* __restrict__ u,
-                                                             const int8_t* __restrict__ scales, const float d,
-                                                             const float* __restrict__ d8) {
-    float sumf = 0.0f;
-#pragma unroll
-    for (int i = 0; i < QR6_K; ++i) {
-        const int sc = scales[4 * i];
-        const int vil = (vl >> (4 * i)) & 0x0F0F0F0F;
-        const int vih = ((vh >> (4 * i)) << 4) & 0x30303030;
-        const int vi = __vsubss4(vil | vih, 0x20202020);   // vi = (vil | vih) - 32
-        sumf += d8[i] * (STRATA_DP4A(vi, u[i], 0) * sc);
-    }
-    return d * sumf;
-}
-__device__ __forceinline__ float vec_dot_q6_K_q8_1(const void* __restrict__ vbq, const block_q8_1* __restrict__ bq8_1,
-                                                   const int& kbx, const int& iqs) {
-    const block_q6_K* bq6_K = (const block_q6_K*) vbq + kbx;
-    const int bq8_offset = 2 * QR6_K * (iqs / (QI6_K / 2)) + (iqs % (QI6_K / 2)) / (QI6_K / 4);
-    const int scale_offset = (QI6_K / 4) * (iqs / (QI6_K / 2)) + (iqs % (QI6_K / 2)) / (QI6_K / 8);
-    const int vh_shift = 2 * ((iqs % (QI6_K / 2)) / (QI6_K / 4));
-    const int vl = get_int_b2(bq6_K->ql, iqs);
-    const int vh = get_int_b2(bq6_K->qh, (QI6_K / 4) * (iqs / (QI6_K / 2)) + iqs % (QI6_K / 4)) >> vh_shift;
-    const int8_t* scales = bq6_K->scales + scale_offset;
-    int u[QR6_K];
-    float d8[QR6_K];
-#pragma unroll
-    for (int i = 0; i < QR6_K; ++i) {
-        u[i] = get_int_b4(bq8_1[bq8_offset + 2 * i].qs, iqs % QI8_1);
-        d8[i] = __low2float(bq8_1[bq8_offset + 2 * i].ds);
-    }
-    return vec_dot_q6_K_q8_1_impl_mmvq(vl, vh, u, scales, __half2float(bq6_K->d), d8);
-}
 __device__ __forceinline__ float vec_dot_q8_0_q8_1(const void* __restrict__ vbq, const block_q8_1* __restrict__ bq8_1,
                                                    const int& kbx, const int& iqs) {
     const block_q8_0* bq8_0 = (const block_q8_0*) vbq + kbx;
@@ -614,8 +579,6 @@ template<> struct Fmt<12> { static constexpr int qk = 256, ipb = QI4_K / VDR_Q4_
     __device__ static float dot(const void* v, const block_q8_1* y, int kbx, int iqs) { return vec_dot_q4_K_q8_1(v, y, kbx, iqs); } };
 template<> struct Fmt<13> { static constexpr int qk = 256, ipb = QI5_K / VDR_Q5_K, step = VDR_Q5_K;
     __device__ static float dot(const void* v, const block_q8_1* y, int kbx, int iqs) { return vec_dot_q5_K_q8_1(v, y, kbx, iqs); } };
-template<> struct Fmt<14> { static constexpr int qk = 256, ipb = QI6_K / VDR_Q6_K, step = VDR_Q6_K;
-    __device__ static float dot(const void* v, const block_q8_1* y, int kbx, int iqs) { return vec_dot_q6_K_q8_1(v, y, kbx, iqs); } };
 template<> struct Fmt<7> { static constexpr int qk = 32, ipb = QI5_1 / VDR_Q5_1, step = VDR_Q5_1;
     __device__ static float dot(const void* v, const block_q8_1* y, int kbx, int iqs) { return vec_dot_q5_1_q8_1(v, y, kbx, iqs); } };
 template<> struct Fmt<2> { static constexpr int qk = 32, ipb = QI4_0 / VDR_Q4_0, step = VDR_Q4_0;
@@ -714,16 +677,6 @@ template<> struct Split<16> {   // IQ2_XXS
         const float d = r.dw * __low2float(bq8_1[iqs / 2].ds);
         return d * sumi;
     }
-    // `apply` with the q8_1 block already in registers: u = its 8 words, d8 = __low2float(ds).  Same operations in
-    // the same order (the EXPDEC kernels, see expdec below).
-    __device__ static float apply_u(const W& r, const int (&u)[8], float d8) {
-        int sumi = 0;
-#pragma unroll
-        for (int j = 0; j < 8; ++j) sumi = ggml_cuda_dp4a(r.g[j], u[j], sumi);
-        sumi = sumi * r.ls / 8;
-        const float d = r.dw * d8;
-        return d * sumi;
-    }
 };
 // IQ2_XS and IQ2_S share the apply: two half sums, two 4-bit scales
 struct SplitLs2 {
@@ -736,16 +689,6 @@ struct SplitLs2 {
         for (int j = 4; j < 8; ++j) sumi1 = ggml_cuda_dp4a(r.g[j], get_int_b4(bq8_1[iqs / 2].qs, j), sumi1);
         const int sumi = (sumi0 * r.ls0 + sumi1 * r.ls1 + (sumi0 + sumi1) / 2) / 4;
         const float d = r.dw * __low2float(bq8_1[iqs / 2].ds);
-        return d * sumi;
-    }
-    __device__ static float apply_u(const W& r, const int (&u)[8], float d8) {
-        int sumi0 = 0, sumi1 = 0;
-#pragma unroll
-        for (int j = 0; j < 4; ++j) sumi0 = ggml_cuda_dp4a(r.g[j], u[j], sumi0);
-#pragma unroll
-        for (int j = 4; j < 8; ++j) sumi1 = ggml_cuda_dp4a(r.g[j], u[j], sumi1);
-        const int sumi = (sumi0 * r.ls0 + sumi1 * r.ls1 + (sumi0 + sumi1) / 2) / 4;
-        const float d = r.dw * d8;
         return d * sumi;
     }
 };
@@ -812,7 +755,7 @@ template<> struct Split<18> {   // IQ3_XXS
         const int2 q3_packed = make_int2(get_int_b2(bq3->qs, iqs), get_int_b2(bq3->qs, iqs + 1));
         const uint8_t* q3 = (const uint8_t*) &q3_packed;
         const uint32_t aux32 = get_int_b2(bq3->qs, QK_K / 16 + iqs / 2);
-        const uint32_t* grid_lut;   // the same 256 words either way (expdec stages them)
+        const uint32_t* grid_lut;   // the same 256 words either way
         if constexpr (STAGE_GRID) grid_lut = s_grid;
         else grid_lut = iq3xxs_grid;
         W r;
@@ -837,14 +780,6 @@ template<> struct Split<18> {   // IQ3_XXS
         const float d = r.dw * __low2float(bq8_1[iqs / 2].ds);
         return d * sumi;
     }
-    __device__ static float apply_u(const W& r, const int (&u)[8], float d8) {
-        int sumi = 0;
-#pragma unroll
-        for (int j = 0; j < 8; ++j) sumi = ggml_cuda_dp4a(r.g[j], u[j], sumi);
-        sumi = (r.ls * sumi + sumi / 2) / 2;
-        const float d = r.dw * d8;
-        return d * sumi;
-    }
 };
 template<> inline constexpr bool kSplit<21> = true;
 template<> struct Split<21> {   // IQ3_S
@@ -857,7 +792,7 @@ template<> struct Split<21> {   // IQ3_S
         const int qh = bq3->qh[iqs / 2];
         const int signs_packed_32 = get_int_b2(bq3->signs, iqs / 2);
         const uint8_t* signs_packed_8 = (const uint8_t*) &signs_packed_32;
-        const uint32_t* grid_lut;   // the same 512 words either way (expdec stages them)
+        const uint32_t* grid_lut;   // the same 512 words either way
         if constexpr (STAGE_GRID) grid_lut = s_grid;
         else grid_lut = iq3s_grid;
         W r;
@@ -880,14 +815,6 @@ template<> struct Split<21> {   // IQ3_S
         for (int j = 0; j < 8; ++j) sumi = ggml_cuda_dp4a(r.g[j], get_int_b4(bq8_1[iqs / 2].qs, j), sumi);
         sumi *= r.ls;
         const float d = r.dw * __low2float(bq8_1[iqs / 2].ds);
-        return d * sumi;
-    }
-    __device__ static float apply_u(const W& r, const int (&u)[8], float d8) {
-        int sumi = 0;
-#pragma unroll
-        for (int j = 0; j < 8; ++j) sumi = ggml_cuda_dp4a(r.g[j], u[j], sumi);
-        sumi *= r.ls;
-        const float d = r.dw * d8;
         return d * sumi;
     }
 };
@@ -961,16 +888,6 @@ template<> struct Split<20> {   // IQ4_NL
         const float d = r.dw * __low2float(bq8_1->ds);
         return d * sumi;
     }
-    // `apply` with the block's words in registers: p0 = words iqs, iqs + 1; p1 = words iqs + 4, iqs + 5; d8 = __low2float(ds)
-    __device__ static float apply_u(const W& r, int2 p0, int2 p1, float d8) {
-        int sumi = 0;
-        sumi = ggml_cuda_dp4a(r.v[0].x, p0.x, sumi);
-        sumi = ggml_cuda_dp4a(r.v[0].y, p1.x, sumi);
-        sumi = ggml_cuda_dp4a(r.v[1].x, p0.y, sumi);
-        sumi = ggml_cuda_dp4a(r.v[1].y, p1.y, sumi);
-        const float d = r.dw * d8;
-        return d * sumi;
-    }
 };
 template<> inline constexpr bool kSplit<23> = true;
 template<> struct Split<23> {   // IQ4_XS
@@ -1029,16 +946,6 @@ template<> struct Split<42> {   // Q2_0
             sumi = ggml_cuda_dp4a(v, r.qy[j], sumi);
         }
         const float d8 = __low2float(bq8_1_chunk->ds);
-        return r.d2 * d8 * sumi;
-    }
-    // `apply` with the q8_1 block (2 kbx + iqs) in registers: u = its 8 words, d8 = __low2float(ds)
-    __device__ static float apply_u(const W& r, const int (&u)[8], float d8) {
-        int sumi = 0;
-#pragma unroll
-        for (int j = 0; j < 4; ++j) {
-            sumi = ggml_cuda_dp4a(u[j * 2 + 0], r.qx[j], sumi);
-            sumi = ggml_cuda_dp4a(u[j * 2 + 1], r.qy[j], sumi);
-        }
         return r.d2 * d8 * sumi;
     }
 };
