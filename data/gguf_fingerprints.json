@@ -69,6 +69,21 @@
   ],
   "url": "https://huggingface.co/poolside/Laguna-XS-2.1-GGUF/resolve/1a37c0a5fb8c7a18e6106decb6be6327d1b63fa6/"
  },
+ "nemotron-bolt/24GB": {
+  "arch": "nemotron_h_moe",
+  "layers": 88,
+  "tensors": 843,
+  "bytes": 22010401280,
+  "expert_bytes": {
+   "IQ2_XXS": 17052794880
+  },
+  "experts_bpw": 2.062,
+  "bpw": 2.378,
+  "files": [
+   "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf"
+  ],
+  "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF/resolve/e0fecb69cb3e5e4c5e8a056fa2aec98c78e91246/"
+ },
  "gemma4/UD-Q3_K_M": {
   "arch": "gemma4",
   "layers": 30,
@@ -198,6 +213,7 @@
   ],
   "blk.N.ffn_down_exps.weight": [
    "BF16",
+   "IQ2_XXS",
    "IQ4_NL",
    "IQ4_XS",
    "Q3_K",
@@ -209,6 +225,7 @@
    "Q8_0"
   ],
   "blk.N.ffn_down_shexp.weight": [
+   "IQ2_XXS",
    "Q4_K",
    "Q6_K",
    "Q8_0"
@@ -250,6 +267,12 @@
    "Q4_0",
    "Q4_K"
   ],
+  "blk.N.ffn_latent_down.weight": [
+   "Q8_0"
+  ],
+  "blk.N.ffn_latent_up.weight": [
+   "Q8_0"
+  ],
   "blk.N.ffn_norm.weight": [
    "F32"
   ],
@@ -262,6 +285,7 @@
   ],
   "blk.N.ffn_up_exps.weight": [
    "BF16",
+   "IQ2_XXS",
    "IQ3_XXS",
    "IQ4_XS",
    "Q3_K",
@@ -270,6 +294,7 @@
    "Q6_K"
   ],
   "blk.N.ffn_up_shexp.weight": [
+   "IQ2_XXS",
    "Q4_K",
    "Q6_K",
    "Q8_0"
@@ -303,18 +328,34 @@
    "Q4_K",
    "Q6_K"
   ],
+  "blk.N.ssm_conv1d.bias": [
+   "F32"
+  ],
   "blk.N.ssm_conv1d.weight": [
+   "F32"
+  ],
+  "blk.N.ssm_d": [
    "F32"
   ],
   "blk.N.ssm_dt.bias": [
    "F32"
   ],
+  "blk.N.ssm_in.scale": [
+   "F32"
+  ],
+  "blk.N.ssm_in.weight": [
+   "type#40"
+  ],
   "blk.N.ssm_norm.weight": [
+   "F32"
+  ],
+  "blk.N.ssm_out.scale": [
    "F32"
   ],
   "blk.N.ssm_out.weight": [
    "Q4_K",
-   "Q6_K"
+   "Q6_K",
+   "type#40"
   ],
   "output.weight": [
    "Q6_K",

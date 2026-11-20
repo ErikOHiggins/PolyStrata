@@ -238,8 +238,10 @@ class SmallerModelSetup(unittest.TestCase):
 class FullCatalog(unittest.TestCase):
     def test_every_family_and_quant_uses_the_shared_catalog(self):
         catalog = M.model_catalog()
-        self.assertEqual(set(catalog), set(setup.FAMILIES))
-        self.assertEqual(set(M.MAC_POLY_FAMILIES), set(setup.FAMILIES))
+        poly = {f for f, d in setup.FAMILIES.items() if d.get("engine") == "poly"}   # not llama-server's (Bolt)
+        self.assertEqual(set(catalog), poly)
+        self.assertEqual(set(M.MAC_POLY_FAMILIES), poly)
+        self.assertNotIn("nemotron-bolt", catalog)
         for family, entry in catalog.items():
             self.assertEqual(entry["models"], setup.family_models(family))
             self.assertEqual(entry["metal_engine"], "strata-poly")

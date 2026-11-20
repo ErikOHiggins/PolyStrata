@@ -66,9 +66,10 @@ def smaller_model_catalog() -> dict:
 
 
 def model_catalog() -> dict:
-    """All installer choices, keyed by family and then quantization (never quant alone)."""
-    return {family: dict(fam, models=S.family_models(family), metal_engine="strata-poly")
-            for family, fam in S.FAMILIES.items()}
+    """All installer choices, keyed by family and then quantization (never quant alone): strata-poly's families
+    (Nemotron 3.5 Bolt runs on llama-server, which setup builds for NVIDIA cards only)."""
+    return {family: dict(S.FAMILIES[family], models=S.family_models(family), metal_engine="strata-poly")
+            for family in MAC_POLY_FAMILIES}
 
 
 # beside the mapped file: the KV cache, the engine's buffers, the draft model and the macOS desktop

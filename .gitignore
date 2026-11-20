@@ -57,6 +57,8 @@ build-vision-cuda12.bat
 /build-vision-poly.bat
 /engine-glm/
 /build-strata-glm.bat
+/engine-llama/
+/build-llama-server.bat
 /build-release*/
 /dist/
 *.done

@@ -8,8 +8,9 @@ then installs everything and starts the model on http://127.0.0.1:8080 (OpenAI- 
 web app).  Every later start skips straight to running the model: nothing that is already downloaded, installed or
 prepared is done again.
 
-Every model runs on strata-poly, read from its GGUF in place (docs/BACKENDS.md).  What the first run does (each step
-is skipped when it is already done):
+Every model runs on strata-poly, read from its GGUF in place (docs/BACKENDS.md), but Nemotron 3.5 Bolt, which runs on
+llama.cpp's llama-server (compiled here as well, NVIDIA cards only for now).  What the first run does (each step is
+skipped when it is already done):
 
   1. checks your PC: NVIDIA or AMD GPU and driver, RAM, CPU, free disk space
   2. asks the questions
@@ -65,6 +66,7 @@ HF_REVISIONS = {
     "poolside/Laguna-XS-2.1-GGUF": "1a37c0a5fb8c7a18e6106decb6be6327d1b63fa6",                     # 2026-07-18
     "unsloth/gemma-4-26B-A4B-it-GGUF": "c099eb48e663fd284577b04978a94ffccb261841",                     # 2026-10-05
     "unsloth/gemma-4-26B-A4B-it-qat-GGUF": "7b92b5b28818151e8669af2e45e88d6086f490dd",                 # 2026-10-26
+    "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF": "e0fecb69cb3e5e4c5e8a056fa2aec98c78e91246",  # 2026-10-15
 }
 
 
@@ -165,6 +167,13 @@ LLAMA_CPP_ZIP = f"https://github.com/ggml-org/llama.cpp/archive/{LLAMA_CPP_COMMI
 # the Strata project's pin until it moves; only strata-vision builds from this one (a second checkout, like #14 suggests).
 VISION_LLAMA_CPP_COMMIT = "69f201a2051ea9b9e9b50c3cc56afd9e2ae64414"
 VISION_LLAMA_CPP_ZIP = f"https://github.com/ggml-org/llama.cpp/archive/{VISION_LLAMA_CPP_COMMIT}.zip"
+# llama.cpp's llama-server, the engine of a family with "engine": "llama-server" (Nemotron 3.5 Bolt, until strata-poly
+# runs the Mamba-2 hybrids): its own newer checkout (nemotron_h_moe, NVFP4, mtmd's nemotron_omni), the commit echo ran
+# Bolt with (2026-11-20), compiled here into engine-llama/ (serve/server.py's LlamaServerEngine talks to it)
+LLAMA_SERVER_COMMIT = "08c252e221759e0f69e80f0450b295c92d2344e1"
+LLAMA_SERVER_ZIP = f"https://github.com/ggml-org/llama.cpp/archive/{LLAMA_SERVER_COMMIT}.zip"
+LLAMA_SERVER_EXE = "llama-server.exe" if WIN else "llama-server"
+ENGINE_LLAMA_DIR = "engine-llama"
 
 MIN_DRIVER = 580                       # CUDA 13.0
 # Older NVIDIA GPUs (experimental): CUDA 13 dropped Pascal (sm_60/61) and Volta (sm_70), so a model whose GPUs include
@@ -242,6 +251,33 @@ FAMILIES = {
                                         "vram_beside_gb": 5.0}},
                   "sha256": {"Laguna-XS-2.1-Q4_K_M.gguf":
                           (20274300032, "1ac7079101fca5a6df8c5a7523a3c30ea7d1c0e4b1258090e7d6d4039287f6cb")}},
+    # Nemotron 3.5 Bolt 74B-A9B 24GB (NVIDIA): a Mamba-2 / attention hybrid (nemotron_h_moe, 88 blocks) with 496 routed
+    # experts of which 9 are used, quantized by NVIDIA with quantization-aware training (IQ2_XXS experts, NVFP4 Mamba
+    # layers, Q8_0 embedding and output), and a C-RADIO v4-H image encoder (BF16).  It runs on llama.cpp's llama-server
+    # ("engine": "llama-server"; the args are llama-server's).  On echo, 2x RTX 5060 Ti 16 GB, everything on the GPUs
+    # with --ctx-size 168000 and these args: 57.6 tokens/s writing, 1,402 tokens/s reading an 11,331-token prompt with
+    # pictures, 95% and 93% of the two cards' VRAM in use (2026-11-20).  vram_need_gb: what setup asks of the chosen
+    # cards together (a 32 GB card, or two 16 GB ones); ram_gb: setup's estimate (the file goes to VRAM; llama-server's
+    # prompt cache takes up to 8 GiB of RAM).  Sampling: NVIDIA's recipe as llama.cpp runs it (the card's "Recommended
+    # Sampling" temperature 1.0 and top_p 0.95, with llama.cpp's top_k 40 and min_p 0.05 that its command leaves on).
+    "nemotron-bolt": {"title": "Nemotron 3.5 Bolt", "by": "NVIDIA", "engine": "llama-server",
+                      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 40, "min_p": 0.05},
+                      "about": "74B-A9B, reads pictures; a 22 GB file on NVIDIA cards with 32 GB of VRAM together "
+                               "(one 32 GB card, or two 16 GB ones); runs on llama.cpp's llama-server for now",
+                      "hf": hf("nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF"),
+                      "file": "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-{q}.gguf", "shards": 1,
+                      "tag": "nemotron-bolt-", "name": "nemotron-3.5-bolt", "vision": True, "experimental": True,
+                      "mmproj_hf": hf("nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF"),
+                      "mmproj": "mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf", "vision_gb": 1.7,
+                      "echo_context": 168000,
+                      "license": "OpenMDW-1.1 (NVIDIA's): "
+                                 "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF",
+                      "models": {"24GB": {"about": "NVIDIA's own 2-bit file (quantization-aware trained)",
+                                          "download_gb": 22.0, "ram_gb": 16, "vram_need_gb": 30}},
+                      "sha256": {"NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf":
+                                 (22018326528, "91d63363e782c8a3d5f4be42816eba8e0d42dd2530bd07a7d0d2dc440599af75"),
+                                 "mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf":
+                                 (1733692736, "0ee891eadc7bf0cae6289b249c74eb1ef420534351f6ef8b64d49f0ca6a926b0")}},
     "gemma4": {"title": "Gemma 4 26B-A4B", "by": "Google; quantized by Unsloth",
                "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
                "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller and a "
@@ -1472,24 +1508,32 @@ def check_shards(shards):
                  f"delete {s.name} and its .done mark and run setup again")
 
 
-def get_llama_cpp(vision=False):
+def get_llama_cpp(vision=False, server=False):
     """llama.cpp at the pinned commit (ggml for the build, gguf-py for the tools, mtmd for images), as a zip: no git.
-    `vision`: the image encoder's own newer checkout (VISION_LLAMA_CPP_COMMIT); the engines never use it."""
+    `vision`: the image encoder's own newer checkout (VISION_LLAMA_CPP_COMMIT); the engines never use it.
+    `server`: llama-server's own checkout (LLAMA_SERVER_COMMIT), for build_llama_server."""
     if vision and VISION_LLAMA_CPP_COMMIT == LLAMA_CPP_COMMIT:
         vision = False
-    commit = VISION_LLAMA_CPP_COMMIT if vision else LLAMA_CPP_COMMIT
-    llama = ROOT / "third_party" / (f"llama.cpp-{commit[:7]}" if vision else "llama.cpp")
+    commit = LLAMA_SERVER_COMMIT if server else VISION_LLAMA_CPP_COMMIT if vision else LLAMA_CPP_COMMIT
+    llama = ROOT / "third_party" / (f"llama.cpp-{commit[:7]}" if vision or server else "llama.cpp")
     if (llama / "ggml" / "CMakeLists.txt").exists() and (llama / "gguf-py").is_dir():
         return llama
     z = ROOT / "third_party" / f"llama.cpp-{commit[:7]}.zip"
-    download(VISION_LLAMA_CPP_ZIP if vision else LLAMA_CPP_ZIP, z, "llama.cpp source")
+    download(LLAMA_SERVER_ZIP if server else VISION_LLAMA_CPP_ZIP if vision else LLAMA_CPP_ZIP, z, "llama.cpp source")
     tmp = ROOT / "third_party" / "_unpack"
     shutil.rmtree(tmp, ignore_errors=True)
+
+    def wanted(m: str) -> bool:
+        # llama.cpp's own web UI (tools/ui) is not used, and its deep paths passed Windows' 260-character limit in a
+        # folder like Downloads\Puddle-main\Puddle-main (#206).  llama-server's checkout has it in ui/: only the CMake
+        # file its build reads is kept (built without the UI: LLAMA_BUILD_UI and LLAMA_USE_PREBUILT_UI off)
+        if "/tools/ui/" in m:
+            return False
+        rel = m.split("/", 1)[1] if "/" in m else ""     # the path below the zip's top folder
+        return not server or not rel.startswith("ui/") or rel == "ui/apps/chat/CMakeLists.txt"
     try:
         with zipfile.ZipFile(z) as f:
-            # llama.cpp's own web UI (tools/ui) is not used, and its deep paths passed Windows' 260-character limit in a
-            # folder like Downloads\Puddle-main\Puddle-main (#206)
-            f.extractall(tmp, [m for m in f.namelist() if "/tools/ui/" not in m])
+            f.extractall(tmp, [m for m in f.namelist() if wanted(m)])
     except zipfile.BadZipFile:
         # #1797: do not let the .done mark make every later run reuse a damaged source archive.
         try:
@@ -2716,7 +2760,7 @@ def write_config(path: Path, cfg: dict):
 # "sampling" or "mcp_servers" block, "allowed_hosts", "cors_origins", "open_browser" - and is kept when setup runs again
 SETUP_KEYS = frozenset({"exe", "args", "cwd", "tokenizer", "model_name", "log", "lib_dirs", "port", "backend", "env",
                         "gpu", "gpus_asked", "layer_split", "host", "api_key", "vision",
-                        "display_name", "cuda"})
+                        "display_name", "cuda", "engine"})
 SETUP_ENV = frozenset({"STRATA_HIPBLASLT_TUNING", "STRATA_ROCBLAS_TUNING", "STRATA_RESIDENT_PIN", "STRATA_NO_ARENA_THP", "STRATA_MMQ_KQ", "STRATA_HC_Q8",
                        "STRATA_ROUTE_TAIL_SKIP"}) | OLD_GFX_SWITCHES   # the "env" entries setup writes (the gfx1103 / gfx1150 switches are setup's too: they do not linger)
 # the Qwen engine wrote STRATA_MMQ_KQ, STRATA_HC_Q8 and STRATA_ROUTE_TAIL_SKIP for Unsloth's files; in a strata-poly
@@ -2883,8 +2927,11 @@ def choices_from_config(cfg_path: Path) -> dict:
     a = cfg.get("args", [])
     val = lambda k: a[a.index(k) + 1] if k in a and a.index(k) + 1 < len(a) else None   # noqa: E731
     vis = cfg.get("vision")
+    if llama_config(cfg):                              # llama-server reads pictures with its --mmproj
+        vis = {"gpu": True} if val("--mmproj") else None
     return {"family": family, "model": model if model in sizes else None,
-            "context": int(val("--max-context")) if val("--max-context") else None,
+            "context": int(val("--max-context") or val("--ctx-size")) if val("--max-context") or val("--ctx-size")
+            else None,
             "vision": ("gpu" if vis.get("gpu") else "cpu") if isinstance(vis, dict) else "none",
             "host": cfg.get("host"), "api_key": cfg.get("api_key"), "port": cfg.get("port"), "gpu": cfg.get("gpu"),
             "layer_split": cfg.get("layer_split"), "cuda": 12 if config_toolkit(cfg) == 12 else None,
@@ -2961,6 +3008,10 @@ def update_install(have: list, a) -> int:
                 "numpy, jinja2, regex, pyyaml, tqdm, requests, cmake, ninja, pillow, psutil")
     for cfg_path in have:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+        if llama_config(cfg):                          # Nemotron 3.5 Bolt: llama-server, compiled again when it moved
+            update_llama_server(cfg, cfg_path=cfg_path)
+            ok(f"{cfg.get('model_name', cfg_path.stem)}: up to date")
+            continue
         if not poly_config(cfg):                       # a Qwen engine's config: Puddle has no engine for it
             warn(f"{cfg_path.name}: for an engine Puddle does not have ({Path(str(cfg.get('exe', '?'))).name}); "
                  "left as it is")
@@ -3007,7 +3058,8 @@ def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_
           layer_split=None, keep=None) -> int:
     """keep: settings given on this start that the model keeps from now on (--host, --api-key, --vram-reserve-mib)."""
     cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
-    if not poly_config(cfg):                           # Puddle has strata-poly only (the Qwen engine is gone)
+    llama = llama_config(cfg)                          # Nemotron 3.5 Bolt: llama-server
+    if not poly_config(cfg) and not llama:             # strata-poly or llama-server (the Qwen engine is gone)
         fail(f"{cfg_path.name} is for an engine Puddle does not have ({Path(str(cfg.get('exe', '?'))).name})",
              "set the model up again: ./setup.sh --setup (Windows: START-HERE.bat --setup)")
     missing = [p for p in [cfg["exe"], *[a for a in cfg["args"] if a.endswith(".gguf")]] if not Path(p).exists()]
@@ -3015,11 +3067,17 @@ def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_
         fail(f"{cfg_path.name} refers to missing files: {missing[0]}", "run it again with --setup to repair")
     if isinstance(gpu, list):                          # update_poly_engine() wants code for these cards
         cfg["gpu"] = gpu
-    update_poly_engine(cfg, yes, cfg_path)
-    poly_tail_skip(cfg, cfg_path)
-    poly_kv_whole(cfg, cfg_path)
+    if llama:
+        update_llama_server(cfg, yes, cfg_path)
+    else:
+        update_poly_engine(cfg, yes, cfg_path)
+        poly_tail_skip(cfg, cfg_path)
+        poly_kv_whole(cfg, cfg_path)
     keep = {k: v for k, v in (keep or {}).items() if v is not None}
     reserve = keep.pop("vram_reserve_mib", None)       # #493: an engine argument, kept in the config's args
+    if reserve is not None and llama:
+        warn("--vram-reserve-mib is strata-poly's setting; llama-server has none: not saved")
+        reserve = None
     if reserve is not None:
         args = cfg["args"]
         if "--vram-reserve-mib" in args[:-1]:
@@ -3102,9 +3160,13 @@ def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_
     say()
     say("  " + "-" * 100)
     size = f'about {gb:.0f} GB' if gb >= 1 else 'the model file'
-    say(f"  Starting {cfg.get('model_name', 'the model')}: it reads the model file ({size}) in place: the weights "
-        "go to the GPU,")
-    say("  and the OS file cache keeps the experts the GPU does not hold.")
+    if llama:
+        say(f"  Starting {cfg.get('model_name', 'the model')} on llama-server: it reads the model file ({size}) onto "
+            "the GPUs.")
+    else:
+        say(f"  Starting {cfg.get('model_name', 'the model')}: it reads the model file ({size}) in place: the weights "
+            "go to the GPU,")
+        say("  and the OS file cache keeps the experts the GPU does not hold.")
     say("  While it does, YOUR PC CAN BE SLOW OR STOP RESPONDING FOR 1-3 MINUTES (longer the first time after a")
     say("  restart). That is normal: please wait and don't close this window - " + (
         "the browser opens when it is ready." if browser else "the server says when it is ready."))
@@ -3179,7 +3241,10 @@ def poly_beside_gb(d) -> float:
 
 
 def poly_held_gb(d, vram_gb) -> float:
-    """About the GB of a size's experts a card with this much VRAM (GiB) holds at a 32K context."""
+    """About the GB of a size's experts a card with this much VRAM (GiB) holds at a 32K context (a llama-server size,
+    which has "vram_need_gb" and no experts in RAM: none)."""
+    if "arena_gb" not in d:
+        return 0.0
     return min(d["arena_gb"], max(0.0, vram_gb - poly_beside_gb(d)) * 1.073741824)
 
 
@@ -3229,17 +3294,32 @@ def poly_default(sizes, ram, vram_gb) -> str:
 
 def poly_ram_need(d, vram_gb) -> float:
     """About the GB of RAM a size wants on that card: the experts the card does not hold, in the OS file cache,
-    and room for the rest.  An estimate from one machine (32 GB of VRAM, 120 GB of RAM)."""
+    and room for the rest.  An estimate from one machine (32 GB of VRAM, 120 GB of RAM).  A llama-server size (no
+    experts in RAM): its own ram_gb."""
+    if "arena_gb" not in d:
+        return float(d["ram_gb"])
     return d["arena_gb"] - poly_held_gb(d, vram_gb) + POLY_RAM_BESIDE_GB
 
 
 def poly_fits(d, ram, vram_gb, hip) -> bool:
-    """Whether a size of strata-poly's models runs on this PC with its experts in RAM, by setup's estimate."""
+    """Whether a size of strata-poly's models runs on this PC with its experts in RAM, by setup's estimate.  A
+    llama-server size ("vram_need_gb"): NVIDIA cards with that much VRAM (`vram_gb`: the chosen cards together)."""
+    if "vram_need_gb" in d:
+        return not hip and vram_gb >= d["vram_need_gb"] and ram >= d["ram_gb"] - 4
     return vram_gb >= poly_beside_gb(d) + 2 and ram >= poly_ram_need(d, vram_gb) - 4
 
 
 def poly_verdict(d, ram, vram_gb, hip, windows=False) -> str:
-    """--check's line for a size of strata-poly's models.  `windows`: its family has run there (FAMILIES)."""
+    """--check's line for a size of strata-poly's models.  `windows`: its family has run there (FAMILIES).  A
+    llama-server size ("vram_need_gb"): by the VRAM of the chosen cards together."""
+    if "vram_need_gb" in d:
+        if hip:
+            return "not on AMD cards yet (llama-server is compiled here for NVIDIA only)"
+        if vram_gb < d["vram_need_gb"]:
+            return (f"does not fit: it runs with {d['vram_need_gb']} GB of VRAM or more on the chosen cards together "
+                    f"({vram_gb:.0f} here)")
+        return ("EXPERIMENTAL, " + ("not tried on Windows, " if WIN else "") +
+                f"fits: {vram_gb:.0f} GB of VRAM on the chosen cards, everything on the GPUs")
     if vram_gb < poly_beside_gb(d) + 2:
         return f"does not fit: it takes about {poly_beside_gb(d)} GB of VRAM before any expert"
     need = poly_ram_need(d, vram_gb)
@@ -3527,6 +3607,243 @@ def poly_kv_whole(cfg: dict, cfg_path: Path | None = None) -> None:
        "back, so a long prompt was refused VRAM later)")
     if cfg_path is not None:
         write_config(cfg_path, cfg)
+
+
+# ------------------------------------------------------------------------------------------------ llama-server
+# A family with "engine": "llama-server" (Nemotron 3.5 Bolt) runs on llama.cpp's llama-server at LLAMA_SERVER_COMMIT,
+# compiled here like strata-poly (always from source) into engine-llama/.  Its run config has "engine": "llama-server"
+# and llama-server's own arguments; the server runs it on 127.0.0.1 with a port and a key of its own
+# (serve/server.py's LlamaServerEngine).  NVIDIA cards only for now: it has been run on CUDA only.
+def llama_config(cfg: dict) -> bool:
+    """A run config of llama-server (Nemotron 3.5 Bolt)."""
+    return cfg.get("engine") == "llama-server"
+
+
+def build_llama_server(gpu, yes, toolkit=13) -> Path:
+    """Compile llama-server at LLAMA_SERVER_COMMIT for these NVIDIA cards into engine-llama/: once, and again when the
+    commit changes (a `git pull` that moves it) or a card needs code it was not built with.  One file, the CUDA
+    backend linked in (BUILD_SHARED_LIBS off), without llama.cpp's own chat app (Puddle has its own), without
+    OpenSSL (it downloads nothing).  The CUDA libraries come from the toolkit it was compiled with (BUILD.json)."""
+    eng = ROOT / ENGINE_LLAMA_DIR
+    eng.mkdir(exist_ok=True)
+    stamp = eng / "BUILD.json"
+    meta = json.loads(stamp.read_text(encoding="utf-8")) if stamp.exists() else {}
+    cards = {int(x) for x in gpu.get("archs", [gpu["arch"]])}
+    built = {int(x) for x in meta.get("archs", [])}
+    same = meta.get("commit") == LLAMA_SERVER_COMMIT and int(meta.get("toolkit", 13)) == toolkit
+    if (eng / LLAMA_SERVER_EXE).exists() and same and cards <= built:
+        ok(f"llama-server already built for this PC (llama.cpp {LLAMA_SERVER_COMMIT[:9]})")
+        return eng
+    archs = sorted(cards | built if same else cards)
+    nvcc, vcvars = install_build_tools({**gpu, "archs": archs, "toolkit": toolkit,
+                                        "need_cuda": (12, 8) if max(archs) >= 120 else (12, 0)}, yes)
+    src = get_llama_cpp(server=True)
+    ok(f"llama.cpp {LLAMA_SERVER_COMMIT[:9]} (llama-server)")
+    say("  Compiling llama-server for your GPU (llama.cpp's CUDA kernels: 10-30 minutes, once) ..."
+        if not (eng / LLAMA_SERVER_EXE).exists() else
+        "  llama-server's llama.cpp changed, or a card needs code it has not: compiling it again ...")
+    bdir = ROOT / ("build-llama-server" if toolkit == 13 else "build-llama-server-cuda12")
+    defs = ["-DGGML_CUDA=ON", f"-DCMAKE_CUDA_ARCHITECTURES={';'.join(str(x) for x in archs)}",
+            f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DBUILD_SHARED_LIBS=OFF", "-DLLAMA_BUILD_TESTS=OFF",
+            "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_SERVER=ON", "-DLLAMA_BUILD_UI=OFF",
+            "-DLLAMA_USE_PREBUILT_UI=OFF", "-DLLAMA_OPENSSL=OFF", *host_compiler_defs(True)]
+    cmake_build(src, bdir, "llama-server", defs, vcvars, "build-llama-server.bat")
+    shutil.copy2(bdir / "bin" / LLAMA_SERVER_EXE, eng / LLAMA_SERVER_EXE)
+    bindir = Path(nvcc).parent                            # the toolkit's own libraries (bin, bin/x64, lib64)
+    dirs = [str(x) for x in (bindir, bindir / "x64", bindir.parent / "lib64") if x.is_dir()]
+    stamp.write_text(json.dumps({"source": "local", "engine": "llama-server", "commit": LLAMA_SERVER_COMMIT,
+                                 "version": f"llama.cpp {LLAMA_SERVER_COMMIT[:9]}", "archs": archs, "cuda_dirs": dirs,
+                                 "toolkit": toolkit}, indent=1))
+    ok(f"llama-server compiled: {eng / LLAMA_SERVER_EXE}")
+    return eng
+
+
+def update_llama_server(cfg: dict, yes=False, cfg_path: Path | None = None) -> None:
+    """Before a llama-server model starts (and on --update): llama-server is compiled again when LLAMA_SERVER_COMMIT
+    moved or the model's cards need code it was not built with; nothing happens otherwise."""
+    eng = Path(cfg["exe"]).parent
+    try:
+        meta = json.loads((eng / "BUILD.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    found = gpus()
+    use = cfg.get("gpu")
+    sel = use if isinstance(use, list) else [use] if isinstance(use, int) else \
+        [max(found, key=lambda x: (round(x["vram_gb"]), -x["index"]))["index"]] if found else []
+    archs = sorted({int(g["arch"]) for g in found if g["index"] in sel}) or [int(x) for x in meta.get("archs", [])]
+    if (eng / LLAMA_SERVER_EXE).exists() and meta.get("commit") == LLAMA_SERVER_COMMIT and \
+            set(archs) <= {int(x) for x in meta.get("archs", [])}:
+        return
+    if not found:
+        warn("llama-server should be compiled again, but no NVIDIA GPU answered: left as it is")
+        return
+    gpu = {**gpu_info(sel[0] if sel else None), "archs": archs}
+    built = build_llama_server(gpu, yes, 12 if config_toolkit(cfg) == 12 else 13)
+    dirs = engine_lib_dirs(built)
+    if cfg_path is not None and (cfg.get("lib_dirs") != dirs or Path(cfg["exe"]).parent != built):
+        cfg["lib_dirs"], cfg["exe"] = dirs, str(built / LLAMA_SERVER_EXE)
+        write_config(cfg_path, cfg)
+
+
+def llama_server_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted) -> int:
+    """Steps 2 to 7 for a model of llama-server (Nemotron 3.5 Bolt): the choices (cards, context, pictures), the
+    Python packages, llama-server (compiled here), the model file and its image encoder, its tokenizer, the run
+    config and the start script."""
+    fam = FAMILIES[family]
+    title = fam["title"]
+    if hip:
+        fail(f"{title} runs on NVIDIA cards for now: llama-server is compiled here with CUDA only, and it has not been "
+             "run on an AMD card", "use an NVIDIA card (--backend cuda)")
+    if WIN:
+        warn(f"{title} on Windows: llama-server is compiled here with MSVC and CUDA as strata-poly is; NVIDIA lists "
+             "Windows as supported, but it has not been run there by anyone here (untested)")
+    unused = [flag for flag, given in (
+        ("--vision-tokens", a.vision_tokens is not None), ("--layer-split", bool(a.layer_split)),
+        ("--vram-reserve-mib", a.vram_reserve_mib is not None), ("--parallel", a.parallel is not None),
+        ("--replicas", a.replicas is not None), ("--max-compatibility", bool(a.max_compatibility))) if given]
+    if unused:
+        warn(f"not used with {title} (llama-server has no such setting here): " + ", ".join(unused))
+    sizes = family_models(family)
+    model = a.model or next(iter(sizes))
+    if model not in sizes:
+        fail(f"{title} has no {model} model file", "choose one of: " + ", ".join(sizes))
+    d = sizes[model]
+    sel = multi or [gpu["index"]]
+    cards = {g["index"]: g for g in gpus()}
+    vram = sum(cards[i]["vram_gb"] for i in sel if i in cards) or gpu["vram_gb"]
+    need = d["vram_need_gb"]
+    if vram < need:
+        fail(f"{title} runs with {need} GB of VRAM or more on the chosen cards together (a 32 GB card, or two 16 GB "
+             f"ones); {' + '.join(gpu_name(cards[i]) for i in sel if i in cards) or gpu_name(gpu)} have "
+             f"{vram:.0f} GB", "choose more cards with --gpus, or another model")
+    ok(f"size: {model} ({d['about']}), on {vram:.0f} GB of VRAM" + (f" across GPUs {sel}" if multi else ""))
+    tag = fam["tag"] + model
+
+    # the context: echo's measured one on two 16 GB cards; elsewhere llama-server's --fit takes the largest that fits
+    echo_cards = len(sel) == 2 and all(i in cards and round(cards[i]["vram_gb"]) == 16 for i in sel)
+    if a.context:
+        ctx = a.context
+        if not 4096 <= ctx <= 262144:
+            fail(f"--context {ctx}: {title} takes 4096 to 262144 tokens")
+        ok(f"context: {ctx} tokens (--context)")
+    elif echo_cards:
+        ctx = fam["echo_context"]
+        ok(f"context: {ctx} tokens (as it runs on 2x RTX 5060 Ti 16 GB, where 95% and 93% of the two cards' VRAM is "
+           "then in use)")
+    else:
+        ctx = None
+        ok("context: the largest that fits these cards, chosen by llama-server each time it loads (its --fit); "
+           "--context N sets one")
+
+    # pictures: the encoder (1.7 GB, BF16) sits on the GPUs beside the model, as on echo
+    if a.vision:
+        vision = a.vision not in ("no", "none")
+    else:
+        say()
+        say(f"  Images: {title} can read pictures (screenshots, photos, scanned pages). This adds a "
+            f"{fam['vision_gb']} GB download, and its image encoder takes VRAM beside the model (as on echo).")
+        vision = ask("Do you want images?", ["y", "n"], "y", a.yes) == "y"
+    ok("images: " + ("on" if vision else "off"))
+
+    models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
+    gguf = models_dir / model_file(fam, model, 1)
+    mmproj = models_dir / fam["mmproj"] if vision else None
+    if a.gguf_dir:
+        for f in (gguf, mmproj):
+            if f is not None and not f.exists():
+                fail(f"{models_dir} has no {f.name}",
+                     "put the file there under that name, or leave out --gguf-dir and setup downloads it")
+    elif not (gguf.exists() and done(gguf)):
+        for r in elsewhere:                            # already downloaded in a Puddle folder on another drive
+            cand = r / "models" / tag / gguf.name
+            if cand.exists() and done(cand):
+                models_dir, gguf = cand.parent, cand
+                mmproj = models_dir / fam["mmproj"] if vision else None
+                ok(f"model file found in {models_dir}")
+                break
+    have_model = gguf.exists() and (done(gguf) or bool(a.gguf_dir))
+    have_mmproj = mmproj is None or mmproj.exists() and (done(mmproj) or bool(a.gguf_dir))
+    need_gb = (0 if have_model else d["download_gb"]) + (0 if have_mmproj else fam["vision_gb"]) + 2
+    if free_gb(models_dir) < need_gb:
+        fail(f"not enough free disk space in {models_dir}: need ~{need_gb:.0f} GB",
+             "use --models-dir on a bigger drive")
+
+    step(3, "Python packages")
+    pip_install(requirement_lines() if REQUIREMENTS.exists() else PY_PACKAGES,
+                "numpy, jinja2, regex, pyyaml, tqdm, requests, cmake, ninja, pillow, psutil")
+
+    step(4, "llama-server")
+    eng = build_llama_server({**gpu, "archs": sorted({int(cards[i]["arch"]) for i in sel if i in cards}
+                                                     or {int(gpu["arch"])})}, a.yes, cuda_tk)
+    lib_dirs = engine_lib_dirs(eng)
+    ok(f"engine: {eng / LLAMA_SERVER_EXE}")
+
+    step(5, f"downloading {title} {model}")
+    if not have_model:
+        say(f"  The model file goes in {models_dir}")
+        say(f"  A file you already have: put it there with its original name ({gguf.name}), or use --gguf-dir "
+            "<its folder>.")
+        download(d.get("hf", fam["hf"]) + gguf.name, gguf)
+    check_shards([gguf])
+    verify_sha256(gguf, *fam["sha256"][gguf.name], own=bool(a.gguf_dir))
+    if mmproj is not None:
+        if not have_mmproj:
+            download(fam["mmproj_hf"] + fam["mmproj"], mmproj, "image encoder")
+        verify_sha256(mmproj, *fam["sha256"][mmproj.name], own=bool(a.gguf_dir))
+        ok(f"image encoder: {mmproj}")
+    ok("model file present")
+
+    step(6, "preparing the model for Puddle")
+    pack = find_in([data, *elsewhere], f"packs/{tag.lower()}") or data / "packs" / tag.lower()
+    if not (pack / "tokenizer" / "vocab.json").exists():
+        run([sys.executable, str(ROOT / "tools" / "strata_tokenizer.py"), "--gguf", str(gguf), "--out", str(pack)])
+    ok(f"model prepared: {pack} (its tokenizer and chat template)")
+
+    step(7, "writing the start script")
+    # echo's command (2026-11-20), in llama-server's long spellings: one slot, flash attention, a q8_0 KV cache,
+    # 2,048-token batches, the file read in whole (--load-mode none), every layer on the GPUs, split evenly
+    args = ["--model", str(gguf)] + (["--mmproj", str(mmproj)] if mmproj is not None else []) + \
+        (["--ctx-size", str(ctx)] if ctx else []) + \
+        ["--parallel", "1", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0",
+         "--batch-size", "2048", "--ubatch-size", "2048", "--load-mode", "none", "--n-gpu-layers", "all"]
+    if multi:
+        args += ["--tensor-split", ",".join("1" for _ in multi)]
+    cfg_path = ROOT / f"strata-{tag.lower()}.json"
+    cfg = {"engine": "llama-server", "exe": str(eng / LLAMA_SERVER_EXE), "args": args, "cwd": str(ROOT),
+           "tokenizer": str(pack / "tokenizer"), "model_name": f"{fam['name']}-{model.lower()}",
+           "display_name": f"{title} {model}", "log": str(ROOT / f"strata-{tag.lower()}.log"), "lib_dirs": lib_dirs,
+           "port": port}
+    if multi:                                          # the server shows these cards, in this order, to llama-server
+        cfg["gpu"], cfg["gpus_asked"] = multi, True
+        ok(f"split evenly across GPUs {multi} (--tensor-split)")
+    elif gpu["count"] > 1 or a.gpu is not None:
+        cfg["gpu"], cfg["gpus_asked"] = gpu["index"], True
+    if cuda_tk == 12:
+        cfg["cuda"] = 12
+    if a.host:
+        cfg["host"] = a.host
+    if a.api_key:
+        cfg["api_key"] = a.api_key
+    if a.browser is not None:
+        cfg["open_browser"] = a.browser
+    earlier = adopted if adopted is not None and adopted.name == cfg_path.name else None
+    write_setup_config(cfg_path, cfg, earlier, sampling=fam.get("sampling"))
+    script = write_run_script(tag, cfg_path, port, cfg.get("open_browser") is not False)
+    ok(f"start script: {script.name}")
+
+    say()
+    say("All set.")
+    say(f"  API (OpenAI):     http://127.0.0.1:{port}/v1   (any API key; model name: anything)")
+    say(f"  API (Anthropic):  http://127.0.0.1:{port}/v1/messages")
+    if vision:
+        say("  Images:           send them in the chat page, in chat.py (/image <path>) or over the API")
+    if a.host and a.host not in ("127.0.0.1", "localhost"):
+        say(f"  Other devices:    the server window prints this PC's address (http://<IP>:{port}/)"
+            + ("" if a.api_key else " - no API key set: anyone on your network can use it"))
+    say(f"  Next time:        just run {'START-HERE.bat' if WIN else './setup.sh'} (or {script.name}) - it starts right away")
+    if a.no_start:
+        return 0
+    return start(cfg_path, port)
 
 
 def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted) -> int:
@@ -4095,7 +4412,7 @@ def main() -> int:
             a.gpu = int(a.gpu)
         else:
             ap.error(f"--gpu takes a GPU number as nvidia-smi numbers them, e.g. --gpu 1 (or --gpus 0,2), not {a.gpu!r}")
-    say("Puddle - Laguna and Gemma 4 on a normal PC (a GPU + system RAM + CPU)")
+    say("Puddle - Laguna, Nemotron 3.5 Bolt and Gemma 4 on a normal PC (a GPU + system RAM + CPU)")
     data, elsewhere = data_folder(a.data_dir)          # the model files: in the data folder, found from any copy
     roots = [data, *elsewhere]
     if a.models_dir is None:
@@ -4287,10 +4604,12 @@ def main() -> int:
     if a.check:
         say()
         any_fits = False
+        together = sum(x["vram_gb"] for x in (amd if hip else found) if x["index"] in sel) or gpu["vram_gb"]
         for f, fd in FAMILIES.items():                  # every family has sizes of its own
             for m, d in fd.get("models", {}).items():
-                any_fits = any_fits or poly_fits(d, ram, gpu["vram_gb"], hip)
-                say(f"  {fd['title']} {m}: {poly_verdict(d, ram, gpu['vram_gb'], hip, bool(fd.get('windows')))}")
+                v = together if fd.get("engine") == "llama-server" else gpu["vram_gb"]   # by the chosen cards together
+                any_fits = any_fits or poly_fits(d, ram, v, hip)
+                say(f"  {fd['title']} {m}: {poly_verdict(d, ram, v, hip, bool(fd.get('windows')))}")
         if not any_fits:
             # #977: every size says "does not fit", so the verdict says so too (and the exit code, for scripts). It only
             # reports: --model NAME --yes still installs one anyway.
@@ -4314,6 +4633,8 @@ def main() -> int:
     ok(f"model: {fam['title']}")
     if fam.get("license"):
         say(f"  Its license: {fam['license']}")
+    if fam.get("engine") == "llama-server":
+        return llama_server_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted)
     return poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, adopted)
 
 

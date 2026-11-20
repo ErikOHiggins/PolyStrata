@@ -86,6 +86,16 @@ class PolyMain:
                                                         **({"portable": True} if portable else {})}))
             return eng
 
+        def fake_llama_build(gpu, yes, toolkit=13):
+            self.built.append(gpu["archs"])
+            self.toolkit = toolkit
+            eng = self.t / setup.ENGINE_LLAMA_DIR
+            eng.mkdir(exist_ok=True)
+            (eng / "BUILD.json").write_text(json.dumps({"source": "local", "engine": "llama-server",
+                                                        "commit": setup.LLAMA_SERVER_COMMIT,
+                                                        "cuda_dirs": ["/cuda/lib64"]}))
+            return eng
+
         patches = [
             mock.patch.object(setup, "ROOT", self.t),
             mock.patch.object(setup, "WIN", win),
@@ -104,6 +114,7 @@ class PolyMain:
             mock.patch.object(setup, "pip_install", lambda *a, **k: None),
             mock.patch.object(setup, "get_llama_cpp", lambda: self.t / "llama.cpp"),
             mock.patch.object(setup, "build_engine_poly", fake_build),
+            mock.patch.object(setup, "build_llama_server", fake_llama_build),
             mock.patch.object(setup, "download", fake_download),
             mock.patch.object(setup, "whole_shard", lambda s: False),
             mock.patch.object(setup, "check_shards", lambda shards: None),

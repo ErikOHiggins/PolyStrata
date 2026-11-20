@@ -4,8 +4,8 @@ run config, byte for byte, as the recorded baseline (tools/test_setup_golden.jso
 (tools/poly_setup_harness.py): no GPU, no downloads, nothing written outside a temp folder.
 
 The baseline was recorded again for Puddle's families (phase 1b-1, 2026-11-19: the Qwen engine's families are gone;
-phase 1c: Laguna-S, Laguna-XS and Occamy added; T2, 2026-11-20: Occamy removed); record it again only when a
-default changes on purpose.
+phase 1c: Laguna-S, Laguna-XS and Occamy added; T2, 2026-11-20: Occamy removed; B4, 2026-11-20: Nemotron 3.5 Bolt
+added, the other entries unchanged); record it again only when a default changes on purpose.
 
     python -m unittest tools.test_setup_golden
     python tools/test_setup_golden.py --write      (only to record a new baseline on purpose)
@@ -49,7 +49,7 @@ def normalize(v, t: Path):
         return [normalize(x, t) for x in v]
     if isinstance(v, str):
         v = v.replace(str(t), "<T>").replace("\\", "/")
-        for exe in ("strata-poly", "strata-vision"):                  # the whole executable name only
+        for exe in ("strata-poly", "strata-vision", "llama-server"):  # the whole executable name only
             v = re.sub(rf"(?<![\w.-]){exe}(?:\.exe)?(?![\w.-])", f"<{exe}>", v)
         return v
     return v
