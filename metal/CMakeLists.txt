@@ -87,32 +87,21 @@ target_link_libraries(strata_gpu_metal PUBLIC "-framework Metal" "-framework Fou
 # the same stream and graph runtime as strata. Full-model validation is pending.
 option(STRATA_METAL_POLY "Build the strata-poly Metal kernel port and checks" OFF)
 if(STRATA_METAL_POLY)
-  add_library(strata_poly_metal_kernels STATIC src/poly/basic.cpp src/poly/attention.cpp src/poly/recurrent.cpp src/poly/advanced.cpp)
+  add_library(strata_poly_metal_kernels STATIC src/poly/basic.cpp src/poly/attention.cpp src/poly/recurrent.cpp)
   target_compile_definitions(strata_poly_metal_kernels PRIVATE
     STRATA_POLY_BASIC_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/basic.metal"
     STRATA_POLY_ATTENTION_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/attention.metal"
     STRATA_POLY_FLASH_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/flash.metal"
-    STRATA_POLY_RECURRENT_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/recurrent.metal"
-    STRATA_POLY_ADVANCED_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/advanced.metal")
+    STRATA_POLY_RECURRENT_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/recurrent.metal")
   target_link_libraries(strata_poly_metal_kernels PUBLIC strata_gpu_metal)
   add_executable(poly_basic_parity poly_tests/basic_parity.cpp)
   target_link_libraries(poly_basic_parity PRIVATE strata_poly_metal_kernels)
-  set_source_files_properties(${STRATA_ROOT}/src/poly/shortconv_test.cu PROPERTIES LANGUAGE CXX)
-  add_executable(poly_shortconv_metal_test ${STRATA_ROOT}/src/poly/shortconv_test.cu)
-  target_link_libraries(poly_shortconv_metal_test PRIVATE strata_poly_metal_kernels)
   set_source_files_properties(${STRATA_ROOT}/src/poly/route_test.cu PROPERTIES LANGUAGE CXX)
   add_executable(poly_route_metal_test ${STRATA_ROOT}/src/poly/route_test.cu)
   target_link_libraries(poly_route_metal_test PRIVATE strata_poly_metal_kernels)
-  add_executable(poly_advanced_parity poly_tests/advanced_parity.cpp)
-  target_link_libraries(poly_advanced_parity PRIVATE strata_poly_metal_kernels)
   if(BUILD_TESTING)
-    add_test(NAME poly_advanced_parity COMMAND poly_advanced_parity)
-    set_tests_properties(poly_advanced_parity PROPERTIES LABELS "metal;gpu;poly" RESOURCE_LOCK metal_gpu TIMEOUT 120)
     add_test(NAME poly_basic_parity COMMAND poly_basic_parity)
     set_tests_properties(poly_basic_parity PROPERTIES LABELS "metal;gpu;poly"
-                        RESOURCE_LOCK metal_gpu TIMEOUT 120)
-    add_test(NAME poly_shortconv_metal_test COMMAND poly_shortconv_metal_test)
-    set_tests_properties(poly_shortconv_metal_test PROPERTIES LABELS "metal;gpu;poly"
                         RESOURCE_LOCK metal_gpu TIMEOUT 120)
     add_test(NAME poly_route_metal_test COMMAND poly_route_metal_test)
     set_tests_properties(poly_route_metal_test PROPERTIES LABELS "metal;gpu;poly"

@@ -1,8 +1,7 @@
 // metal/src/poly/unported.cpp - the entry points of the shared strata-poly host code that have no Metal kernel yet.
 // None of them is on a Mac family's default path: llama.cpp's flash attention (which falls back to attend() and
-// attend_batch() by its own contract), Gemma 4's opt-in int8 attention caches, Clover's block guesses and coreset
-// routing, and the half-sum guard of Flint's MMQ.  A call that would need a kernel says what is missing instead of
-// computing something else.
+// attend_batch() by its own contract), Gemma 4's opt-in int8 attention caches, and the half-sum guard of Laguna's
+// MMQ.  A call that would need a kernel says what is missing instead of computing something else.
 #include "fattn.hpp"
 #include "mmq.hpp"
 #include "strata/kernels/native_mmvq.hpp"
@@ -54,20 +53,11 @@ void dequant_int8_to_f16(const int8_t*, const uint16_t*, uint16_t*, int64_t, voi
     unported("int8 attention cache (--kv int8 / int8k, Gemma 4)");
 }
 
-void conv4_block_silu(const float*, const float*, const float*, const float*, float*, int, int, void*) {
-    unported("block guesses (Clover)");
-}
-void gdn_block(float*, float*, float*, const float*, const float*, const float*, const float*, const float*,
-               const float*, const float*, const float*, float*, float*, int, int, int, int, float, void*) {
-    unported("block guesses (Clover)");
-}
-void coreset_mask(float*, int, int, int, float, void*) { unported("coreset routing (Clover)"); }
-
-// the guard is Flint's (Flint::Flint() turns it on), and Flint is no Mac family: false keeps it from being asked for
+// the guard is Laguna's (it turns it on), and Laguna is no Mac family yet: false keeps it from being asked for
 bool Mmq::half_sums(int) { return false; }
-void guard_half_sums(float*, int64_t, int, int, float*, void*) { unported("half-sum guard (Flint)"); }
+void guard_half_sums(float*, int64_t, int, int, float*, void*) { unported("half-sum guard (Laguna)"); }
 void scale_rows(float*, int64_t, int, int, const int32_t*, const float*, bool, void*) {
-    unported("half-sum guard (Flint)");
+    unported("half-sum guard (Laguna)");
 }
 
 }  // namespace strata::poly

@@ -28,9 +28,8 @@ int main() {
         for(int i=0;i<n;++i) { scale[i]=.7f+.01f*(i%7); bias[i]=.01f*(i%3); }
         Dev dx(x.size()*4), dw(w.size()*4), ds(n*4), db(n*4), dy(rows*stride*4);
         dx.put(x.data(),x.size()*4); dw.put(w.data(),w.size()*4); ds.put(scale.data(),n*4); db.put(bias.data(),n*4);
-        for(int kind=0;kind<2;++kind) {
-            if(kind) p::layer_norm(dx.f(),ds.f(),db.f(),dy.f(),n,rows,1e-5,stream);
-            else p::rms_norm(dx.f(),ds.f(),dy.f(),n,rows,1e-5,stream,stride);
+        for(int kind=0;kind<1;++kind) {   // RMS norm (kind 1 was the layer norm of models Puddle removed)
+            p::rms_norm(dx.f(),ds.f(),dy.f(),n,rows,1e-5,stream,stride);
             ck(g::stream_synchronize(stream)); auto y=dy.read(rows*stride);
             for(int r=0;r<rows;++r) {
                 double mean=0,ss=0;
@@ -53,9 +52,9 @@ int main() {
             }
         }
         p::axpy(dx.f(),.25f,dy.f(),n,false,stream); p::axpy(dx.f(),.5f,dy.f(),n,true,stream);
-        p::add_bias(db.f(),dy.f(),n,1,stream); p::softcap(dy.f(),n,2,stream);
+        p::softcap(dy.f(),n,2,stream);
         ck(g::stream_synchronize(stream)); auto y=dy.read(n);
-        for(int i=0;i<n;++i) fails+=!near(y[i],2*std::tanh((.75*x[i]+bias[i])/2));
+        for(int i=0;i<n;++i) fails+=!near(y[i],2*std::tanh((.75*x[i])/2));
     }
     ck(g::stream_destroy(stream));
     std::printf("poly basic CPU-reference mismatches: %d\n",fails);

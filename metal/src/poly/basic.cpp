@@ -60,12 +60,6 @@ void rms_norm(const float* x, const float* w, float* y, int n, int rows, float e
     a.n = n; a.stride = stride; a.eps = eps;
     launch("poly_norm", a, stream, {uint32_t(rows), 1, 1}, sum_threads(n));
 }
-void layer_norm(const float* x, const float* w, const float* b, float* y, int n, int rows, float eps, void* stream) {
-    if (n <= 0 || rows <= 0) return;
-    BasicArgs a{{x, w, y, b}};
-    a.n = n; a.eps = eps; a.kind = 1;
-    launch("poly_norm", a, stream, {uint32_t(rows), 1, 1}, sum_threads(n));
-}
 static void gemv(const void* w, const float* x, float* y, int ni, int no, int group, int rows, int kind, void* stream) {
     if (ni <= 0 || no <= 0 || rows <= 0 || group <= 0 || no % group) throw std::invalid_argument("invalid Metal GEMV shape");
     BasicArgs a{{w, x, y, nullptr}};
@@ -87,10 +81,6 @@ void axpy(const float* x, float scale, float* y, int n, bool add, void* stream) 
 void softcap(float* x, size_t n, float cap, void* stream) {
     BasicArgs a{{x}}; a.count = n; a.kind = 3; a.scale = cap; element(a, stream);
 }
-void add_bias(const float* b, float* y, int n, int rows, void* stream) {
-    if (n <= 0 || rows <= 0) return;
-    BasicArgs a{{b, y}}; a.count = uint64_t(n) * rows; a.n = n; a.kind = 4; element(a, stream);
-}
 namespace {
 struct ConvArgs {
     const void* x; void* state; const void* w; void* out; void* snap;
@@ -107,10 +97,6 @@ void convolution(const float* x, float* state, const float* w, float* out, int c
     launch("poly_conv", a, stream, {uint32_t((channels+255)/256),uint32_t(rows),1}, 256,{refs,5,true});
     launch("poly_conv_state", a, stream, {uint32_t((channels+255)/256),1,1}, 256,{refs,5,true});
 }
-}
-void shortconv(const float* x, float* state, const float* w, float* out, int channels, int rows,
-               void* stream, float* snap, size_t stride, unsigned snaps) {
-    convolution(x,state,w,out,channels,rows,stream,snap,stride,snaps,0);
 }
 void conv4_silu(const float* x, float* state, const float* w, float* out, int channels, int rows,
                void* stream, float* snap, size_t stride, unsigned snaps) {

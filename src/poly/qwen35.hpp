@@ -17,7 +17,7 @@ public:
     size_t card_row_bytes() const override;
     void save_card_rows(int64_t first, int64_t n, uint8_t* dst) override;
     void load_card_rows(const uint8_t* src, int64_t from, int64_t count, int64_t first, int64_t n) override;
-    bool sees() const override { return !clover_; }
+    bool sees() const override { return true; }
 
 protected:
     void load_geometry() override;
@@ -46,8 +46,6 @@ protected:
     bool batch_heads() const override { return true; }
     bool rows_snaps() const override { return true; }
     int64_t turn(int64_t row) const override;
-    int block_mask() const override { return mask_; }
-    void route_block(int il, float* scores, int n) override;
 
 private:
     /// A layer's weights beside the ones every architecture has (Layer), and its places in the state and caches.
@@ -56,9 +54,6 @@ private:
         Dev wo;
         // gated delta net
         Dev wqkv, wz, conv, dt, a, alpha, beta, o_norm;
-        // Clover's, for a block of tokens that see each other (gdn_block()): the convolution's taps over the next
-        // three tokens, and a head's logit scale and the bias and log factor of its weight on the state
-        Dev conv_right, bd_scale, bd_hist_b, bd_hist_c;
         float* past = nullptr;   ///< the convolution's: 3 * conv_dim
         float* s = nullptr;      ///< v_heads * s_dim * s_dim
         // attention
@@ -75,19 +70,13 @@ private:
     };
 
     void gdn(Block& B, int n);
-    void gdn_block_pass(Block& B, int n);
     void attn(Block& B, int64_t pos, int n);
-    void attn_block_pass(Block& B, int64_t pos, int n);
     void attn_rows(Block& B, int n);
     void attn_store(Block& B, int64_t pos, int n);
     void turn_of(int64_t row, int32_t* thw) const;
     const int32_t* turns(int64_t pos, int n, int64_t* first);
 
     std::vector<Block> blocks_;   ///< one a layer of layers_
-    bool clover_ = false;         ///< a Clover file (architecture clover_moe): text only, its ssm_a is A_log itself
-    int mask_ = -1;               ///< Clover's mask token, which its block of guesses is filled with; -1: no block
-    float coreset_ = 0.f;         ///< Clover: a block's tokens choose among the experts of this share of its weight
-                                  ///< (moe_block_coreset_top_p); 0: among all
     int n_head_ = 0, n_kv_ = 0, head_dim_ = 0, n_rot_ = 0;
     float theta_scale_ = 0;   ///< a rotary pair turns by position * theta_scale^pair
     int sections_ = 1;        ///< the pairs the rotary embedding's three axes take in turn before they start over

@@ -2748,14 +2748,6 @@ void Engine::load(const Options& o) {
     // of eight.  The layers are counted by now.
     if (opt_.window == 0) opt_.window = recurrent_floats() == 0 || snaps_spread() ? 8 : 4;
     opt_.window = std::min({opt_.window, opt_.prompt_batch, opt_.max_context});
-    // A model that guesses its own block runs every layer for it, so on one card.  Off unless STRATA_BLOCK_GUESS=1:
-    // a call of a few tokens costs about as much more as it has tokens, each with experts of its own, and the block is
-    // one more such call a round.  With every expert on an RTX PRO 6000 Clover wrote 157 tokens/s after a 30K prompt
-    // with its blocks and 204 without, and the policy asked for few (docs/BACKENDS.md).
-    const char* bg = std::getenv("STRATA_BLOCK_GUESS");
-    block_guess_ = bg && std::atoi(bg) == 1 && !draft_ && opt_.draft && opt_.window > 1 && block_mask() >= 0 &&
-                   !split_;
-    if (block_guess_) std::fprintf(stderr, "strata-poly: STRATA_BLOCK_GUESS: the model guesses its own blocks\n");
     alloc();
     if (!opt_.profile.empty()) read_profile(opt_.profile, (int) layers_.size(), n_expert_, prior_);
     fill_expert_cache();
@@ -3028,7 +3020,6 @@ void Engine::alloc() {
         hn_ = state_ + rec_n_;
         h_guess_ = (Likeliest*) hmalloc(sizeof(Likeliest), "pinned memory");   // likeliest() writes it
     }
-    if (block_guess_) h_block_ = (Likeliest*) hmalloc((size_t) opt_.window * sizeof(Likeliest), "pinned memory");
     // window(): the state after tokens of it, for keep(), and every token's logits
     snap_places_ = snaps_spread() ? std::min(opt_.window - 1, kSnapPlaces) : opt_.window - 1;
     if (snap_places_ > 0)
@@ -3575,13 +3566,13 @@ void Engine::router_scores(const Layer& L, int n) { lin(L.gate_inp, xn_, rl_, n,
 
 bool Engine::batched(const Layer& L, int n) const { return mmq_ && L.mmq && n >= kStageRows; }
 
-int Engine::card_rows() const { return block_guess_ ? std::max(kSumRows, opt_.window * n_used_) : kSumRows; }
+int Engine::card_rows() const { return kSumRows; }
 
 // The router's scores, and the copies of them and of the experts' input to the host.
 void Engine::moe_router(const Layer& L, int n) {
     router_scores(L, n);
     copy2(rl_, h_rl_, n * n_expert_, xn_, h_x_, n * n_embd_, st_);
-    if (prefetch_k_ <= 0 || block_pass_ || n > 16) return;
+    if (prefetch_k_ <= 0 || n > 16) return;
     size_t part = 0;
     for (size_t q = 0; q < 8; ++q)
         if (ev_ == ev_row_[q]) part = q;
@@ -3998,12 +3989,11 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
     Clock::time_point t0 = Clock::now();
     ck(cudaEventSynchronize((cudaEvent_t) ev_), "router");
     stats_.route_wait_ms += ms_since(t0);
-    if (block_pass_) route_block(il, h_rl_, n);
-    if (pool_ && prompt_rows_ >= 4096 && !block_pass_) {
+    if (pool_ && prompt_rows_ >= 4096) {
         rekeep();
         pool_reseed();
     }
-    if (prefetch_k_ > 0 && !block_pass_ && n <= 16) {   // as moe_router() asked for it
+    if (prefetch_k_ > 0 && n <= 16) {   // as moe_router() asked for it
         size_t part = 0;
         for (size_t q = 0; q < 8; ++q)
             if (ev_ == ev_row_[q]) part = q;
@@ -4046,15 +4036,10 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
             float w_all = 0.f;
             for (int k = 0; k < n_used_; ++k) w_all += w[k];
             for (int k = 0; k < n_used_; ++k) {
-                // a block of guesses routed among fewer experts than a token takes: the rest weigh nothing
-                if (block_pass_ && w[k] == 0.f) continue;
                 host_rel[n_host] = w_all > 0.f ? w[k] / w_all : 1.f;
                 const size_t e = (size_t) ids[k];
-                // a block's guesses are not the answer's tokens: the cache is not filled by them
-                if (!block_pass_) {
-                    ++use_[(size_t) il * n_expert_ + e];
-                    if (n_swap_ > 0) recent_[(size_t) il * n_expert_ + e] += 1.f;
-                }
+                ++use_[(size_t) il * n_expert_ + e];
+                if (n_swap_ > 0) recent_[(size_t) il * n_expert_ + e] += 1.f;
                 // NVFP4's down scale goes on the weight (ExpertScales)
                 const float we = L.h_s_down.empty() ? w[k] : w[k] * L.h_s_down[e];
                 if (const uint8_t* s = L.slot[e]) {
@@ -4789,7 +4774,7 @@ void Engine::run(const int32_t* tokens, int n) {
     // What a launch needs of the position it reads at at_; an attention over the rows so far is recorded again
     // when the rows outgrow what it was sized for (head_key()).  A prompt's few tokens are not a window: they
     // leave no snapshots of the recurrent state, so their launches are others.
-    bool replay = opt_.graphs && n <= opt_.window && (windowed_ || block_pass_ || n == 1) && !opt_.dump;
+    bool replay = opt_.graphs && n <= opt_.window && (windowed_ || n == 1) && !opt_.dump;
     for (int t = 0; t < n && replay; ++t) replay = !image_at(pos_ + t);
     const auto replayed = [&](std::vector<void*>& made, size_t key, auto&& work) {
         if (made.size() <= key) made.resize(key + 1, nullptr);
@@ -4926,10 +4911,8 @@ void Engine::run(const int32_t* tokens, int n) {
         const Layer& L = layers_[(size_t) il];
         whole = L.fixed && (!L.moe || L.card == 1);
     }
-    // A block of guesses is recorded whole or not at all: a layer's own recordings are a window's, of other kernels.
-    if (block_pass_ && !whole) replay = false;
     if (whole) {
-        std::vector<int> key{block_pass_ ? -n : n};
+        std::vector<int> key{n};
         for (int il = lo_; il < hi_; ++il) key.push_back(head_key(il, n));
         void*& pass = passes_[key];
         if (!pass)
@@ -4967,7 +4950,7 @@ void Engine::run(const int32_t* tokens, int n) {
 void Engine::step(const int* seqs, const int32_t* tokens, int n) { step(seqs, tokens, n, nullptr); }
 
 bool Engine::steps_guesses() const {
-    return opt_.batch_mtp && draft_ && step_h_ && !block_guess_ && !next_ && !pass_ && batch_heads() &&
+    return opt_.batch_mtp && draft_ && step_h_ && !next_ && !pass_ && batch_heads() &&
            (rec_n_ == 0 || (rows_snaps() && step_snap_));
 }
 
@@ -5755,46 +5738,12 @@ void Engine::draft_step(int32_t token, int i) {
     finish_logits(logits_, 1);
 }
 
-// The model's own guesses at what follows `token`, a block at once (block_mask()): the token at pos() and masks
-// after it to the window's end, through every layer together and seeing each other, and each mask's own row of
-// the output picks the token at its place.  The block changes no recurrent state; the rows it leaves in the
-// attention caches are the window's places, which the window writes again.
-void Engine::guess_block(int32_t token) {
-    const int n = (int) std::min<int64_t>(opt_.window, opt_.max_context - pos_);
-    block_n_ = 0;
-    if (n < 2) return;
-    int32_t tokens[8];
-    tokens[0] = token;
-    std::fill(tokens + 1, tokens + n, (int32_t) block_mask());
-    block_pass_ = true;
-    try {
-        run(tokens, n);
-    } catch (...) {
-        block_pass_ = false;
-        throw;
-    }
-    block_pass_ = false;
-    Dev head = output_;   // the matrix's first rows are the common tokens'
-    head.n_out = draft_rows();
-    output_rows(1, n - 1, xn_);
-    lin(head, xn_, wlogits_, n - 1);
-    finish_logits(wlogits_, n - 1);
-    for (int r = 0; r < n - 1; ++r) likeliest(wlogits_ + (size_t) r * head.n_out, head.n_out, h_block_ + r, st_);
-    ck(cudaStreamSynchronize(cs(st_)), "draft");
-    block_n_ = n - 1;
-}
-
 int32_t Engine::draft(int32_t token, int i, float* prob) {
     if (next_) return next_->draft(token, i, prob);   // the last card has the draft block
     OnCard here(device_, split_);
-    if (!draft_ && !block_guess_) throw std::logic_error("draft: this model has no block that guesses ahead");
+    if (!draft_) throw std::logic_error("draft: this model has no block that guesses ahead");
     if (token < 0 || token >= n_vocab_) throw std::runtime_error("a token id is outside the vocabulary");
     if (i < 0 || pos_ + i >= opt_.max_context) throw std::logic_error("draft: the position is outside the context");
-    if (block_guess_) {
-        if (i == 0) guess_block(token);
-        *prob = i < block_n_ ? h_block_[i].prob : 0.f;
-        return i < block_n_ ? h_block_[i].token : 0;
-    }
     cover(pos_ + i + 1);
     ck(cudaStreamSynchronize(cs(st_)), "draft");
     draft_step(token, i);

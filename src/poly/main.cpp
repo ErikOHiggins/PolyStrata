@@ -64,8 +64,7 @@ double ms_since(Clock::time_point t) { return std::chrono::duration<double, std:
 constexpr double kProfileSaveMs = 10000.0;
 
 // The most tokens of a window whose guesses are the block's: the token the model has and three guesses, each
-// from the one before.  A repeat of the conversation may fill a longer window (Options::window), and so may a
-// model whose guesses come together (Engine::guesses_at_once()).
+// from the one before.  A repeat of the conversation may fill a longer window (Options::window).
 constexpr int kBlockWindow = 4;
 
 // A window longer than that is for a copy: a repeat of the conversation whose match is this many tokens or more.
@@ -494,7 +493,7 @@ struct Session {
         };
         if (max_new > 0) {
             int32_t w[strata::spec::DraftPolicy::kMaxT], d[strata::spec::DraftPolicy::kMaxT];
-            const int block_window = engine.guesses_at_once() ? most : kBlockWindow;
+            const int block_window = kBlockWindow;
             int32_t t = pick(engine.logits());   // picked, and not shown yet
             while (show(t)) {
                 // t goes into the model now, and with it guesses at what follows when there are any that pay

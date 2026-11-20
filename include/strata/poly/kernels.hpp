@@ -43,39 +43,8 @@ void scale_rows(float* y, int64_t ld, int width, int rows, const int32_t* place,
 void rms_norm(const float* x, const float* w, float* y, int n, int rows, float eps, void* stream, int y_stride = 0);
 /// The threads of a block that sums over n values (rms_norm()'s among them).
 int sum_threads(int n);
-/// y = (x - mean) / sqrt(var + eps) * w + b.
-void layer_norm(const float* x, const float* w, const float* b, float* y, int n, int rows, float eps, void* stream);
 
-/// The hyper-connection read.  r is a token's hc * n_embd residual streams.  Writes cur (n_embd) and hcw: post[hc]
-/// then comb[hc * hc] (comb[dst + hc * src]), which hc_post reads.  `mix` is hc*(2+hc)+1 floats of scratch a token.
-void hc_pre(const float* r, const float* fn, const float* scale, const float* base, float* mix, float* hcw,
-            float* cur, int n_embd, int rows, float norm_eps, float hc_eps, int sinkhorn_iters, void* stream);
-/// The hyper-connection write, in place on r: r[dst] = x * post[dst] + sum_src r[src] * comb[dst, src].
-void hc_post(const float* x, const float* hcw, float* r, int n_embd, int rows, void* stream);
-/// y = mean over the hc streams, token by token.
-void hc_mean(const float* r, float* y, int n_embd, int rows, void* stream);
-/// DeepSeek V4's output read of the streams: y = sum_h r[h] * (sigmoid(fn[h] . r * rs * scale + base[h]) + hc_eps),
-/// rs the flat RMS norm's scale.  fn: hc rows of hc * n_embd.  mix: hc + 1 floats a token of scratch.
-void hc_head(const float* r, const float* fn, const float* scale, const float* base, float* mix, float* y,
-             int n_embd, int rows, float norm_eps, float hc_eps, void* stream);
-
-/// The three causal convolutions of a KDA layer and their SiLU.  proj: the q projections of every row, then the k,
-/// then the v (3 * rows * d_inner); out has the same layout.  state: 3 * d_inner * (d_conv - 1) past inputs, oldest
-/// first per channel, advanced here by `rows` tokens.  w*: (d_conv, d_inner).
-/// With snap, the state as it is after each of the first n_snap tokens is also written there: the one after
-/// token i starts i * stride floats in.  That is what a window of guessed tokens goes back to (kda_step too).
-void kda_conv(const float* proj, float* state, const float* wq, const float* wk, const float* wv, float* out,
-              int d_inner, int rows, void* stream, float* snap = nullptr, size_t stride = 0, int n_snap = 0);
-/// The delta-rule step of every head and the gated output, token after token.  qkv: the conv outputs.  g1:
-/// f_b(f_a(x)) + dt bias (d_inner); it gates the state's decay per key dimension, as in ggml's gated_delta_net op.
-/// a: per head.  beta: per head, before the sigmoid.  s: n_head * head_dim * head_dim, updated.  g2: g_b(g_a(x))
-/// (d_inner).  out = rms_norm(o) * o_norm * sigmoid(g2), d_inner values.  A call of 32 rows or more without snap
-/// takes three launches for the same bits, and leaves its work in qkv and g1.
-void kda_step(float* qkv, float* g1, const float* a, const float* beta, float* s, const float* g2,
-              const float* o_norm, float* out, int head_dim, int n_head, int rows, float gate_lower_bound,
-              float norm_eps, void* stream, float* snap = nullptr, size_t stride = 0, int n_snap = 0);
-
-/// Stores the tokens' MLA latents (n values each) as fp16 from row `pos` of the layer's cache.
+/// Stores the tokens' rows (n values each) as fp16 from row `pos` of the layer's cache.
 void store_f16(const float* x, uint16_t* cache, int n, int64_t pos, int rows, void* stream);
 /// The same from the row the card holds at `at` when the launch runs; with `ring`, a row is its number % ring.
 void store_f16_at(const float* x, uint16_t* cache, int n, const long long* at, int rows, int ring, void* stream);
@@ -127,48 +96,9 @@ void store_q8(const float* x, int8_t* codes, uint16_t* scales, int n, int64_t po
 /// The same from the row the card holds at `at` when the launch runs; with `ring`, a row is its number % ring.
 void store_q8_at(const float* x, int8_t* codes, uint16_t* scales, int n, const long long* at, int rows, int ring,
                  void* stream);
-/// Attention over cached latents for the tokens from position `pos`.  q: n_head * rank absorbed queries a token.
-/// The first dense_rows tokens attend to every cache row up to their own.  The others each have a list in sel
-/// (sel_stride apart): top_rows cache rows, then the rows of the pool their own position is still filling.
-/// out: n_head * rank a token, the attention-weighted latents per head.
-/// It takes `chunk` tokens at a time: their keys are copied to `keys` as floats (rank a key), and two cuBLAS
-/// products per chunk do the rest, with `score` (n_head a key) between them.  Both buffers hold a chunk of tokens
-/// with the most keys a token has: top_rows + kpool - 1, or the context if that is less.  Throws
-/// std::runtime_error.
-void dsa_attend(void* blas, const float* q, const uint16_t* cache, const int32_t* sel, int sel_stride, int top_rows,
-                int kpool, int64_t pos, int rows, int dense_rows, float* keys, float* score, int chunk, float* out,
-                int rank, int n_head, float scale, void* stream);
-/// A cuBLAS handle that enqueues on `stream`, for dsa_attend and gemm_f32.  Throws std::runtime_error.
+/// A cuBLAS handle that enqueues on `stream`, for gemm_f32.  Throws std::runtime_error.
 void* blas_create(void* stream);
 void blas_destroy(void* blas);
-
-/// The indexer's cache: a pool's key once its kpool rows are in, dim floats a pool in `pool`, and the latest rows'
-/// keys and gates in `ring`, key (dim) | gate (dim) a row, the row of position p at p % ring_rows.  fp32.
-/// Stores the tokens' keys and gates from position `pos`.
-void idx_store(const float* key, const float* gate, float* ring, int ring_rows, int dim, int64_t pos, int rows,
-               void* stream);
-/// For each of the positions from `pos` that ends a pool: the pool's key from its kpool rows.  ape: (dim, kpool).
-void idx_pool(const float* ring, int ring_rows, float* pool, const float* ape, int dim, int kpool, int64_t pos,
-              int rows, void* stream);
-/// For the tokens from position `pos`: score[p] = sum_h relu(q[h] . pool[p]) * w[h] for the pools p that are
-/// complete at the token's position.  A token's scores start score_stride apart.  w is the raw indexer_proj
-/// output; the 1/sqrt(dim * n_head) factor is applied here.  Throws std::invalid_argument unless dim is 128 and
-/// n_head 32 or less.
-void idx_score(const float* q, const float* w, const float* pool, float* score, int score_stride, int dim,
-               int n_head, int kpool, int64_t pos, int rows, void* stream);
-/// idx_score() for a prompt batch: the products of the queries and the pools' keys through cuBLAS, as many tokens
-/// at a time as have theirs in the work_floats floats of `work`, n_head for each pool of the call's last token.
-/// A score has other last bits than idx_score()'s.  Throws std::runtime_error, and std::invalid_argument when
-/// work has no room for a token.
-void idx_score_batch(void* blas, const float* q, const float* w, const float* pool, float* score, int score_stride,
-                     int dim, int n_head, int kpool, int64_t pos, int rows, float* work, size_t work_floats,
-                     void* stream);
-/// For each of the tokens from position `pos`, from its scores: the n_top pools with the highest, the lower pool
-/// first among equals, as their kpool rows each in that order, then the rows that are in no whole pool yet.  A
-/// token's list starts sel_stride apart and takes n_top * kpool + kpool - 1 at most.  Every token has n_top
-/// whole pools or more.
-void idx_select(const float* score, int score_stride, int32_t* sel, int sel_stride, int n_top, int kpool,
-                int64_t pos, int rows, void* stream);
 
 /// out = silu(min(gate, limit)) * clamp(up, -limit, limit).
 void swiglu_clamp(const float* gate, const float* up, float* out, int n, float limit, void* stream);
@@ -216,8 +146,6 @@ struct ScaledRows {
     float w[32];
 };
 void add_scaled(const ScaledRows& rows, int count, int n, void* stream);
-/// acc[row] += b for each of the rows of n values.
-void add_bias(const float* b, float* acc, int n, int rows, void* stream);
 
 // ---- attention over a key and value cache (qwen35moe, gemma4), and the gated delta net with one decay a head
 
@@ -360,12 +288,6 @@ void mul_softplus(float* acc, const float* g, int n, int rows, int g_stride, boo
 /// the tokens' order, `stride` floats apart.
 void conv4_silu(const float* x, float* state, const float* w, float* out, int channels, int rows, void* stream,
                 float* snap = nullptr, size_t stride = 0, unsigned snaps = 0);
-/// LFM2's gated short convolution (llama.cpp's shortconv block between its two projections).  bcx: B, C and x of a
-/// token, `channels` values each, as the in_proj writes them.  out = C * conv3(B * x), `channels` values a token,
-/// a causal convolution of three taps w (3, channels).  state: the 2 B * x before the call a channel, oldest
-/// first, advanced here by `rows` tokens.  snap, stride, snaps: as conv4_silu's.
-void shortconv(const float* bcx, float* state, const float* w, float* out, int channels, int rows, void* stream,
-               float* snap = nullptr, size_t stride = 0, unsigned snaps = 0);
 /// The delta-rule step of every value head and its gated output, token after token: ggml's gated_delta_net op
 /// with one decay a head.  qkv: a token's conv outputs, the k_heads key heads' q, their k, then the n_head value
 /// heads' v, dim values each; value head h reads key head h % k_heads.  alpha and beta: n_head a token, as their
@@ -375,77 +297,5 @@ void shortconv(const float* bcx, float* state, const float* w, float* out, int c
 void gdn_step(float* qkv, float* alpha, float* beta, const float* dt, const float* a, float* s,
               const float* z, const float* o_norm, float* out, int dim, int n_head, int k_heads, int rows,
               float norm_eps, void* stream, float* snap = nullptr, size_t stride = 0, unsigned snaps = 0);
-/// conv4_silu() for a block of `rows` tokens that see each other (Clover's block guesses): a token's sum adds
-/// input t + d of the block times right[d - 1] for d = 1 to 3, right (3, channels).  The state is only read.
-void conv4_block_silu(const float* x, const float* state, const float* w, const float* right, float* out,
-                      int channels, int rows, void* stream);
-/// gdn_step() for a block of up to 32 tokens that see each other (Clover's block guesses), which leaves the state
-/// as it was.  Token i's output before the norm is a softmax's weights on the block's values and on the state's
-/// read S q_i times the token's decay: by the dot product of the normed query and key times logit_scale[h] for
-/// token j, by hist_b[h] + hist_c[h] * log(rows / 32) for the state.  The share beta is not used.  w: scratch of
-/// n_head * rows * (rows + 1) floats.  Takes and leaves the rest as gdn_step() does.
-void gdn_block(float* qkv, float* alpha, float* beta, const float* dt, const float* a, const float* s,
-               const float* z, const float* o_norm, const float* logit_scale, const float* hist_b,
-               const float* hist_c, float* out, float* w, int dim, int n_head, int k_heads, int rows,
-               float norm_eps, void* stream);
-/// The router scores of `rows` tokens that guess a block together (Clover), kept to few experts: each token's n_used
-/// likeliest by softmax probability, those probabilities added up per expert over the rows, and the experts in order
-/// of that sum while the ones before them hold less than `share` of it.  The others' scores become -inf in every
-/// row.  Ties go to the lower expert.  n_expert is a multiple of 32, up to 1024.
-void coreset_mask(float* logits, int n_expert, int n_used, int rows, float share, void* stream);
-
-// ---- DeepSeek V4 (deepseek4): one key head that is its value too, a window of raw rows, rows compressed 4 or 128
-// to one, and an indexer that picks among the 4-to-1 rows
-
-/// ggml_rope_ext's turn in the normal pairing (value i with i + 1), with YaRN.  corr0 and corr1 are what
-/// ggml_rope_yarn_corr_dims() gives; attn_factor is the magnitude the turn starts from.
-struct Rope {
-    float theta_scale = 1.f;   ///< freq_base^(-2 / n_rot)
-    float freq_scale = 1.f, ext_factor = 0.f, attn_factor = 1.f;
-    float corr0 = 0.f, corr1 = 0.f;
-};
-/// For `rows` tokens of `heads` heads of dim values: with norm, each head RMS-normed without weights; then the
-/// n_rot values from `off` turned by the position and the others kept.  Token t's position is pos + t * step.
-/// back: the turn the other way (ggml_rope_ext_back).  y may be x.  With `at` (step 1), token t's position is what
-/// the card holds at at[2 * t] when the launch runs: a launch recorded once is replayed for every position.  The
-/// kernels below take `at` the same way.
-void dsv4_rope(const float* x, float* y, int dim, int heads, int off, int n_rot, const Rope& r, int64_t pos,
-               int step, int rows, bool norm, float eps, bool back, void* stream, const long long* at = nullptr);
-/// A compressor's rows into its rings, position p at ring row p % ring: kv as it is, and score plus
-/// ape[p % ratio].  width values a row.
-void dsv4_state(const float* kv, const float* score, const float* ape, float* ring_kv, float* ring_score, int ring,
-                int width, int ratio, int64_t pos, int rows, void* stream, const long long* at = nullptr);
-/// For each of the `rows` tokens from position pos that ends a block of ratio positions, the block's compressed row
-/// into `cache` (fp16, dim values a block, at the block's index): value d is the sum over the block's rows of
-/// softmax(score) * kv, RMS-normed with `norm` (dim weights), its last n_rot values turned by the block's first
-/// position.  Block b's rows are the ratio from position b * ratio, with their first dim values.  With overlap a
-/// row is 2 * dim values: the block's rows give their second dim, and the ratio rows before the block their first
-/// dim (a row before the sequence is left out).  dim is a multiple of 32 up to 1024.
-void dsv4_squeeze(const float* ring_kv, const float* ring_score, int ring, int dim, int ratio, bool overlap,
-                  const float* norm, float eps, const Rope& r, int n_rot, int64_t pos, int rows, uint16_t* cache,
-                  void* stream, const long long* at = nullptr);
-/// The indexer's scores of the tokens from position pos: score[b] = scale * sum_h w[h] * relu(q[h] . key[b]) for
-/// the compressed rows b < (pos + t + 1) / ratio.  q: n_head * dim a token; w: n_head; keys: fp16, dim a row.  A
-/// token's scores start score_stride apart.  dim must be 128.  Throws std::invalid_argument, and
-/// std::runtime_error when the card's shared memory has no room for a token's queries.
-/// With `at`, the launch is sized for the tokens of positions below `room`.
-void dsv4_idx_score(const float* q, const float* w, const uint16_t* keys, float* score, int score_stride, int dim,
-                    int n_head, int ratio, int64_t pos, int rows, float scale, void* stream,
-                    const long long* at = nullptr, int room = 0);
-/// For each token from position pos, its compressed rows to attend, in their order: the n_top with the highest
-/// scores, the lower row first among equals, or all of them when it sees n_top or fewer.  sel_stride apart.
-void dsv4_select(const float* score, int score_stride, int32_t* sel, int sel_stride, int n_top, int ratio,
-                 int64_t pos, int rows, void* stream, const long long* at = nullptr);
-/// The attention of the tokens from position pos.  Token t (position p) attends the raw rows of the `window`
-/// positions up to p (row p at p % ring of `raw`), then compressed rows of `comp`: with sel, the
-/// min((p + 1) / ratio, top) of its list; without, every one below (p + 1) / ratio; with comp null, none.  The
-/// keys are fp16, dim values a row, and each key is its value too.  q: n_head * dim a token; sinks: a logit a
-/// head that takes part in the softmax with no value.  out: n_head * dim a token.  Throws std::runtime_error when
-/// a token's keys do not fit the card's shared memory.  With `at`, the launch is sized for positions below `room`.
-void dsv4_attend(const float* q, const uint16_t* raw, int ring, int window, const uint16_t* comp, int ratio,
-                 const int32_t* sel, int sel_stride, int top, const float* sinks, float* out, int dim, int n_head,
-                 float scale, int64_t pos, int rows, void* stream, const long long* at = nullptr, int room = 0);
-/// y[g][t] = x[t][g] for `rows` tokens of `groups` groups of n values; with back, y[t][g] = x[g][t].
-void permute_groups(const float* x, float* y, int n, int groups, int rows, bool back, void* stream);
 
 }  // namespace strata::poly
