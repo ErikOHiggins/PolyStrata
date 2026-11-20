@@ -23,8 +23,6 @@
   <nav class="st-tabs" role="tablist" aria-label="Views">
     <button class="st-tab" role="tab" id="tab-btn-chat" aria-controls="view-chat" aria-selected="true" data-tab="chat">
       <svg class="st-icon st-icon--sm"><use href="web/sprite.svg#i-chat"/></svg>Chat</button>
-    <button class="st-tab" role="tab" id="tab-btn-images" aria-controls="view-images" aria-selected="false" data-tab="images" hidden>
-      <svg class="st-icon st-icon--sm"><use href="web/sprite.svg#i-image"/></svg>Images</button>
     <button class="st-tab" role="tab" id="tab-btn-monitor" aria-controls="view-monitor" aria-selected="false" data-tab="monitor">
       <svg class="st-icon st-icon--sm"><use href="web/sprite.svg#i-activity"/></svg>Monitor</button>
     <button class="st-tab" role="tab" id="tab-btn-requests" aria-controls="view-requests" aria-selected="false" data-tab="requests">
@@ -75,16 +73,6 @@
         </div>
       </form>
     </div>
-  </section>
-
-  <!-- ============================ Images ============================ -->
-  <!-- stable-diffusion.cpp's own Web UI (sdcpp-webui), served at sd/ and talking to sd-server through this server -->
-  <section class="view view--images" id="view-images" role="tabpanel" aria-labelledby="tab-btn-images" hidden>
-    <div class="sd-bar">
-      <span class="composer-hint" id="sd-hint">stable-diffusion.cpp's Web UI. One image job at a time on the GPU: a chat request waits for it (and the other way round).</span>
-      <a class="st-btn st-btn--secondary sd-open" id="sd-open" href="sd/" target="_blank" rel="noopener">Open in its own tab</a>
-    </div>
-    <iframe class="sd-frame" id="sd-frame" title="Image generation (stable-diffusion.cpp)"></iframe>
   </section>
 
   <!-- ============================ Monitor ============================ -->

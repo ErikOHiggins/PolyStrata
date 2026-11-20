@@ -140,7 +140,6 @@ With `--yes` setup takes the recommended answer to every question.
 ./setup.sh --setup --backend hip                 the AMD engine on a PC that also has an NVIDIA card
 ./setup.sh --setup --cuda 12                     compile with CUDA 12 (Pascal / Volta, or a driver older than 580)
 ./setup.sh --setup --host 0.0.0.0 --api-key <secret>     reachable from other devices, with a key
-./setup.sh --setup --images flux2-klein          add image generation (docs/IMAGES.md)
 ./setup.sh --check                               only check this PC
 ```
 

@@ -72,12 +72,11 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
 });
 
 let tab = "chat";
-const TABS = ["chat", "images", "monitor", "requests", "about"];
+const TABS = ["chat", "monitor", "requests", "about"];
 function showTab(name) {
   tab = TABS.includes(name) ? name : "chat";
   for (const b of document.querySelectorAll(".st-tab")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
   for (const v of TABS) $(`view-${v}`).hidden = v !== tab;
-  if (tab === "images") showImages();
   if (location.hash.slice(1) !== tab) history.replaceState(null, "", tab === "chat" ? location.pathname : `#${tab}`);
   if (tab === "chat") $("input").focus();
   if (tab === "monitor") loadMcp();
@@ -114,8 +113,6 @@ async function loadHealth() {
     $("attach-btn").title = health.images ? "Attach a text file or a picture (or drop it here)"
                                           : "Attach a text file (or drop it here)";
     $("chat-empty-sub").textContent = `${health.model} runs on this PC. Nothing leaves it.`;
-    $("tab-btn-images").hidden = !health.image_generation;
-    if (location.hash === "#images" && health.image_generation) showTab("images");
     if (tab === "requests") showRequests();
   } catch (e) {
     setTimeout(loadHealth, 2000);
@@ -1340,29 +1337,3 @@ loadModels();
 loadHealth().then(loadMcp).then(() => { if (startQuestion) { $("input").value = startQuestion; send(); } });
 showTab(location.hash.slice(1) || "chat");
 poll();
-
-// ------------------------------------------------------------------ images (stable-diffusion.cpp's Web UI at sd/)
-// The frame loads the first time the tab opens, which starts sd-server (serve/images.py). A frame cannot send the API
-// key as a header, so with a key this page first gets the frame's cookie for sd/ (POST sd/session).
-let sdOpening = false;
-async function showImages() {
-  const frame = $("sd-frame");
-  if (!health.image_generation || frame.getAttribute("src") || sdOpening) return;
-  sdOpening = true;
-  try {
-    if (health.api_key) {
-      const r = await fetch("sd/session", {method: "POST", headers: headers(true), body: "{}"});
-      if (!r.ok) {
-        $("sd-hint").textContent = r.status === 401
-          ? "This server needs its API key: enter it under Settings in the About tab, then open Images again."
-          : `The image page did not open (HTTP ${r.status}).`;
-        return;
-      }
-    }
-    frame.src = "sd/";
-  } catch (e) {
-    $("sd-hint").textContent = `The image page did not open: ${e.message || e}`;
-  } finally {
-    sdOpening = false;
-  }
-}

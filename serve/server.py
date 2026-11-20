@@ -5,9 +5,6 @@
 
 Endpoints: POST /v1/chat/completions (OpenAI, stream and non-stream), POST /v1/messages (Anthropic, stream and
 non-stream), GET /v1/models, GET /models, GET /props, GET /slots, GET /health, GET /mcp. One sequence at a time behind a FIFO (plan: one resident sequence).
-Image generation (optional, when the config has an "images" section): /sd/ is stable-diffusion.cpp's own Web UI and
-/sd/sdcpp/v1/* its API, passed on to an sd-server this server starts on demand (FLUX.2 klein 4B by default), one job
-at a time on the GPU the text engine uses (serve/images.py).
 Tools from MCP servers (serve/mcp.py, `"mcp_servers"` in the config or --mcp-config) are offered only to requests that
 ask for them with `"strata_mcp": true` - the web app does; other clients see exactly the API they always saw.
 Images (optional, when the config has a "vision" entry): OpenAI image_url parts and Anthropic image blocks (base64
@@ -70,7 +67,6 @@ from serve.winjob import contain  # noqa: E402
 from serve.structured import StructuredOutputError, prepare_format, validated_json  # noqa: E402
 from serve import responses as responses_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
-from serve import images as images_api  # noqa: E402
 
 IM_END = "<|im_end|>"
 IMAGE_PAD = "<|image_pad|>"
@@ -2908,7 +2904,6 @@ class Service:
         self.models_root = ROOT                          # where the installation's run configs are (serve/models.py)
         # "memory_debug": true in the config (or $STRATA_MEMORY_DEBUG): a switch prints the free VRAM around it
         self.memory_debug = bool(os.environ.get("STRATA_MEMORY_DEBUG"))
-        self.images = None                                # serve/images.py's ImageServer when the config has "images"
         # #37: the command line's options for every model: model_settings()'s overrides, and the keys main() writes
         # into each run config before its engine starts (gpu, replicas)
         self.overrides: dict = {}
@@ -3833,7 +3828,7 @@ class Service:
                             "requested": max(1, int(getattr(self.engine, "batch", 0) or 0))},
             "dialects": ["/v1/chat/completions", "/v1/messages", "/v1/responses"],
             "vision": {"enabled": images, "available": images, "error": None},
-            "image_generation": self.images.status() if self.images is not None else {"enabled": False},
+            "image_generation": {"enabled": False},      # Puddle has no image generation; the field stays
             "activity": {"requests": totals["requests"] + int(busy), "in_flight": int(busy) + int(s.get("queued") or 0),
                          "last_request_at": int(last_at) if last_at else None},
             "last_timings": last_t,
@@ -5114,7 +5109,6 @@ def anthropic_collect(events) -> dict:
 
 # ------------------------------------------------------------------------------------------------ HTTP
 CHUNKED_BODY_MAX = 256 << 20                # #893: the most a Transfer-Encoding: chunked body may hold (read into memory)
-SD_COOKIE = "strata_sd"                      # the image page's session cookie (POST /sd/session, with an API key)
 
 
 def body_limit() -> int:
@@ -5395,106 +5389,7 @@ def make_handler(svc: Service):
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
 
-        def _cross_site(self) -> bool:
-            """A browser request that another site's page started (Sec-Fetch-Site cross-site or same-site: a page that
-            puts /sd/ in a frame of its own, or fetches from it), unless its Origin is one the config trusts.  No such
-            header: a client that is no browser."""
-            site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
-            if site in ("", "same-origin", "none"):
-                return False
-            origin = (self.headers.get("Origin") or "").rstrip("/")
-            return not (origin and origin in svc.trusted_origins)
-
-        def _sd_authorized(self, gen) -> bool:
-            """The image page's requests: the API key as everywhere, or the cookie POST /sd/session gave the web app
-            (the page runs in a frame, which cannot send the key as a header)."""
-            if not svc.api_key:
-                return True
-            auth = self.headers.get("Authorization", "")
-            given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
-            if given and key_matches(given, svc.api_key):
-                return True
-            for part in (self.headers.get("Cookie") or "").split(";"):
-                name, _, value = part.strip().partition("=")
-                if name == SD_COOKIE and gen.session_ok(value):
-                    return True
-            self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key (open "
-                                        "the image page from the web app's Images tab)"}})
-            return False
-
-        def _sd_send(self, code: int, ctype: str, data: bytes, headers=None) -> None:
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "no-store")
-            for k, v in (headers or {}).items():
-                self.send_header(k, v)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            with contextlib.suppress(OSError):            # the page's polls are often left behind by a reload
-                self.wfile.write(data)
-
-        def _sd_request(self, method: str) -> bool:
-            """The image page (serve/images.py): /sd/ is stable-diffusion.cpp's Web UI, /sd/sdcpp/v1/* its API, passed
-            on to sd-server; POST /sd/session gives the web app the page's cookie when the server has an API key.
-            -> whether the request was one of these."""
-            path = self.path.split("?")[0]
-            if path != "/sd" and not path.startswith("/sd/"):
-                return False
-            gen = svc.images
-            if gen is None:
-                self._json(404, {"error": {"type": "invalid_request_error", "code": "images_not_set_up",
-                                           "message": "image generation is not set up on this server (run setup "
-                                                      "with --images flux2-klein)"}})
-                return True
-            sub = path[len("/sd"):] or "/"
-            if self._cross_site():
-                self._json(403, {"error": {"type": "forbidden", "message": "the image page only from Puddle's "
-                                           "own page (or an origin in the config's trusted_origins)"}})
-                return True
-            if method == "POST" and self._foreign_origin():
-                self._json(403, {"error": {"type": "forbidden", "message": "image jobs only from Puddle's own "
-                                           "page (or an origin in the config's trusted_origins)"}})
-                return True
-            if method == "POST" and sub == "/session":
-                if self._authorized():
-                    token = gen.new_session()
-                    # no Path: the cookie's path is /sd (or a reverse proxy's prefix before it), where the page is
-                    cookie = f"{SD_COOKIE}={token}; HttpOnly; SameSite=Strict"
-                    if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https":
-                        cookie += "; Secure"
-                    self._sd_send(200, "application/json", b'{"ok": true}', {"Set-Cookie": cookie})
-                return True
-            if not self._sd_authorized(gen):
-                return True
-            if sub == "/" and method == "GET":
-                html = gen.page(svc.model)
-                if html is None:
-                    self._json(404, {"error": {"message": "the image page (stable-diffusion.cpp's Web UI) is missing: "
-                                                          "run setup with --images flux2-klein again"}})
-                else:
-                    self._sd_send(200, "text/html; charset=utf-8", html,
-                                  {"X-Frame-Options": "SAMEORIGIN",
-                                   "Content-Security-Policy": "frame-ancestors 'self'"})
-                return True
-            body = self._body() if method == "POST" else None
-            cancel = None
-            if method == "POST":                           # a job's client that leaves while it waits for the GPU
-                cancel = threading.Event()
-                self._watch_client(cancel)
-            try:
-                code, ctype, data = gen.handle(svc, method, sub, urlsplit(self.path).query, body,
-                                               self.headers.get("Content-Type"), cancel)
-            except ClientGone:
-                return True
-            finally:
-                if self.watch_done is not None:
-                    self.watch_done.set()
-            self._sd_send(code, ctype, data)
-            return True
-
         def do_GET(self):
-            if self._sd_request("GET"):
-                return
             path = self.path.split("?")[0].rstrip("/")
             if path.startswith("/fonts/"):
                 # the web app's font (Outfit, OFL: serve/web/fonts); the page falls back to the system font
@@ -5585,7 +5480,7 @@ def make_handler(svc: Service):
             elif path in ("/health", "/api/health"):
                 self._json(200, {"status": "ok", "max_context": svc.reported_ctx(), "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
-                                 "image_generation": svc.images is not None, "api_monitor": svc.api_monitor,
+                                 "image_generation": False, "api_monitor": svc.api_monitor,
                                  "loaded": svc.loaded(), "service": "strata"})
             elif path == "/status":
                 if not self._authorized():                  # #212: it shows the end of the last answer
@@ -5647,8 +5542,6 @@ def make_handler(svc: Service):
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
 
         def _post(self):
-            if self._sd_request("POST"):                 # the image page: the key, or its cookie
-                return
             if not self._authorized():
                 return
             path = self.path.split("?")[0].rstrip("/")   # issue #55: Claude Code posts /v1/messages?beta=true
@@ -7150,31 +7043,8 @@ def main() -> int:
                   sampling_defaults=sampling_defaults)
     svc.overrides, svc.cfg_overrides = overrides, cfg_overrides
     svc.apply_settings(settings)
-    if cfg.get("images") and images_api.old_section(cfg["images"]):
-        print("[strata] image generation: off - the config's \"images\" section is from the Qwen-Image version (sd-cli, "
-              "POST /v1/images/generations); run setup with --images flux2-klein, or tools/image/install.py --config "
-              "<this config>, for FLUX.2 klein in stable-diffusion.cpp's Web UI (docs/IMAGES.md)", flush=True)
-    elif cfg.get("images"):                             # image generation (serve/images.py), set up by setup --images
-        icfg = {k: (os.path.abspath(os.path.join(cfg.get("cwd") or ".", v))
-                    if k in ("exe", "webui", "model_dir", "out_dir") and isinstance(v, str)
-                    and not os.path.isabs(v) else v)
-                for k, v in cfg["images"].items()}
-        try:
-            svc.images = images_api.ImageServer(icfg, log=open(cfg["log"], "a", encoding="utf-8")
-                                                if cfg.get("log") else None)
-        except ValueError as e:
-            raise SystemExit(f"[strata] config: {e}")
-        import atexit
-        atexit.register(svc.images.close)            # sd-server ends with this server
-        gone = svc.images.missing()
-        if gone:
-            print(f"[strata] image generation: missing {', '.join(gone)} - the image page fails until setup --images "
-                  "has run again", flush=True)
-        idle = svc.images.idle_s
-        print(f"[strata] image generation: {svc.images.model} {icfg.get('quant') or ''} on "
-              f"{icfg.get('backend') or '?'} in stable-diffusion.cpp's Web UI (the Images tab, /sd/; sd-server starts "
-              f"with the first use" + (f" and stops after {idle:g} s without a job" if idle > 0 else "") +
-              f"; GPU policy {svc.images.policy})", flush=True)
+    if cfg.get("images"):                               # PolyStrata's image generation: not part of Puddle
+        print("[strata] the config's \"images\" section is left unused: Puddle has no image generation", flush=True)
     if cfg.get("prevent_sleep") is not None and not isinstance(cfg["prevent_sleep"], bool):
         raise SystemExit(f"[strata] config \"prevent_sleep\" must be true or false, not {cfg['prevent_sleep']!r}")
     from serve.keepawake import KeepAwake

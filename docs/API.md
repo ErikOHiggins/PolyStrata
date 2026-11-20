@@ -374,8 +374,7 @@ print(r.choices[0].message.content)
 ```
 
 Anthropic: an `image` block with a `base64` (or `url`) source. JPEG, PNG, BMP, GIF, WebP, TIFF and AVIF work. The same
-picture sent again, as chat apps do every turn, is encoded once. Making pictures is a separate, optional program:
-[IMAGES.md](IMAGES.md).
+picture sent again, as chat apps do every turn, is encoded once.
 
 ## Sharing the GPU with other programs
 

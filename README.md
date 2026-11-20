@@ -98,8 +98,6 @@ its window to stop the model. `UPDATE.bat` (`./update.sh`) updates Puddle withou
   The OpenAI Responses API (Codex CLI): `/v1/responses`. All of it: [docs/API.md](docs/API.md).
 - **Thinking:** off, low, medium or high, in the chat menu or your app's "reasoning effort".
 - **Pictures** (Occamy, Gemma 4): say yes to "Images?" in setup, then attach pictures in the chat or your app.
-- **Making pictures** (optional): `./setup.sh --setup --images flux2-klein` adds FLUX.2 klein 4B in
-  stable-diffusion.cpp's own web UI, at `/sd/` ([docs/IMAGES.md](docs/IMAGES.md)).
 - **From your phone or another PC:** `./setup.sh --setup --host 0.0.0.0 --api-key <secret>`. Always set a key.
 
 ## Something went wrong?
@@ -126,6 +124,5 @@ Unsloth's quantization.
 Puddle is built on [PolyStrata](https://github.com/simplexai-labs/PolyStrata) by VecSzn and its contributors, which is
 built on [Strata](https://github.com/Niko1221/Strata) by Niko1221 and its contributors (how Strata's engine works:
 [the Strata paper](https://github.com/simplexai-labs/PolyStrata/blob/67dde645dd94190733cca8ad78d2faa68b930e2a/docs/paper/Strata-Paper.pdf)).
-It uses parts of [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp), and image generation uses
-[stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp). Puddle is open source under the
+It uses parts of [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp). Puddle is open source under the
 [MIT License](LICENSE); every model has its own license.

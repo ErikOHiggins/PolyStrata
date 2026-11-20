@@ -156,31 +156,6 @@ class Install(unittest.TestCase):
         self.assertTrue(cfg["vision"]["gpu"])                       # 2x 16 GB: the encoder on the GPU
         self.assertIn("Apache 2.0", out)
 
-    def test_image_generation_on_a_strata_poly_family(self):
-        """--images flux2-klein: sd-server's "images" section in the family's config (main's image setup, wired
-        into the strata-poly path when the branches were merged); without it, none."""
-        from unittest import mock
-        sys.path.insert(0, str(ROOT / "tools" / "image"))
-        import sdimage                                  # setup finds it under its ROOT, a temp folder here
-        made = []
-        extra = (mock.patch.object(setup, "_sdimage", lambda: sdimage),
-                 mock.patch.object(setup, "build_image_engine",
-                                   lambda backend, gpu: made.append(backend) or
-                                   (self.t / "engine-image" / "sd-server", self.t / "engine-image" / "webui", [])),
-                 mock.patch.object(setup, "download_image_model", lambda models_dir, quant: made.append(quant)))
-        code, out, cfg = self.main(["--images", "flux2-klein"], family="laguna-s", ram=128.0, vram=15.9, n_gpus=2,
-                                   extra=extra)
-        self.assertEqual(code, 0, out[-3000:])
-        self.assertIn("images", cfg)
-        self.assertEqual(Path(cfg["images"]["exe"]).name, "sd-server")
-        self.assertEqual(made[0], "cuda")
-        self.assertIn("Image generation: the Images tab", out)
-        self.tearDown()
-        self.setUp()
-        code, out, cfg = self.main(family="laguna-s", ram=128.0, vram=15.9, n_gpus=2)
-        self.assertEqual(code, 0, out[-3000:])
-        self.assertNotIn("images", cfg)
-
     def test_a_small_pc_gets_the_smaller_size(self):
         code, out, cfg = self.main(family="occamy", ram=20.0, vram=7.9)
         self.assertEqual(code, 0, out[-3000:])
