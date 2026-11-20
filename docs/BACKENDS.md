@@ -17,8 +17,8 @@ One model is in memory at a time.
 | Occamy 1.0 35B-A3B | `qwen35moe` | `Qwen35` | Accio-Lab's APEX-Quality, APEX-I-Compact and APEX-Balanced, 16.5 to 25.3 GB | a draft block if the file has one (not checked), and repeats |
 | Gemma 4 26B-A4B | `gemma4` | `Gemma4` | Unsloth UD-Q3_K_M, UD-Q2_K_XL, UD-Q4_K_M and QAT-UD-Q4_K_XL, 10.5 to 16.9 GB | its draft model, a file of 0.46 GB |
 
-Until Puddle removes them, the engine still has PolyStrata's other architectures (`glm5-next`, `deepseek4`,
-`lfm2moe`, `flint`, `kolibri1`, `clover_moe`); setup and the server offer none of them. The Metal build has no
+PolyStrata's other architectures (`glm5-next`, `deepseek4`, `lfm2moe`, `flint`, `kolibri1`, `clover_moe`) are removed
+from the engine; the measurements below that name those models are PolyStrata's record. The Metal build has no
 `Laguna` class yet ([MAC.md](MAC.md)).
 
 ## Install

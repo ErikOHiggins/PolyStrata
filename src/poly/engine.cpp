@@ -3,12 +3,7 @@
 #include "engine.hpp"
 #include "stage_copy.hpp"
 
-#include "deepseek4.hpp"
 #include "gemma4.hpp"
-#include "glm5next.hpp"
-#include "kolibri1.hpp"
-#include "lfm2moe.hpp"
-#include "flint.hpp"
 #if !defined(STRATA_GPU_METAL)
 #include "laguna.hpp"   // CUDA and HIP: its YaRN turn and softplus gate have no Metal kernels yet
 #endif
@@ -1614,28 +1609,21 @@ std::unique_ptr<Engine> Engine::open(const Options& o) {
     const Shards file(o.model);
     const MetaValue* arch = file.get("general.architecture");
     const std::string name = arch ? arch->s : std::string();
-    // Clover is a qwen35moe model trained to also guess a block of tokens at once (Qwen35)
-    const bool qwen35 = name == "qwen35moe" || name == "clover_moe";
-    if (o.kv_format == KvFmt::kQ8_0 && !qwen35 && name != "kolibri1" && name != "flint" && name != "lfm2moe" &&
-        name != "laguna")
-        throw std::runtime_error("--kv q8_0 is supported for qwen35moe, kolibri1, flint, lfm2moe and laguna models in "
-                                 "v1; this is a '" + name + "' model");
+    const bool qwen35 = name == "qwen35moe";
+    if (o.kv_format == KvFmt::kQ8_0 && !qwen35 && name != "laguna")
+        throw std::runtime_error("--kv q8_0 is supported for qwen35moe and laguna models in v1; this is a '" + name +
+                                 "' model");
     // int8 and int8k are Gemma 4's: their readers are not the arithmetic q8_0's are, so a model takes one
     // family or the other rather than a choice between them.
     if (name != "gemma4" && (o.kv_format == KvFmt::kInt8 || o.kv_format == KvFmt::kInt8K))
-        throw std::runtime_error("--kv int8 and --kv int8k are Gemma 4's; for a qwen35moe or kolibri1 model use "
+        throw std::runtime_error("--kv int8 and --kv int8k are Gemma 4's; for a qwen35moe or laguna model use "
                                  "--kv q8_0 (this is a '" + name + "' model)");
     // moe() weighs the picks as a softmax of their scores, which is how only this architecture's router does
     if (o.cache_bias > 0.f && !qwen35)
         throw std::runtime_error("--cache-bias is supported for qwen35moe models; this is a '" + name + "' model");
     const auto make = [&]() -> std::unique_ptr<Engine> {
-        if (name == "glm5-next" || name == "glm5next") return std::make_unique<Glm5Next>();   // Unsloth: no hyphen
         if (qwen35) return std::make_unique<Qwen35>();
         if (name == "gemma4") return std::make_unique<Gemma4>();
-        if (name == "deepseek4") return std::make_unique<DeepSeek4>();
-        if (name == "lfm2moe") return std::make_unique<Lfm2Moe>();
-        if (name == "flint") return std::make_unique<Flint>();
-        if (name == "kolibri1") return std::make_unique<Kolibri1>();
 #if !defined(STRATA_GPU_METAL)
         if (name == "laguna") return std::make_unique<Laguna>();
 #endif

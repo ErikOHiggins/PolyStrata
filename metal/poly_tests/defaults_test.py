@@ -20,7 +20,7 @@ def run(model, *options, expected=None, error=None):
     return result.stdout
 
 
-for arch in ('lfm', 'qwen35moe', 'qwen35moe-fp16', 'gemma4', 'glm5-next', 'deepseek4'):
+for arch in ('qwen35moe', 'qwen35moe-fp16', 'gemma4'):
     model = f'tiny-{arch}.gguf'
     kv = 'q8_0' if arch == 'qwen35moe' else 'fp16'
     expected = f'optimize=on memory=balanced kv={kv}'
@@ -36,5 +36,5 @@ run('tiny-qwen35moe.gguf', '--no-metal-optimize', '--metal-optimize',
     expected='optimize=on memory=balanced kv=q8_0')
 run('tiny-gemma4.gguf', '--kv', 'q8_0', error="this is a 'gemma4' model")
 run('tiny-qwen35moe-fp16.gguf', '--kv', 'q8_0', error='multiple of 32')
-run('tiny-lfm.gguf', '--metal-memory', 'invalid', error='requires legacy or balanced')
+run('tiny-gemma4.gguf', '--metal-memory', 'invalid', error='requires legacy or balanced')
 print('Metal defaults: effective settings, explicit equivalence, opt-outs and rejected unsupported formats')

@@ -103,16 +103,11 @@ if(STRATA_METAL_POLY)
   set_source_files_properties(${STRATA_ROOT}/src/poly/route_test.cu PROPERTIES LANGUAGE CXX)
   add_executable(poly_route_metal_test ${STRATA_ROOT}/src/poly/route_test.cu)
   target_link_libraries(poly_route_metal_test PRIVATE strata_poly_metal_kernels)
-  set_source_files_properties(${STRATA_ROOT}/src/poly/dsv4_test.cu PROPERTIES LANGUAGE CXX)
-  add_executable(poly_dsv4_metal_test ${STRATA_ROOT}/src/poly/dsv4_test.cu)
-  target_link_libraries(poly_dsv4_metal_test PRIVATE strata_poly_metal_kernels)
   add_executable(poly_advanced_parity poly_tests/advanced_parity.cpp)
   target_link_libraries(poly_advanced_parity PRIVATE strata_poly_metal_kernels)
   if(BUILD_TESTING)
     add_test(NAME poly_advanced_parity COMMAND poly_advanced_parity)
     set_tests_properties(poly_advanced_parity PROPERTIES LABELS "metal;gpu;poly" RESOURCE_LOCK metal_gpu TIMEOUT 120)
-    add_test(NAME poly_dsv4_metal_test COMMAND poly_dsv4_metal_test)
-    set_tests_properties(poly_dsv4_metal_test PROPERTIES LABELS "metal;gpu;poly" RESOURCE_LOCK metal_gpu TIMEOUT 120)
     add_test(NAME poly_basic_parity COMMAND poly_basic_parity)
     set_tests_properties(poly_basic_parity PROPERTIES LABELS "metal;gpu;poly"
                         RESOURCE_LOCK metal_gpu TIMEOUT 120)
@@ -206,8 +201,7 @@ if(STRATA_METAL_POLY)
     STRATA_POLY_MM_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/poly/mm.metal")
   target_link_libraries(strata_poly_metal_kernels PUBLIC ggml-base)
   add_executable(strata-poly ${S}/poly/main.cpp ${S}/poly/engine.cpp ${S}/poly/qwen35.cpp
-    ${S}/poly/gemma4.cpp ${S}/poly/lfm2moe.cpp ${S}/poly/glm5next.cpp ${S}/poly/deepseek4.cpp ${S}/poly/flint.cpp
-    ${S}/poly/kolibri1.cpp ${S}/poly/cpu_experts.cpp ${S}/poly/spill.cpp ${S}/platform/memory.cpp
+    ${S}/poly/gemma4.cpp ${S}/poly/cpu_experts.cpp ${S}/poly/spill.cpp ${S}/platform/memory.cpp
     ${S}/core/conversation_memory.cpp ${S}/spec/draft_policy.cpp ${S}/spec/suffix_drafter.cpp)
   target_include_directories(strata-poly PRIVATE ${STRATA_GGML_DIR}/ggml/include ${STRATA_GGML_DIR}/ggml/src)
   target_link_libraries(strata-poly PRIVATE strata_poly_metal_kernels ggml-cpu ggml-base)
@@ -240,8 +234,6 @@ endif()
 if(STRATA_METAL_POLY AND BUILD_TESTING)
   add_executable(poly_tiny_model_fixture poly_tests/tiny_model_fixture.cpp)
   target_link_libraries(poly_tiny_model_fixture PRIVATE ggml-base)
-  add_test(NAME poly_tiny_lfm_fixture COMMAND poly_tiny_model_fixture ${CMAKE_CURRENT_BINARY_DIR}/tiny-lfm.gguf)
-  set_tests_properties(poly_tiny_lfm_fixture PROPERTIES LABELS "metal;poly;synthetic" FIXTURES_SETUP tiny_lfm)
   foreach(mode graphs launches cpu_experts)
     set(extra)
     if(mode STREQUAL "launches")
@@ -249,11 +241,11 @@ if(STRATA_METAL_POLY AND BUILD_TESTING)
     elseif(mode STREQUAL "cpu_experts")
       set(extra --no-gpu-experts)
     endif()
-    add_test(NAME poly_tiny_lfm_${mode} COMMAND strata-poly --model ${CMAKE_CURRENT_BINARY_DIR}/tiny-lfm.gguf
+    add_test(NAME poly_tiny_qwen_${mode} COMMAND strata-poly --model ${CMAKE_CURRENT_BINARY_DIR}/tiny-qwen35moe.gguf
       --tokens 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17 --max-new 4 --max-context 128
       --prompt-batch 32 --threads 2 --no-draft ${extra})
-    set_tests_properties(poly_tiny_lfm_${mode} PROPERTIES LABELS "metal;gpu;poly;synthetic"
-      RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_lfm)
+    set_tests_properties(poly_tiny_qwen_${mode} PROPERTIES LABELS "metal;gpu;poly;synthetic"
+      RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_qwen35moe)
   endforeach()
 endif()
 
@@ -266,19 +258,11 @@ if(STRATA_METAL_POLY AND BUILD_TESTING)
   target_include_directories(poly_conversation_memory_test PRIVATE ${STRATA_ROOT}/include)
   add_test(NAME poly_conversation_memory_test COMMAND poly_conversation_memory_test)
   set_tests_properties(poly_conversation_memory_test PROPERTIES LABELS "metal;poly;cpu")
-  add_test(NAME poly_tiny_lfm_batch COMMAND strata-poly --model ${CMAKE_CURRENT_BINARY_DIR}/tiny-lfm.gguf
-    --tokens 1,2,3,4,5 --max-new 8 --max-context 128 --prompt-batch 32 --threads 2 --no-draft --batch 2 --check-batch 2)
-  set_tests_properties(poly_tiny_lfm_batch PROPERTIES LABELS "metal;gpu;poly;synthetic"
-    RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_lfm)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
-  add_test(NAME poly_protocol_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/protocol_test.py
-    $<TARGET_FILE:strata-poly> ${CMAKE_CURRENT_BINARY_DIR}/tiny-lfm.gguf)
-  set_tests_properties(poly_protocol_test PROPERTIES LABELS "metal;gpu;poly;synthetic"
-    RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_lfm)
 endif()
 
 if(STRATA_METAL_POLY AND BUILD_TESTING)
-  foreach(arch qwen35moe gemma4 glm5-next deepseek4)
+  foreach(arch qwen35moe gemma4)
     add_test(NAME poly_tiny_${arch}_fixture COMMAND poly_tiny_model_fixture ${CMAKE_CURRENT_BINARY_DIR}/tiny-${arch}.gguf ${arch})
     set_tests_properties(poly_tiny_${arch}_fixture PROPERTIES LABELS "metal;poly;synthetic" FIXTURES_SETUP tiny_${arch})
     add_test(NAME poly_tiny_${arch}_batch COMMAND strata-poly --model ${CMAKE_CURRENT_BINARY_DIR}/tiny-${arch}.gguf
@@ -343,14 +327,6 @@ if(STRATA_METAL_POLY AND BUILD_TESTING)
   set_tests_properties(q36_metal_protocol PROPERTIES LABELS "metal;gpu;synthetic;q36" RESOURCE_LOCK metal_gpu TIMEOUT 180 FIXTURES_REQUIRED tiny_q36)
 endif()
 if(STRATA_METAL_POLY AND BUILD_TESTING)
-  add_test(NAME poly_tiny_glm_draft COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/protocol_test.py
-    $<TARGET_FILE:strata-poly> ${CMAKE_CURRENT_BINARY_DIR}/tiny-glm5-next.gguf --window 4)
-  set_tests_properties(poly_tiny_glm_draft PROPERTIES LABELS "metal;gpu;poly;synthetic" RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_glm5-next)
-  add_test(NAME poly_tiny_deepseek_compression COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/protocol_test.py
-    $<TARGET_FILE:strata-poly> ${CMAKE_CURRENT_BINARY_DIR}/tiny-deepseek4.gguf --long-prompt)
-  set_tests_properties(poly_tiny_deepseek_compression PROPERTIES LABELS "metal;gpu;poly;synthetic" RESOURCE_LOCK metal_gpu TIMEOUT 120 FIXTURES_REQUIRED tiny_deepseek4)
-endif()
-if(STRATA_METAL_POLY AND BUILD_TESTING)
   foreach(quant q4 q6)
     add_test(NAME q36_metal_fixture_${quant} COMMAND q36_metal_fixture ${CMAKE_CURRENT_BINARY_DIR}/tiny-q36-${quant}.gguf ${quant})
     set_tests_properties(q36_metal_fixture_${quant} PROPERTIES LABELS "metal;synthetic;q36" FIXTURES_SETUP tiny_q36_${quant})
@@ -382,7 +358,7 @@ if(STRATA_METAL_POLY AND BUILD_TESTING)
   target_link_libraries(poly_memory_growth PRIVATE poly_engine_test_host)
   add_test(NAME poly_memory_growth COMMAND poly_memory_growth)
   set_tests_properties(poly_memory_growth PROPERTIES RESOURCE_LOCK metal_gpu TIMEOUT 60 LABELS "metal;gpu;poly")
-  foreach(arch qwen35moe gemma4 glm5-next deepseek4)
+  foreach(arch qwen35moe gemma4)
     add_test(NAME poly_balanced_${arch}_protocol COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/protocol_test.py $<TARGET_FILE:strata-poly>
       ${CMAKE_CURRENT_BINARY_DIR}/tiny-${arch}.gguf --metal-optimize --metal-memory balanced --no-draft)
@@ -405,7 +381,7 @@ if(STRATA_METAL_POLY AND BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/defaults_test.py $<TARGET_FILE:strata-poly> ${CMAKE_CURRENT_BINARY_DIR})
   set_tests_properties(poly_metal_defaults PROPERTIES RESOURCE_LOCK metal_gpu TIMEOUT 180
     LABELS "metal;gpu;poly;synthetic"
-    FIXTURES_REQUIRED "tiny_lfm;tiny_qwen35moe;tiny_gemma4;tiny_glm5-next;tiny_deepseek4;tiny_qwen_fp16")
+    FIXTURES_REQUIRED "tiny_qwen35moe;tiny_gemma4;tiny_qwen_fp16")
   add_test(NAME poly_legacy_qwen_protocol COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/poly_tests/protocol_test.py $<TARGET_FILE:strata-poly>
     ${CMAKE_CURRENT_BINARY_DIR}/tiny-qwen35moe.gguf --no-metal-optimize --metal-memory legacy --kv fp16)
