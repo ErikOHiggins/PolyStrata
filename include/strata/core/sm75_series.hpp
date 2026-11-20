@@ -36,11 +36,4 @@ inline bool is_sm75(int major, int minor) { return cc_major_of(major) == 7 && cc
 /// the default of a bitwise Turing kernel switch: on for a Turing card when STRATA_SM75_PERF=1
 inline bool sm75_default(int major, int minor) { return is_sm75(major, minor) && sm75_series(); }
 
-/// a Turing switch with its own variable: `name` set means 0 off / anything else on (Turing only); unset follows the series
-inline bool sm75_switch(const char* name, int major, int minor) {
-    if (!is_sm75(major, minor)) return false;
-    const char* v = std::getenv(name);
-    return v != nullptr ? std::atoi(v) != 0 : sm75_series();
-}
-
 }  // namespace strata

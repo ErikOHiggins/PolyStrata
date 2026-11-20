@@ -91,28 +91,6 @@ inline std::string shape_of(const TensorInfo& t) {
     return s + "] " + t.type_name();
 }
 
-// table's entry for `name`, or null
-template <size_t N> const Names* names_of(const Names (&table)[N], const char* name) {
-    for (const Names& n : table)
-        if (std::strcmp(n.name, name) == 0) return &n;
-    return nullptr;
-}
-
-// A SwiGLU clamp limit per layer, stored as one value or one per layer.  Absent or zero means no clamp.
-inline std::vector<float> clamp_limits(const MetaValue* v, int n_layer) {
-    std::vector<float> out((size_t) n_layer, INFINITY);
-    if (!v) return out;
-    for (int il = 0; il < n_layer; ++il) {
-        double x = v->f;
-        if (v->type == MetaType::ARRAY) {
-            if ((size_t) il >= v->items.size())
-                throw std::runtime_error("the GGUF's SwiGLU clamp has no value for layer " + std::to_string(il));
-            x = v->items[(size_t) il].f;
-        }
-        if (x > 1e-6) out[(size_t) il] = (float) x;
-    }
-    return out;
-}
 
 // The model's GGUF: one file, or the numbered files llama.cpp splits a large one into.  The first has the
 // metadata, and a tensor is in the file that lists it.

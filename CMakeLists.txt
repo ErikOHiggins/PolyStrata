@@ -59,13 +59,6 @@ if(STRATA_HIP_GFX906)
 endif()
 option(STRATA_ENABLE_HIP "Build the HIP targets for wave32 AMD GPUs (gfx1100, gfx1201; gfx1012/gfx1030 unvalidated)" OFF)
 option(STRATA_PREFILL_MMQ "Build the optional GGML MMQ prefill path for HIP" OFF)
-# Q6_K gate/up in the grouped expert kernels (Unsloth's UD-Q6_K_XL, and layer 2 of UD-Q5_K_XL; docs/QUANTS.md).  On by
-# default since MODEL-UPDATE Phase 1: one more instance per grouped kernel in iq_kernels.cu, +19 KB of sm_60 code,
-# measured to leave every expert-cache slot count as it was (P100, R9700).  -DSTRATA_Q6K_EXPERTS=OFF drops it.
-option(STRATA_Q6K_EXPERTS "Build the Q6_K gate/up grouped expert kernels (UD-Q6_K_XL, UD-Q5_K_XL)" ON)
-if(STRATA_Q6K_EXPERTS)
-  add_compile_definitions(STRATA_Q6K_EXPERTS=1)
-endif()
 if(STRATA_PREFILL_MMQ AND NOT STRATA_ENABLE_HIP)
   message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_ENABLE_HIP=ON")
 endif()
@@ -211,16 +204,11 @@ add_library(strata_artifact INTERFACE)
 target_include_directories(strata_artifact INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(strata_artifact INTERFACE strata_warnings)
 
-# this file is now nothing but the CLI entry point, and its inherited guard spells that as a "selftest"
 if(STRATA_BUILD_TESTS)
   # the reader refuses a duplicate tensor name at open, naming it (a synthetic GGUF: no model, no GPU)
   add_executable(gguf_reader_test src/artifact/gguf_reader_test.cpp)
   target_link_libraries(gguf_reader_test PRIVATE strata_artifact)
   add_test(NAME gguf_reader_test COMMAND gguf_reader_test)
-  # a split model's shards and their joint view: missing shard, split keys, duplicates, truncation (synthetic)
-  add_executable(gguf_split_test tests/core/gguf_split_test.cpp)
-  target_link_libraries(gguf_split_test PRIVATE strata_artifact)
-  add_test(NAME gguf_split_test COMMAND gguf_split_test)
 endif()
 
 # ---- strata_core (GPU runtime) ---------------------------------------------

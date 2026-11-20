@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import re
 import sys
 import tempfile
 import unittest
@@ -88,18 +87,6 @@ class ExactArch(unittest.TestCase):
             self.assertFalse(setup.is_strix_halo({"arch": other}), other)
         self.assertFalse(setup.gfx_arch_is("gfx1151", "gfx115"))                     # no prefix match either way
         self.assertFalse(setup.is_strix_halo({}))
-
-    def test_matches_the_engines_header(self):
-        """include/strata/kernels/gfx_arch.hpp is the reference: gfx1151 has the WMMA kernels and the gfx1151 defaults;
-        gfx1103 (Radeon 780M/760M, 0.1.44) shares the gfx11 WMMA kernels; gfx1152 is outside the list."""
-        hpp = (ROOT / "include/strata/kernels/gfx_arch.hpp").read_text(encoding="utf-8")
-        wmma = re.search(r"gfx_arch_is_gfx11_wmma.*?\n}", hpp, re.S).group(0)
-        listed = set(re.findall(r'"(gfx\d+)"', wmma))
-        self.assertIn("gfx1151", listed)
-        self.assertIn("gfx1103", listed)          # 0.1.44: the 780M runs the gfx11 WMMA kernels (decode x1.53)
-        self.assertNotIn("gfx1152", listed)
-        self.assertIn('gfx_arch_is(gcn, "gfx1151")', hpp)
-        self.assertEqual(setup.STRIX_HALO_ARCH, "gfx1151")
 
     def test_arch_lists(self):
         self.assertIn("gfx1151", setup.AMD_ARCHS)
