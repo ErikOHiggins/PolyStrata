@@ -59,13 +59,6 @@ if(STRATA_HIP_GFX906)
 endif()
 option(STRATA_ENABLE_HIP "Build the HIP targets for wave32 AMD GPUs (gfx1100, gfx1201; gfx1012/gfx1030 unvalidated)" OFF)
 option(STRATA_PREFILL_MMQ "Build the optional GGML MMQ prefill path for HIP" OFF)
-# MMQ prompt kernels for Q4_K / Q5_K / Q5_1 / Q6_K (Unsloth's UD-Q4/Q5/Q6_K_XL experts; on HIP also the dense GGUF
-# projections, STRATA_DENSE_MMQ).  On by default since MODEL-UPDATE Phase 1: on CUDA they are their own library
-# (strata_kq, loaded only for a model with these formats: the engine loads every kernel of its own binary at start,
-# CUDA_MODULE_LOADING=EAGER, and these took ~3.8 MB of VRAM - 3 IQ3_XXS expert slots on a P100 - from every model); on
-# HIP a code object loads on first use, so they cost other models nothing there (R9700: the same slots).  Used at run
-# time with STRATA_MMQ_KQ=1 (opt-in: it changes the prompt's rounding against the FP16 path).
-option(STRATA_MMQ_KQUANTS "Build the MMQ prompt kernels for Q4_K / Q5_K / Q5_1 / Q6_K: the experts of Unsloth's K-quant files, and on HIP the dense GGUF projections (STRATA_DENSE_MMQ)" ON)
 # Q6_K gate/up in the grouped expert kernels (Unsloth's UD-Q6_K_XL, and layer 2 of UD-Q5_K_XL; docs/QUANTS.md).  On by
 # default since MODEL-UPDATE Phase 1: one more instance per grouped kernel in iq_kernels.cu, +19 KB of sm_60 code,
 # measured to leave every expert-cache slot count as it was (P100, R9700).  -DSTRATA_Q6K_EXPERTS=OFF drops it.
@@ -73,7 +66,6 @@ option(STRATA_Q6K_EXPERTS "Build the Q6_K gate/up grouped expert kernels (UD-Q6_
 if(STRATA_Q6K_EXPERTS)
   add_compile_definitions(STRATA_Q6K_EXPERTS=1)
 endif()
-option(STRATA_ORCA_Q4KS_MMQ "Build the GGML Q5_0 MMQ instance for OrcaRouter Q4_K_S" OFF)
 if(STRATA_PREFILL_MMQ AND NOT STRATA_ENABLE_HIP)
   message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_ENABLE_HIP=ON")
 endif()
@@ -371,15 +363,6 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     set_tests_properties(qsa_scores_gfx1100_parity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180
       ENVIRONMENT "STRATA_SCORES_THREAD=1;STRATA_SCORES_THREAD_TRACE=1")
   endif()
-  # #512: the top-k's active-block bound (Turing's dispatch, forced on any card by STRATA_TOPK_ACTIVE_ANY) against
-  # the capacity rule, selected ids bitwise
-  if(STRATA_BUILD_TESTS AND STRATA_ENABLE_CUDA)
-    # STRATA_QSA_SLOTS: a batch window's scores, top-k and attention as one launch over rows of different slots
-    # against one call per row, bitwise (synthetic, no model)
-    # fork: the Daily's decode attention (STRATA_ATTN_DAILY=1: PR #540's chunk kernel on every card and the bounded
-    # merge) against upstream's kernels, bitwise; the production entries checked with the variable off and on
-    # the prompt path's block scores on the thread-per-head kernel (Turing) against the warp kernel, bitwise
-  endif()
   # the QSA selection (block scores on the warp kernel and the tensor-core one, top-k): a GPU bench with a
   # scorer-vs-scorer comparison and an FP64 accuracy gate (synthetic, no model); the ctest runs a 32K context under a
   # 262144-cell capacity (the top-k dispatch follows the capacity) and exits non-zero on a failed gate
@@ -465,35 +448,6 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/expert_profile_version_test.cpp")
     enable_testing()
   endif()
-  if(STRATA_BUILD_TESTS AND STRATA_NATIVE_EXPERTS)
-    # native_experts.txt v2-v4 (the real packs' copies and the per-role shard column) and the arena filled from
-    # synthetic GGUF shards at the real expert dimensions
-    # #326: a native pack's BF16 (--compat-bf16) PLE key stays in the arena; a quantized key row loads as before
-    # #369: per-layer admission on a sized (native pack) cache starts each layer in its own range
-    # STRATA_MMQ_DIRECT: slot_guard / slot_room / slot_tail on the uniform and the sized cache, and the default
-    # (no guard) sized layout unchanged
-  endif()
-
-  # `strata generate` (P2.S6).  The FIRST user-facing program: everything under it is a component, and this is
-  # what composes them into a token.  No tokenizer - the prompt arrives as ids - because Gate C1 compares logits
-  # against llama.cpp on the SAME ids and a tokenizer on one side of that comparison is a second variable.
-  # plan v0.3 P5: batched prompt processing (tensor-core GEMMs through cuBLAS).
-  if(STRATA_ENABLE_HIP)
-    # #313: the RDNA3 WMMA GEMMs include hip_runtime.h: AMD builds only (a CUDA build never sees this file)
-  endif()
-  if(STRATA_ENABLE_HIP AND STRATA_ROCBLAS_AVAILABLE)
-    # the prompt path's rocBLAS solution table (STRATA_ROCBLAS_TUNING; tools/hip/tune_rocblas makes one)
-
-  endif()
-
-  # NEW-MODELS-PLAN.md T1: Qwen3.6-35B-A3B's reference path (one GPU, the model resident, plain kernels), checked
-  # against llama.cpp by tools/qwen35/; the engine itself does not run the family yet
-  # the engine path for the same family (serve protocol, prompt chunks, decode graph): src/qwen35/q36_engine.cu, a
-  # library that `strata` switches to for a qwen35moe model (the family switch at the top of its main) and that
-  # strata-q36 wraps on its own
-  if(STRATA_NATIVE_EXPERTS)
-    # the hybrid mode (experts that do not all fit in VRAM): the CPU expert pool on ggml-cpu's arithmetic
-  endif()
 
   if(STRATA_ENABLE_HIP)
     enable_testing()
@@ -549,9 +503,6 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     add_test(NAME hip_prompt_attn_wmma COMMAND hip_prompt_attn_wmma 32768 2048 3)
     set_tests_properties(hip_prompt_attn_wmma PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77)
     list(APPEND _strata_hip_tests hip_prompt_attn_wmma)
-    if(STRATA_ROCBLAS_AVAILABLE)
-      # the rocBLAS solution table of the FP16-out prompt GEMMs (gfx103x): opt-in, skips without STRATA_ROCBLAS_TUNING
-    endif()
     if(_strata_hip_tests)
       set_tests_properties(${_strata_hip_tests} PROPERTIES TIMEOUT 60)
     endif()
@@ -959,13 +910,6 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   target_link_libraries(ple_reader_test PRIVATE strata_kernels ${_strata_gpu_runtime_target})
   add_test(NAME ple_reader_selftest COMMAND ple_reader_test --selftest)
 
-  # The GPU test runs ON THE TARGET PC. `--selftest` allocates
-  # and writes real VRAM, so a machine without a device fails this test rather than skipping it silently -
-  # which is correct: an engine that targets one GPU should not report a pass for having no GPU.
-  if(STRATA_ENABLE_CUDA)
-  else()
-  endif()
-
   # ---- P2.S5: the GraphRegistry --------------------------------------------------
   # A .cu because the test needs real kernels to capture; it links `strata_core` and not `strata_kernels`,
   # because what it exercises is the capture machinery and not any kernel in it.
@@ -995,17 +939,6 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   endif()
 endif()
 
-# ---- strata_kernels_cpu (P2.S3) ----
-#
-# A SEPARATE LIBRARY from `strata_kernels`, and `/arch:AVX512` is set on the SOURCE rather than on the target
-# so that the flag applies only to the TU that needs it.  Both parts matter:
-#
-#   * the CPU expert kernel uses `_mm256_dpbusd_epi32` (AVX512-VNNI) and `_mm256_multishift_epi64_epi8`
-#     (AVX512-VBMI); without the flag MSVC reports undeclared intrinsics and never mentions AVX-512;
-#   * a TU compiled WITH `/arch:AVX512` may use AVX-512 in ANY of its code, so the scalar fallback and the
-#     test drivers must NOT be in it - otherwise the fallback is not a fallback, it is the same bet with
-#     worse opt-out.  `cpu_require_expert_support()` therefore refuses at startup on a CPU without the
-#     features, and the fallback exists for tests, exactly as P2.S3 specifies.
 # Plan v0.3 P6: speculation components that need no GPU.
 add_library(strata_spec STATIC src/spec/suffix_drafter.cpp src/spec/controller.cpp src/spec/draft_policy.cpp
             src/spec/draft_source.cpp)
@@ -1062,45 +995,6 @@ if(STRATA_BUILD_TESTS OR STRATA_BUILD_CONVERSATION_TESTS)
   add_test(NAME batch_groups_test COMMAND batch_groups_test)
 endif()
 
-# Plan v0.3 P6: only the kernel files get the AVX-512 / AVX2 flags; the pool and the probe run on any x86-64,
-# and the engine picks the kernels at run time (cpu_avx512_ok).
-if(MSVC)
-  set_source_files_properties(src/kernels/cpu/expert.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
-  set_source_files_properties(src/kernels/cpu/q2_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-else()
-  # GCC/Clang spell it differently, and `-mavx512vnni` alone is not enough: VBMI is a separate feature bit.
-  set_source_files_properties(src/kernels/cpu/expert.cpp
-                              PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vl;-mavx512dq;-mavx512vnni;-mavx512vbmi;-mf16c;-mfma")
-  set_source_files_properties(src/kernels/cpu/q2_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
-endif()
-# AVX-VNNI (Alder Lake, Sapphire Rapids and later): the AVX-2 expert kernels' vpdpwssd / vpdpbusd copies (q2_avx2.cpp,
-# iq_avx2.cpp; *_rows.inl), taken at run time where cpu_avxvnni_ok().  GCC and Clang compile only those functions with
-# target("avxvnni") - never -mavxvnni on a file, which would let the compiler use it anywhere - and MSVC takes the
-# intrinsics under /arch:AVX2.  A compiler without them (GCC < 11, Clang < 12) builds the files without the copies.
-include(CheckCXXSourceCompiles)
-if(MSVC)
-  set(CMAKE_REQUIRED_FLAGS "/arch:AVX2")
-else()
-  set(CMAKE_REQUIRED_FLAGS "-mavx2 -mfma -mf16c")
-endif()
-check_cxx_source_compiles([=[
-#include <immintrin.h>
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((target("avxvnni")))
-#endif
-static __m256i dots(__m256i a, __m256i b) { return _mm256_dpbusd_avx_epi32(_mm256_dpwssd_avx_epi32(a, a, b), a, b); }
-int main() {
-    volatile int x = 1;
-    return _mm256_extract_epi32(dots(_mm256_set1_epi32(x), _mm256_set1_epi32(x)), 0) == 0;
-}
-]=] STRATA_HAVE_AVXVNNI_INTRINSICS)
-unset(CMAKE_REQUIRED_FLAGS)
-if(STRATA_HAVE_AVXVNNI_INTRINSICS)
-  set(_strata_avxvnni STRATA_AVXVNNI=1)
-else()
-  set(_strata_avxvnni STRATA_AVXVNNI=0)
-endif()
-set_property(SOURCE src/kernels/cpu/q2_avx2.cpp APPEND PROPERTY COMPILE_DEFINITIONS ${_strata_avxvnni})
 find_package(Threads REQUIRED)
 
 # ---- plan v0.3 P6: the i-quant models' CPU experts (IQ2_XS / IQ3_XXS files) ----
@@ -1111,9 +1005,6 @@ find_package(Threads REQUIRED)
 set(STRATA_GGML_DIR "" CACHE PATH "llama.cpp checkout to take ggml from (empty: fetch the pinned commit)")
 if(STRATA_PREFILL_MMQ AND NOT STRATA_NATIVE_EXPERTS)
   message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_NATIVE_EXPERTS=ON for GGML sources")
-endif()
-if(STRATA_ORCA_Q4KS_MMQ AND NOT STRATA_NATIVE_EXPERTS)
-  message(FATAL_ERROR "STRATA_ORCA_Q4KS_MMQ requires STRATA_NATIVE_EXPERTS=ON for GGML sources")
 endif()
 if(STRATA_NATIVE_EXPERTS)
   enable_language(C)
@@ -1162,150 +1053,16 @@ if(STRATA_NATIVE_EXPERTS)
     endif()
     add_subdirectory(${strata_llamacpp_SOURCE_DIR}/ggml ${CMAKE_BINARY_DIR}/ggml EXCLUDE_FROM_ALL)
   endif()
-  # part of strata_kernels_cpu (the pool calls these and they call its CPU probe: one library, so GNU ld's
-  # one-pass static linking has no cycle to resolve)
-  if(MSVC)
-    set_source_files_properties(src/kernels/cpu/iq_avx512.cpp src/kernels/cpu/nvfp4_avx512.cpp
-                                PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
-    set_source_files_properties(src/kernels/cpu/iq_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-    set_source_files_properties(src/kernels/cpu/kq_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-    set_source_files_properties(src/kernels/cpu/nvfp4_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-    # the router lookahead's AVX1 dot (older CPUs; called behind cpu_avx1_ok): no FMA, no 256-bit integer ops
-    set_source_files_properties(src/kernels/cpu/kq_avx1.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX")
-    # the older CPUs' Q2_0 rows and activation quantizer (q2_avx1.cpp, issue #1699): 128-bit integer lanes,
-    # no FMA/F16C, its own #error guard; called only behind cpu_avx1_ok() && !cpu_avx2_ok()
-    set_source_files_properties(src/kernels/cpu/q2_avx1.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX")
-    # the older CPUs' i-quant expert rows (iq_avx1.hpp): 128-bit SSSE3/SSE2 integer, SSE2 float, no FMA/F16C
-    set_source_files_properties(src/kernels/cpu/iq_avx1.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX")
-  else()
-    set_source_files_properties(src/kernels/cpu/iq_avx512.cpp src/kernels/cpu/nvfp4_avx512.cpp PROPERTIES COMPILE_OPTIONS
-                                "-mavx512f;-mavx512bw;-mavx512vl;-mavx512dq;-mavx512vnni;-mavx512vbmi;-mf16c;-mfma")
-    set_source_files_properties(src/kernels/cpu/iq_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
-    set_source_files_properties(src/kernels/cpu/kq_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
-    set_source_files_properties(src/kernels/cpu/nvfp4_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
-    set_source_files_properties(src/kernels/cpu/kq_avx1.cpp PROPERTIES COMPILE_OPTIONS "-mavx")
-    # the older CPUs' Q2_0 rows and activation quantizer (q2_avx1.cpp, issue #1699): SSE4.2 + AVX with
-    # AVX2/FMA/F16C explicitly off, so a -march=native build host cannot leak AVX2 code into the file that
-    # runs on a Sandy Bridge Xeon
-    set_source_files_properties(src/kernels/cpu/q2_avx1.cpp PROPERTIES COMPILE_OPTIONS
-                                "-msse4.2;-mavx;-mno-avx2;-mno-fma;-mno-f16c")
-    # the older CPUs' i-quant expert rows (iq_avx1.hpp): SSE4.2 + AVX with AVX2/FMA/F16C explicitly off, so a
-    # -march=native build host cannot leak AVX2 code into the file that runs on a Sandy Bridge Xeon
-    set_source_files_properties(src/kernels/cpu/iq_avx1.cpp PROPERTIES COMPILE_OPTIONS
-                                "-msse4.2;-mavx;-mno-avx2;-mno-fma;-mno-f16c")
-  endif()
-  set_property(SOURCE src/kernels/cpu/iq_avx2.cpp APPEND PROPERTY COMPILE_DEFINITIONS ${_strata_avxvnni})
-  if(STRATA_ISA_FLOOR STREQUAL "avx")
-  elseif(STRATA_ISA_FLOOR STREQUAL "none")
-  endif()
   if(STRATA_BUILD_TESTS)
     # the Q5_1 block dequantizer (a Q5_1 PLE table) against ggml's, synthetic blocks: no model, no GPU
     add_executable(dequant_q5_1_test tests/core/dequant_q5_1_test.cpp)
     target_link_libraries(dequant_q5_1_test PRIVATE strata_artifact ggml-base)
     add_test(NAME dequant_q5_1_test COMMAND dequant_q5_1_test)
   endif()
-  set(_strata_mmq_types q2_0 iq2_xxs iq2_xs iq2_s iq3_xxs iq3_s iq4_nl iq4_xs q8_0)
-  # #296: OrcaRouter Q4_K_S's Q5_0 experts (Q4_K and Q5_1 come with STRATA_MMQ_KQUANTS on CUDA, S5's branch)
-  if(STRATA_ORCA_Q4KS_MMQ)
-    list(APPEND _strata_mmq_types q5_0)
-  endif()
-  if(STRATA_ENABLE_CUDA)
-    # prompt-speed plan step 2b: llama.cpp's MMQ kernels (ggml-cuda, MIT) for the prompt path's experts, compiled
-    # from the same checkout as ggml above - only mmq.cuh's instances for the packs' types and the quantizer, with
-    # the few host symbols of ggml-cuda.cu they use in src/prefill/ggml_cuda_host.cu
-    if(STRATA_GGML_DIR)
-      set(_strata_gg ${STRATA_GGML_DIR}/ggml)
-    else()
-      set(_strata_gg ${strata_llamacpp_SOURCE_DIR}/ggml)
-    endif()
-    set(_strata_mmq ${_strata_gg}/src/ggml-cuda)
-    # #136: the Q2_0 pack's prompt experts on Strata's own int8 kernels (moe_fused.cu, opt-in STRATA_PF_FUSED=1; CUDA
-    # only: the HIP branch below keeps MMQ, and an sm_75 device or an sm_75-only build reports them unavailable)
-    # q8_0: the drafter's matrices (E-9); STRATA_ORCA_Q4KS_MMQ adds q5_0 (#296, in _strata_mmq_types), and
-    # STRATA_MMQ_KQUANTS q4_k q5_k q5_1 q6_k, the experts of Unsloth's UD-Q4/Q5/Q6_K_XL (docs/QUANTS.md; the dispatch
-    # follows eddoursul/Strata 7706c1b).  MODEL-UPDATE Phase 1: on CUDA they are a library of their own, strata_kq
-    # (below), loaded only for a model with these experts: the engine loads every kernel of its own binary at start
-    # (CUDA_MODULE_LOADING=EAGER), and these four took ~3.8 MB of VRAM (3 expert slots of IQ3_XXS on a P100) from every
-    # model.  gfx906 (HIP: code objects load on first use) keeps them in strata_mmq.
-    set(_strata_mmq_cuda_types ${_strata_mmq_types})
-    set(_strata_kq_types q4_k q5_k q5_1 q6_k)
-    set(_strata_kq_dso OFF)
-    if(STRATA_MMQ_KQUANTS AND STRATA_HIP_GFX906)
-      list(APPEND _strata_mmq_cuda_types ${_strata_kq_types})
-    elseif(STRATA_MMQ_KQUANTS)
-      set(_strata_kq_dso ON)
-    endif()
-    foreach(_t IN LISTS _strata_mmq_cuda_types)
-    endforeach()
-    # NVFP4: W4A8 (default) in mmq_nvfp4_w4a8.cu with the plain architectures; the opt-in W4A4 needs RTX 50's FP4 MMA,
-    # which exists only in the arch-specific target, so its one unit alone is built with 12x -> 12xa (the default
-    # binary is unchanged and runs on sm_121; a card without that image falls back to W4A8 at run time)
-    set(_strata_w4a4_archs ${CMAKE_CUDA_ARCHITECTURES})
-    # (two steps: CMake before 3.29 rejects a \2 whose optional group did not match, "120" alone)
-    list(TRANSFORM _strata_w4a4_archs REPLACE "^(12[0-9])$" "\\1a")
-    list(TRANSFORM _strata_w4a4_archs REPLACE "^(12[0-9])-(real|virtual)$" "\\1a-\\2")
-    if(_strata_kq_dso)
-      foreach(_t IN LISTS _strata_kq_types)
-      endforeach()
-      # ggml-base is static: position-independent so a shared library can hold it (the same code otherwise)
-      set_target_properties(ggml-base PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    endif()
-    if(STRATA_BUILD_TESTS)
-      # #136: the fused int8 experts against a double-precision reference and the MMQ path (exit 77 below sm_80)
-      # #136: the same for the native packs' formats (IQ2_XXS IQ2_XS IQ2_S IQ3_XXS IQ3_S IQ4_XS, down Q2_0 IQ4_NL)
-      # the MoE input quantized per token and scattered to its rows (mmq::quantize_scatter) against the per-row
-      # gather: the same q8_1 bytes for every MMQ layout (--bench: both at 2K, 8K and 32K tokens)
-    endif()
-    if(STRATA_BUILD_TESTS AND STRATA_MMQ_KQUANTS)
-      # the UD-Q4_K_XL expert formats through MMQ against ggml's dequantized weights (synthetic, a few seconds)
-      # the K-quant MMQ is opt-in at run time (STRATA_MMQ_KQ=1), and on CUDA it is strata_kq next to the test
-    endif()
-    # the routed-expert products (MMQ) timed at the prompt path's shapes (16 experts a launch)
-  elseif(STRATA_PREFILL_MMQ)
-    # Compile only the pinned GGML MMQ and activation-quantizer sources used by prefill. This uses
-    # common.cuh's native HIP path without enabling a second GGML HIP backend.
-    if(STRATA_GGML_DIR)
-      set(_strata_gg "${STRATA_GGML_DIR}/ggml")
-    else()
-      set(_strata_gg "${strata_llamacpp_SOURCE_DIR}/ggml")
-    endif()
-    set(_strata_mmq "${_strata_gg}/src/ggml-cuda")
-    if(NOT EXISTS "${_strata_mmq}/common.cuh" OR NOT EXISTS "${_strata_mmq}/quantize.cu")
-      message(FATAL_ERROR "The selected GGML source is missing the ggml-cuda MMQ sources: ${_strata_mmq}")
-    endif()
-    # Aurora: moe_fused.cu's gfx11 and moe_fused_iq.cu's gfx11 / gfx12 WMMA kernels for the prompt experts (opt-in STRATA_PF_FUSED=1)
-    set(_strata_mmq_sources
-      src/prefill/moe_mmq.cu
-      src/prefill/moe_fused.cu
-      src/prefill/moe_fused_iq.cu
-      src/prefill/moe_f16_kq.cu
-      src/prefill/ggml_cuda_host.cu
-      "${_strata_mmq}/quantize.cu")
-    if(STRATA_MMQ_KQUANTS)
-      # the same K-quant instances as the CUDA branch: on HIP they serve the dense GGUF projections
-      # of Gemm::native (STRATA_DENSE_MMQ=1), the mixed-quant packs' attention/PLE tensors
-      list(APPEND _strata_mmq_types q4_k q5_k q5_1 q6_k)
-    endif()
-    foreach(_t IN LISTS _strata_mmq_types)
-      list(APPEND _strata_mmq_sources "${_strata_mmq}/template-instances/mmq-instance-${_t}.cu")
-    endforeach()
-    set_source_files_properties(${_strata_mmq_sources} PROPERTIES LANGUAGE HIP)
-    # moe_fused.cu is Strata's own CUDA-shaped source: it takes the HIP compat headers, ggml's MMQ sources do not
-    set_source_files_properties(src/prefill/moe_fused.cu src/prefill/moe_fused_iq.cu src/prefill/moe_f16_kq.cu
-                                PROPERTIES INCLUDE_DIRECTORIES "${STRATA_HIP_COMPAT_INCLUDE_DIR}")
-    # Aurora: the gfx11 fused experts against the FP64 reference and MMQ (tests/cuda's test; exit 77 off gfx11)
-    # the same binary on F16 weights (gfx11: the covered formats take moe_f16_kq.cu / native_f16_kernel; elsewhere it is the default run again)
-
-    # Numerical diagnostic: synthetic layouts by default, optional first-expert IQ3_XXS/IQ4_NL check with a pack.
-  endif()
   if(STRATA_ENABLE_HIP)
     # Optional real-model diagnostic: pass the GGUF shard containing the native PLE key.
     add_executable(hip_ple_iq4 tests/hip/ple_iq4.cpp)
     target_link_libraries(hip_ple_iq4 PRIVATE strata_kernels strata_hip_runtime ggml-base)
-  endif()
-  # the NVFP4 AVX-512 and AVX2 rows vs ggml-cpu's vec_dot, and their speed (CPU only; optional arg: a pack's experts.bin)
-  if(STRATA_ENABLE_CUDA)   # the NVFP4 decode kernels vs ggml's reference
-    # the decode experts' weight bandwidth on random blobs of a format pair, and an output hash (bit-for-bit checks)
   endif()
   if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     # MODEL-UPDATE: the dense Q8_0 GEMVs at the engine's shapes against the memory bandwidth (a benchmark, no test)
@@ -1355,9 +1112,6 @@ if(STRATA_NATIVE_EXPERTS)
 endif()
 
 if(STRATA_BUILD_TESTS)
-  if(WIN32)
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  endif()
   # Plan v0.3 P6: one expert applied to several tokens, bitwise vs the single-token kernel (synthetic, CPU only).
   # plan v0.3 P5: the device dequantizers vs the artifact's CPU dequantizers on the real shards (not a ctest: needs
   # the 38 GB model; run it by hand or from tools/gpu_session.py)
@@ -1370,38 +1124,6 @@ if(STRATA_BUILD_TESTS)
   # missing file would otherwise be reported as a pass by a test that skipped everything.
 
   # issue #29: tiny batches with sleeping workers, as on a big-VRAM card; a hang fails it
-
-  # #795: nothing an AVX2-only CPU can reach may hold AVX-512 / AVX-VNNI-class instructions.  (1) the linked test binary
-  # (every CPU kernel file plus ggml-cpu; on Linux, the kernel library) is disassembled and any function with such instructions must be a kernel of
-  # a wide-ISA file, not a weak / COMDAT copy and not a probe or helper that every CPU runs; (2) with -DSTRATA_SDE=<sde>
-  # (Intel SDE) the CPU tests run on an emulated AVX2-only Haswell and on an Alder Lake (AVX-VNNI, no AVX-512): SDE stops
-  # at the first instruction the chip does not have.
-  if(TARGET iq_avx2_parity)
-    find_package(Python3 QUIET COMPONENTS Interpreter)
-    if(Python3_Interpreter_FOUND)
-      if(MSVC)
-      else()
-        # the library, not the binary: a Linux source build compiles ggml-cpu for the build machine on purpose
-        add_test(NAME isa_guard_check COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_isa_guard.py
-                 $<TARGET_FILE:strata_kernels_cpu>)
-      endif()
-      set_tests_properties(isa_guard_check PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
-    endif()
-  endif()
-  set(STRATA_SDE "" CACHE FILEPATH "Intel SDE (sde / sde64): also run the CPU tests on an emulated AVX2-only and an AVX-VNNI-only CPU")
-  if(STRATA_SDE AND TARGET iq_avx2_parity)
-    foreach(_chip hsw adl)
-      foreach(_t iq_avx2_parity q8k_quant_parity router_dot_parity pool_tasks_test q2_bitplane_parity)
-        if(TARGET ${_t})
-          add_test(NAME sde_${_chip}_${_t} COMMAND ${STRATA_SDE} -${_chip} -- $<TARGET_FILE:${_t}>)
-          set_tests_properties(sde_${_chip}_${_t} PROPERTIES TIMEOUT 900)
-        endif()
-      endforeach()
-      if(TARGET q2_bitplane_parity)
-        set_tests_properties(sde_${_chip}_q2_bitplane_parity PROPERTIES ENVIRONMENT "STRATA_Q2_BITPLANE=1")
-      endif()
-    endforeach()
-  endif()
 
   if(UNIX AND NOT APPLE)
     add_executable(direct_file_async_test tests/platform/direct_file_async.cpp src/platform/direct_file.cpp)
