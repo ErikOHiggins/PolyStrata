@@ -305,7 +305,7 @@ class Validation(FakeRoot):
         res, err = self.call("strata_install", {"family": "laguna-s", "model": "Q4_K_M"})
         self.assertFalse(err, res)                      # poolside's own file
         self.assertIn("--family laguna-s --model Q4_K_M", res["plan"]["setup_command"])
-        res, err = self.call("strata_install", {"family": "occamy", "vision": "yes"})
+        res, err = self.call("strata_install", {"family": "gemma4", "vision": "yes"})
         self.assertFalse(err, res)
         self.assertEqual(res["plan"]["images"], "yes")
         self.assertRejected("strata_install", {"family": "laguna-s", "vision": "yes"}, "does not read images")
@@ -314,9 +314,9 @@ class Validation(FakeRoot):
     def test_amd_has_no_images(self):
         """The image encoder is a CUDA program: with the AMD backend images are off (setup says so too)."""
         for vision in ("yes", "gpu", "cpu"):
-            self.assertRejected("strata_install", {"family": "occamy", "backend": "hip", "vision": vision},
+            self.assertRejected("strata_install", {"family": "gemma4", "backend": "hip", "vision": vision},
                                 "images are off")
-        res, err = self.call("strata_install", {"family": "occamy", "backend": "hip", "vision": "no"})
+        res, err = self.call("strata_install", {"family": "gemma4", "backend": "hip", "vision": "no"})
         self.assertFalse(err, res)
         self.assertIn("--backend hip", res["plan"]["setup_command"])
 
@@ -369,14 +369,14 @@ class Install(FakeRoot):
         self.assertFalse((self.root / "setup-args.json").exists())
         self.assertIsNone(self.strata.install_job())
 
-        res, err = self.call("strata_install", {"model": "APEX-I-Compact", "context": 65536, "vision": "no",
+        res, err = self.call("strata_install", {"model": "UD-Q2_K_XL", "context": 65536, "vision": "no",
                                                 "confirm": True})
         self.assertFalse(err, res)
         self.assertIn("started in the background", res["summary"])
         self.wait_job()
         args = json.loads((self.root / "setup-args.json").read_text())
         self.assertEqual(args[:2], ["--yes", "--no-start"])
-        for pair in (["--family", "occamy"], ["--model", "APEX-I-Compact"], ["--context", "65536"], ["--vision", "no"]):
+        for pair in (["--family", "gemma4"], ["--model", "UD-Q2_K_XL"], ["--context", "65536"], ["--vision", "no"]):
             i = args.index(pair[0])
             self.assertEqual(args[i:i + 2], pair)
         res, err = self.call("strata_install", {})
@@ -384,7 +384,7 @@ class Install(FakeRoot):
         self.assertEqual(res["install"]["exit_code"], 0)
         self.assertEqual(res["next"], "strata_start")
         st, _ = self.call("strata_status", {"hardware": False})
-        self.assertEqual([m["model"] for m in st["installed"]["models"]], ["apex-i-compact"])
+        self.assertEqual([m["model"] for m in st["installed"]["models"]], ["ud-q2_k_xl"])
 
     def test_laguna_plan(self):
         """Laguna-S: the menu's first family; no images; the context setup preselects whatever the card."""
@@ -408,9 +408,9 @@ class Install(FakeRoot):
         self.assertEqual((p["family"], p["model"], p["context"], p["download_gb"], p["ram"]),
                          ("gemma4", "UD-Q3_K_M", 32768, 13.2, "fits"))
         self.assertIn("--family gemma4 --model UD-Q3_K_M --context 32768 --vision no", p["setup_command"])
-        res, err = self.call("strata_install", {"model": "APEX-I-Compact"})
+        res, err = self.call("strata_install", {"model": "UD-Q2_K_XL"})
         self.assertFalse(err, res)
-        self.assertEqual((res["plan"]["family"], res["plan"]["download_gb"]), ("occamy", 16.5))
+        self.assertEqual((res["plan"]["family"], res["plan"]["download_gb"]), ("gemma4", 11.0))
         res, err = self.call("strata_install", {"model": "Q4_K_M"})
         self.assertTrue(err)
         self.assertIn("give family too (laguna-s or laguna-xs)", res["error"])
@@ -423,10 +423,6 @@ class Install(FakeRoot):
         res, err = self.call("strata_models", {})
         self.assertFalse(err, res)
         by = {f["family"]: f["sizes"] for f in res["families"]}
-        self.assertEqual([(x["model"], x["download_gb"], x["on_this_pc"], x["id"]) for x in by["occamy"]],
-                         [("APEX-Quality", 22.8, "fits", "occamy-apex-quality"),
-                          ("APEX-I-Compact", 16.5, "fits", "occamy-apex-i-compact"),
-                          ("APEX-Balanced", 25.3, "fits", "occamy-apex-balanced")])
         self.assertEqual((by["gemma4"][0]["download_gb"], by["gemma4"][0]["images"]), (13.2, True))
         self.assertFalse(next(f for f in res["families"] if f["family"] == "laguna-s")["images"])
 
@@ -435,7 +431,7 @@ class Install(FakeRoot):
         res, err = self.call("strata_install", {"family": "laguna-xs", "confirm": True})
         self.assertFalse(err, res)
         self.assertTrue(wait_for(lambda: (self.strata.install_job() or {}).get("download") is not None, 30))
-        res, err = self.call("strata_install", {"model": "APEX-Quality", "confirm": True})   # a second call: progress only
+        res, err = self.call("strata_install", {"model": "UD-Q4_K_M", "confirm": True})   # a second call: progress only
         self.assertFalse(err)
         self.assertIn("an install is running", res["summary"])
         self.assertEqual(res["install"]["step"], "5/7: downloading Laguna XS 2.1 Q4_K_M")

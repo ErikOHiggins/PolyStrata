@@ -4,7 +4,8 @@ run config, byte for byte, as the recorded baseline (tools/test_setup_golden.jso
 (tools/poly_setup_harness.py): no GPU, no downloads, nothing written outside a temp folder.
 
 The baseline was recorded again for Puddle's families (phase 1b-1, 2026-11-19: the Qwen engine's families are gone;
-phase 1c: Laguna-S, Laguna-XS and Occamy added); record it again only when a default changes on purpose.
+phase 1c: Laguna-S, Laguna-XS and Occamy added; T2, 2026-11-20: Occamy removed); record it again only when a
+default changes on purpose.
 
     python -m unittest tools.test_setup_golden
     python tools/test_setup_golden.py --write      (only to record a new baseline on purpose)

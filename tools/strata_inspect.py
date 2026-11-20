@@ -4,8 +4,8 @@ Reads only the files' headers (a few MB each, by HTTP range requests for a remot
 real storage of every weight group (bits per weight, quantization types), then compares the routed experts and the
 sizes with the files setup installs (data/gguf_fingerprints.json):
 
-    python tools/strata_inspect.py hf:Accio-Lab/occamy-1.0-APEX-GGUF                      # list the variants
-    python tools/strata_inspect.py hf:Accio-Lab/occamy-1.0-APEX-GGUF APEX-Quality         # one variant
+    python tools/strata_inspect.py hf:unsloth/Laguna-S-2.1-GGUF                           # list the variants
+    python tools/strata_inspect.py hf:unsloth/Laguna-S-2.1-GGUF UD-Q3_K_XL                # one variant
     python tools/strata_inspect.py D:/models/my-copy-00001-of-00003.gguf                  # a local file or folder
     python tools/strata_inspect.py https://example.com/x.gguf                             # one URL
 
@@ -30,8 +30,7 @@ FINGERPRINTS = ROOT / "data" / "gguf_fingerprints.json"
 # the architectures strata-poly runs for Puddle's families -> FAMILIES[family]["title"] in setup.py (resolve_custom_gguf
 # maps a "family" verdict back to --family / --model by that title).  Laguna-S and Laguna-XS share one architecture:
 # their layer count tells them apart.
-POLY_ARCHS = {"laguna": {48: "Laguna S 2.1", 40: "Laguna XS 2.1"}, "qwen35moe": "Occamy 1.0 35B-A3B",
-              "gemma4": "Gemma 4 26B-A4B"}
+POLY_ARCHS = {"laguna": {48: "Laguna S 2.1", 40: "Laguna XS 2.1"}, "gemma4": "Gemma 4 26B-A4B"}
 
 
 def family_title(fp: dict) -> str:
@@ -109,7 +108,7 @@ def verdict(fp: dict, table: dict) -> tuple[str, str]:
     title = family_title(fp)
     if fp["arch"] not in POLY_ARCHS:
         return "no", (f"not a model Puddle runs (architecture {fp['arch']!r}): its strata-poly engine runs "
-                      + ", ".join(POLY_ARCHS) + " (Laguna, Occamy, Gemma 4)")
+                      + ", ".join(POLY_ARCHS) + " (Laguna, Gemma 4)")
     if not title:
         return "no", (f"a {fp['arch']} model of {fp.get('layers')} layers: Puddle has no family of that size "
                       "(Laguna-S has 48, Laguna-XS 40)")

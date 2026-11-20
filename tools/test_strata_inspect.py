@@ -37,15 +37,15 @@ class Verdict(unittest.TestCase):
             self.assertIn(f"--family {fam} --model {model}", sentence)
 
     def test_same_layout_other_file(self):
-        fp = self.fp("occamy/APEX-Quality")
+        fp = self.fp("gemma4/UD-Q3_K_M")
         fp["bytes"] += 1000                          # another file, the experts stored the same
         kind, sentence = SI.verdict(fp, self.table)
         self.assertEqual(kind, "layout")
-        self.assertIn("occamy/APEX-Quality", sentence)
+        self.assertIn("gemma4/UD-Q3_K_M", sentence)
 
     def test_another_file_of_a_family_s_architecture(self):
         for key, title in (("laguna-s/UD-Q3_K_XL", "Laguna S 2.1"), ("laguna-xs/Q4_K_M", "Laguna XS 2.1"),
-                           ("occamy/APEX-Quality", "Occamy 1.0 35B-A3B"), ("gemma4/UD-Q3_K_M", "Gemma 4 26B-A4B")):
+                           ("gemma4/UD-Q3_K_M", "Gemma 4 26B-A4B")):
             with self.subTest(key=key):
                 fp = self.fp(key)
                 fp["expert_bytes"] = {"Q5_K": 1}       # experts stored as in no file setup offers
@@ -62,9 +62,9 @@ class Verdict(unittest.TestCase):
         self.assertIn("64 layers", sentence)
 
     def test_other_architecture(self):
-        for arch in ("qwen4exp", "glm5-next", "deepseek4", "qwen3moe"):
+        for arch in ("qwen4exp", "glm5-next", "deepseek4", "qwen3moe", "qwen35moe"):
             with self.subTest(arch=arch):
-                fp = self.fp("occamy/APEX-Quality")
+                fp = self.fp("gemma4/UD-Q3_K_M")
                 fp["arch"] = arch
                 kind, sentence = SI.verdict(fp, self.table)
                 self.assertEqual(kind, "no")
@@ -75,7 +75,7 @@ class Verdict(unittest.TestCase):
         for t in SI.POLY_ARCHS.values():
             for title in (t.values() if isinstance(t, dict) else [t]):
                 self.assertIn(title, titles)
-        self.assertEqual(set(SI.POLY_ARCHS), {a for v in setup.POLY_GGUF_ARCHS.values() for a in v} | {"qwen35moe"})
+        self.assertEqual(set(SI.POLY_ARCHS), {a for v in setup.POLY_GGUF_ARCHS.values() for a in v})
 
 
 if __name__ == "__main__":

@@ -63,8 +63,6 @@ HF_REVISIONS = {
     "unsloth/Laguna-S-2.1-GGUF": "750f92f90cf54159c4d7a610cb7b3e74498e75c6",                       # 2026-07-27
     "poolside/Laguna-S-2.1-GGUF": "19036076775e9ba6758595f78af99cb976ef8ff0",                      # 2026-08-06
     "poolside/Laguna-XS-2.1-GGUF": "1a37c0a5fb8c7a18e6106decb6be6327d1b63fa6",                     # 2026-07-18
-    "Accio-Lab/occamy-1.0-APEX-GGUF": "7c731908b05f5cbd19002b23d421aa102c0dd0de",                  # 2026-10-02
-    "Accio-Lab/occamy-1.0-GGUF": "15027de49a5f8bbb5a131ed3fcfc1b54a543089d",                       # 2026-10-19
     "unsloth/gemma-4-26B-A4B-it-GGUF": "c099eb48e663fd284577b04978a94ffccb261841",                     # 2026-10-05
     "unsloth/gemma-4-26B-A4B-it-qat-GGUF": "7b92b5b28818151e8669af2e45e88d6086f490dd",                 # 2026-10-26
 }
@@ -184,7 +182,7 @@ REQUIREMENTS = ROOT / "requirements.txt"   # the same packages and their depende
 # The model families Puddle offers: each runs on strata-poly and has sizes of its own ("models").
 # Each family's sampling: setup writes it as the run config's "sampling" block (a block of the user's stays; a
 # request's own values win).  Laguna: the setting echo's testing settled on (2026-11-18: min_p 0.1; poolside's
-# generation_config has min_p 0.0).  Occamy: echo's live config.  Gemma 4: Google's model card ("Sampling
+# generation_config has min_p 0.0).  Gemma 4: Google's model card ("Sampling
 # Parameters") and generation_config.
 LAGUNA_SAMPLING = {"temperature": 1.0, "top_p": 1.0, "top_k": 20, "min_p": 0.1}
 FAMILIES = {
@@ -244,38 +242,6 @@ FAMILIES = {
                                         "vram_beside_gb": 5.0}},
                   "sha256": {"Laguna-XS-2.1-Q4_K_M.gguf":
                           (20274300032, "1ac7079101fca5a6df8c5a7523a3c30ea7d1c0e4b1258090e7d6d4039287f6cb")}},
-    # Occamy 1.0 (Accio-Lab): qwen35moe, Qwen3.6-35B-A3B's architecture (40 layers, 10 of them full attention, 256
-    # experts of which 8 are used), and it reads pictures (its image encoder is in another repository).  The APEX
-    # sizes have the dense weights of Ornith 1.5's APEX sizes (1.6 and 2.1 GB), so vram_beside_gb, row_bytes and the
-    # encoder's VRAM are upstream's measurements of those (Ornith 1.5, the same architecture).  APEX-Quality runs on
-    # the same PC on both cards with the encoder on the GPU, 262K, fp16 KV (the engine's default, which setup keeps).
-    "occamy": {"title": "Occamy 1.0 35B-A3B", "by": "Accio-Lab; APEX quantization",
-               "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "presence_penalty": 1.5},
-               "about": "Qwen3.6-35B-A3B's architecture, reads pictures; a 23 GB file, ~18 GB of RAM beside a 16 GB "
-                        "card; runs on 2x RTX 5060 Ti 16 GB with images",
-               "hf": hf("Accio-Lab/occamy-1.0-APEX-GGUF"), "file": "occamy-1.0-{q}.gguf", "shards": 1,
-               "tag": "occamy-", "name": "occamy-1.0-35b-a3b", "engine": "poly", "vision": True, "experimental": True,
-               "ran_on_gb": 16, "row_bytes": 26624,
-               "mmproj_hf": hf("Accio-Lab/occamy-1.0-GGUF"), "mmproj": "mmproj-occamy-1.0-F16.gguf",
-               "vision_gb": 0.9, "vision_vram_gb": 1.6,
-               "license": "Apache 2.0: https://huggingface.co/Accio-Lab/occamy-1.0-GGUF",
-               "models": {"APEX-Quality": {"about": "IQ4_XS, Q5_K and Q6_K experts (APEX); the one run every day",
-                                           "download_gb": 22.8, "ram_gb": 18, "arena_gb": 20.7,
-                                           "vram_beside_gb": 4.4},
-                          "APEX-I-Compact": {"about": "Q3_K and Q4_K experts (APEX): the least RAM; not run yet",
-                                             "download_gb": 16.5, "ram_gb": 12, "arena_gb": 14.9,
-                                             "vram_beside_gb": 4.2},
-                          "APEX-Balanced": {"about": "Q5_K and Q6_K experts (APEX): higher quality; not run yet",
-                                            "download_gb": 25.3, "ram_gb": 21, "arena_gb": 23.2,
-                                            "vram_beside_gb": 4.4}},
-               "sha256": {"occamy-1.0-APEX-Quality.gguf":
-                          (22819401472, "abce3a18934ab9e6fa80547d1a2edc44acfe6feda7a15e4d46d1b28e6bd78793"),
-                          "occamy-1.0-APEX-I-Compact.gguf":
-                          (16538851360, "361f5759d5604f0f03d787addc36e816c4094159b2f9e2d34bc889feb05d77b3"),
-                          "occamy-1.0-APEX-Balanced.gguf":
-                          (25335983872, "40f65edbdbb2e79e6af482d390680295c1a2caeea4e68e419eb5cbfe61084922"),
-                          "mmproj-occamy-1.0-F16.gguf":
-                          (899282944, "8f827a1e495f23e987686a7f55c26064270502a5b6ee954a828f1aec0b2fd400")}},
     "gemma4": {"title": "Gemma 4 26B-A4B", "by": "Google; quantized by Unsloth",
                "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
                "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller and a "
@@ -4129,7 +4095,7 @@ def main() -> int:
             a.gpu = int(a.gpu)
         else:
             ap.error(f"--gpu takes a GPU number as nvidia-smi numbers them, e.g. --gpu 1 (or --gpus 0,2), not {a.gpu!r}")
-    say("Puddle - Laguna, Occamy and Gemma 4 on a normal PC (a GPU + system RAM + CPU)")
+    say("Puddle - Laguna and Gemma 4 on a normal PC (a GPU + system RAM + CPU)")
     data, elsewhere = data_folder(a.data_dir)          # the model files: in the data folder, found from any copy
     roots = [data, *elsewhere]
     if a.models_dir is None:

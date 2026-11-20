@@ -56,7 +56,7 @@ class OwnGguf(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.f = self.d / "Tiel-Coder-35B-A3B-MTP-UD-IQ3_XXS.gguf"
-        # a family of the qwen35moe architecture (POLY_GGUF_ARCHS' default), as Occamy will be
+        # a family of the qwen35moe architecture (POLY_GGUF_ARCHS' default for a family it does not list)
         fams = mock.patch.dict(setup.FAMILIES, {"qwen35moe-family": {"title": "A qwen35moe family"}})
         fams.start()
         self.addCleanup(fams.stop)
