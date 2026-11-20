@@ -98,7 +98,8 @@ them and sets itself up the same way: nothing big is downloaded again.
   `strata-<model>.shared-settings.json`. Running setup again for the same model rewrites the keys setup writes (`exe`,
   `args`, `port`, `gpu`, `host`, `api_key`, `vision`, ...) and keeps the ones you added (`sampling`, `mcp_servers`,
   `cors_origins`, ...); the earlier file is kept as `strata-<model>.json.bak`. Engine options you added to `"args"` by
-  hand are not carried over: setup names them, and you add them again.
+  hand are not carried over: setup names them, and you add them again. Setup writes the model's sampling (`"sampling"`,
+  [API.md](API.md#sampling-and-limits)) when the config has no block of yours.
 - **The model files** (`models/`, `packs/`): in **`Puddle-data` next to the Puddle folder**, or wherever `--data-dir`
   put them. A `packs/<model>/` folder holds the tokenizer setup made from the GGUF and the expert profile the engine
   keeps.

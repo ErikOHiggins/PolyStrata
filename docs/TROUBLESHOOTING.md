@@ -57,7 +57,8 @@ The conversation is longer than the context you chose. Start a new chat, run set
 let the server drop old turns ([API.md](API.md#context)).
 
 **The answers are the same every time.**
-Without a `sampling` block in `strata-<model>.json`, a request that sends no temperature is answered greedy. Add one,
+The config has no `sampling` block (one made by hand), so a request that sends no temperature is answered greedy. Run
+setup again for the model (it writes the model's sampling and keeps everything else you added), add a block by hand,
 or set the sampling in your app ([API.md](API.md#sampling-and-limits)).
 
 **It is slower than the README's numbers.**

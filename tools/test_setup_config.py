@@ -68,7 +68,8 @@ class CarryOver(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertNotIn("kept from", out)
         self.assertNotIn(".bak", out)
-        self.assertFalse(set(cfg) - setup.SETUP_KEYS)                     # setup writes only its own keys
+        self.assertEqual(set(cfg) - setup.SETUP_KEYS, {"sampling"})      # its own keys, and the family's sampling
+        self.assertEqual(cfg["sampling"], setup.FAMILIES["gemma4"]["sampling"])
 
     def test_setup_keys_are_rewritten(self):
         code, out, first, _ = self.run_setup()

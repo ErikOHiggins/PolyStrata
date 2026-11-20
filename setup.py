@@ -182,6 +182,11 @@ REQUIREMENTS = ROOT / "requirements.txt"   # the same packages and their depende
 
 
 # The model families Puddle offers: each runs on strata-poly and has sizes of its own ("models").
+# Each family's sampling: setup writes it as the run config's "sampling" block (a block of the user's stays; a
+# request's own values win).  Laguna: the setting echo's testing settled on (2026-11-18: min_p 0.1; poolside's
+# generation_config has min_p 0.0).  Occamy: echo's live config.  Gemma 4: Google's model card ("Sampling
+# Parameters") and generation_config.
+LAGUNA_SAMPLING = {"temperature": 1.0, "top_p": 1.0, "top_k": 20, "min_p": 0.1}
 FAMILIES = {
     # Laguna-S 2.1 (poolside): 48 layers, 12 of them full attention (8 KV heads of 128), 36 sliding (a 512-token
     # window), 256 experts of which 10 are used.  Its KV is q8_0 (setup writes --kv q8_0), as it runs every day on
@@ -189,7 +194,7 @@ FAMILIES = {
     # token (24,576 values).  vram_beside_gb: from that run's log (21.7 GiB of UD-Q3_K_XL's experts in VRAM at load on
     # 2x 15.48 GiB, less setup's 2.0 GiB for the second card) plus the q8_0 KV of 32K; the other sizes have the same
     # dense weights within 0.1 GB.  ram_gb: setup's estimate beside a 16 GB card (poly_ram_need).
-    "laguna-s": {"title": "Laguna S 2.1", "by": "poolside; quantized by Unsloth",
+    "laguna-s": {"title": "Laguna S 2.1", "by": "poolside; quantized by Unsloth", "sampling": LAGUNA_SAMPLING,
                  "about": "a 54 GB file, ~51 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti 16 GB at 262K; "
                           "two larger sizes too",
                  "hf": hf("unsloth/Laguna-S-2.1-GGUF"), "file": "{q}/Laguna-S-2.1-{q}-0000{i}-of-00003.gguf",
@@ -227,7 +232,7 @@ FAMILIES = {
     # Laguna-XS 2.1 (poolside): 40 layers, 10 of them full attention, 256 experts of which 8 are used; q8_0 KV as
     # Laguna-S (row_bytes: 20,480 values a token).  Run on the same PC at 262K, every expert in VRAM (17.7 GiB on
     # the two cards).  vram_beside_gb: Laguna-S's less the 2.8 GiB of dense weights XS does not have (an estimate).
-    "laguna-xs": {"title": "Laguna XS 2.1", "by": "poolside",
+    "laguna-xs": {"title": "Laguna XS 2.1", "by": "poolside", "sampling": LAGUNA_SAMPLING,
                   "about": "the small Laguna: a 20 GB file, ~17 GB of RAM beside a 16 GB card; runs on 2x RTX 5060 Ti "
                            "16 GB at 262K",
                   "hf": hf("poolside/Laguna-XS-2.1-GGUF"), "file": "Laguna-XS-2.1-{q}.gguf", "shards": 1,
@@ -245,6 +250,7 @@ FAMILIES = {
     # encoder's VRAM are upstream's measurements of those (Ornith 1.5, the same architecture).  APEX-Quality runs on
     # the same PC on both cards with the encoder on the GPU, 262K, fp16 KV (the engine's default, which setup keeps).
     "occamy": {"title": "Occamy 1.0 35B-A3B", "by": "Accio-Lab; APEX quantization",
+               "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "presence_penalty": 1.5},
                "about": "Qwen3.6-35B-A3B's architecture, reads pictures; a 23 GB file, ~18 GB of RAM beside a 16 GB "
                         "card; runs on 2x RTX 5060 Ti 16 GB with images",
                "hf": hf("Accio-Lab/occamy-1.0-APEX-GGUF"), "file": "occamy-1.0-{q}.gguf", "shards": 1,
@@ -271,6 +277,7 @@ FAMILIES = {
                           "mmproj-occamy-1.0-F16.gguf":
                           (899282944, "8f827a1e495f23e987686a7f55c26064270502a5b6ee954a828f1aec0b2fd400")}},
     "gemma4": {"title": "Gemma 4 26B-A4B", "by": "Google; quantized by Unsloth",
+               "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
                "about": "on the strata-poly engine too; a 13 GB file, ~18 GB of RAM beside an 8 GB card; a smaller and a "
                         "larger size too",
                "hf": hf("unsloth/gemma-4-26B-A4B-it-GGUF"), "file": "gemma-4-26B-A4B-it-{q}.gguf", "shards": 1,
@@ -861,10 +868,6 @@ def pcie_lines(link: dict) -> tuple[str, str | None]:
 GPU_PICK = None                                         # --gpu N (issue #51); None: the card with the most VRAM
 SPLIT_MIN_VRAM_GB = 8                                   # a card sharing a model holds the dense weights and its own
                                                         # prompt buffers too (docs/MULTI_GPU.md)
-SPLIT_PROMPT_VRAM_GB = 12                               # #448: a split stage lends a prompt chunk's buffers from its
-                                                        # own cache; below this one cannot fund a 4096-token chunk
-                                                        # (a 10 GB RTX 3080 beside a 32 GB card: 512 tokens, prompts
-                                                        # 6.2x slower), while the big card alone could
 
 
 def cc(g) -> str:
@@ -974,20 +977,6 @@ def together_ok(found) -> list:
     return ok_ if len(ok_) >= 2 else []
 
 
-def split_short(cards) -> list:
-    """#448: the later cards of a split that would cap its prompt chunk below what the first card alone reads (a card
-    under SPLIT_PROMPT_VRAM_GB beside one that has it).  Empty: the split is recommended as before."""
-    if len(cards) < 2 or cards[0]["vram_gb"] < SPLIT_PROMPT_VRAM_GB - 0.5:
-        return []
-    return [g for g in cards[1:] if g["vram_gb"] < SPLIT_PROMPT_VRAM_GB - 0.5]
-
-
-def split_short_note(g) -> str:
-    return (f"GPU {g['index']} ({g['name']}, {g['vram_gb']:.0f} GB) is too small to lend a split its prompt buffers: "
-            "it would cap prompt reading at 512-2048-token chunks, several times slower than the first card alone "
-            "(#448)")
-
-
 def parse_gpus(text, found) -> list:
     """--gpus / --gpu with several: "0,2" or "all" (every card that can share the model)."""
     if str(text).strip().lower() == "all":
@@ -1071,20 +1060,16 @@ def choose_gpus(a, found) -> list:
     say()
     say(f"  Puddle can run the model on one GPU, or share it across {'these' if len(can) > 2 else 'both'}: then each"
         " card holds the")
-    say("  experts of its own layers, so together they hold about twice as many, and prompts are read about 20%")
-    say("  faster (details: docs/MULTI_GPU.md). A much slower extra card can also make it slower.")
+    say("  experts of its own layers, so together they hold about twice as many (details: docs/MULTI_GPU.md).")
+    say("  A much slower extra card can also make it slower.")
     opts = [can[:2]] + ([can] if len(can) > 2 else []) + [[g] for g in single]
-    # #448: a pair whose second card cannot lend a 4096-token chunk recommends the first card alone (still offered)
-    short = split_short(can[:2])
-    rec = next(i for i, o in enumerate(opts, 1) if o == [can[0]]) if short else 1
+    rec = 1
     for i, o in enumerate(opts, 1):
         label = (" + ".join(gpu_name(g) for g in o) + " together") if len(o) > 1 else gpu_name(o[0]) + " only"
         say(f"  {i}) {label}" + ("   (recommended)" if i == rec else ""))
     for g in found:
         if gpu_problem(g, together=True) is not None:
             say(f"     (GPU {g['index']}, {g['name']}: {gpu_problem(g, together=True)})")
-    for g in short:
-        say(f"     ({split_short_note(g)})")
     pick = opts[int(ask("Which GPUs?", [str(i) for i in range(1, len(opts) + 1)], str(rec), a.yes or a.check)) - 1]
     return [g["index"] for g in pick]
 
@@ -3168,11 +3153,12 @@ def args_dropped(old: dict, cfg: dict) -> list[str]:
     return list(dict.fromkeys(f for f in flags(old) if f not in new))
 
 
-def write_setup_config(cfg_path: Path, cfg: dict, source: Path | None = None) -> None:
+def write_setup_config(cfg_path: Path, cfg: dict, source: Path | None = None, sampling: dict | None = None) -> None:
     """#629: setup's run config, written over an earlier one for the same model without losing what the user added
     to it: the keys setup does not write are carried over (carry_over), and the earlier file is kept as
     strata-<model>.json.bak when it changes.  `source`: an earlier install's config to carry the keys over from when
-    this folder has none yet (a copy set up like the last one).  A line says what was kept, one what was not."""
+    this folder has none yet (a copy set up like the last one).  A line says what was kept, one what was not.
+    `sampling`: the family's sampling, written as the "sampling" block when the config has none of the user's."""
     old_path = cfg_path if cfg_path.is_file() else source
     old = None
     if old_path is not None and old_path.is_file():
@@ -3183,6 +3169,12 @@ def write_setup_config(cfg_path: Path, cfg: dict, source: Path | None = None) ->
         if not isinstance(old, dict):
             old = None
     kept = carry_over(old, cfg) if old is not None else []
+    if sampling and old is not None and old.get("sampling") == sampling:   # setup's own block from a run before:
+        kept = [k for k in kept if k != "sampling"]                        # kept, but not news
+    if sampling and "sampling" not in cfg:             # a block of the user's (carried over) stays as it is
+        cfg["sampling"] = dict(sampling)
+        ok("sampling for requests that set none: " + ", ".join(f"{k} {v}" for k, v in sampling.items())
+           + " (\"sampling\" in the config)")
     if "images" in cfg and cfg["images"] is None:      # --images no (or not downloaded): no image section
         cfg.pop("images")
     bak = None
@@ -4243,7 +4235,7 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
     if a.images:                                       # only when given: else an earlier "images" is carried over
         cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir))
     poly_kv_whole(cfg)
-    write_setup_config(cfg_path, cfg, earlier)
+    write_setup_config(cfg_path, cfg, earlier, sampling=fam.get("sampling"))
     script = write_run_script(tag, cfg_path, port, cfg.get("open_browser") is not False)
     ok(f"start script: {script.name}")
 

@@ -255,8 +255,12 @@ One request is answered at a time unless `"parallel": N` is set (up to N decoded
 
 **Temperature / top_p / top_k / min_p / seed** are honored per request (OpenAI and Anthropic fields). The config's
 `sampling` block sets the defaults for requests that leave them out (`"sampling": {"temperature": 1.0, "top_p": 0.95,
-"top_k": 20}`); the web page's shared Chat settings win over it, and a request's own fields win over both. **A request
-with no sampling and no `sampling` block is greedy** (strata-poly's default, temperature 0). `top_k` takes at most 64.
+"top_k": 20}`); the web page's shared Chat settings win over it, and a request's own fields win over both.
+Setup writes each family's sampling as the block: Laguna-S and Laguna-XS temperature 1.0, top_p 1.0, top_k 20,
+min_p 0.1 (what testing on echo settled on; poolside's own config has min_p 0); Occamy 1.0 / 0.95 / 20 with
+presence_penalty 1.5; Gemma 4 1.0 / 0.95 / 64 (Google's model card). A block you write yourself is kept when setup
+runs again. A config without a block (one made by hand, or before setup wrote them) answers a request with no sampling
+greedy (strata-poly's default, temperature 0). `top_k` takes at most 64.
 The penalties (`presence_penalty`, `frequency_penalty`, `repetition_penalty`, with `penalty_last_n`, default 64;
 llama.cpp's `repeat_penalty` and `repeat_last_n` work too) count the tokens the request has consumed.
 

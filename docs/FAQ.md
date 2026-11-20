@@ -103,9 +103,10 @@ unchanged.
 
 ### Why are the answers the same every time?
 
-Without a `sampling` block in `strata-<model>.json`, a request that sends no temperature is answered greedy (the
-engine's default). Add one, for example `"sampling": {"temperature": 0.7, "top_p": 0.95, "top_k": 20}`, or set the
-sampling in your app ([API.md](API.md#sampling-and-limits)).
+Setup writes each model's sampling into `strata-<model>.json` (`"sampling"`), so this happens only with a config
+that has no such block (one made by hand): a request that sends no temperature is then answered greedy, the engine's
+default. Add a block, or run setup again for the model, or set the sampling in your app
+([API.md](API.md#sampling-and-limits)).
 
 ### Can several people use one server at once?
 

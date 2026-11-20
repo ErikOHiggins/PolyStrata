@@ -75,6 +75,35 @@ class Catalog(unittest.TestCase):
 class Install(unittest.TestCase):
     setUp, tearDown, main = PolyMain.setUp, PolyMain.tearDown, PolyMain.main
 
+    def test_each_family_writes_its_sampling(self):
+        # Laguna: echo's testing (min_p 0.1); Occamy: echo's live config; Gemma 4: Google's model card
+        want = {"laguna-s": {"temperature": 1.0, "top_p": 1.0, "top_k": 20, "min_p": 0.1},
+                "laguna-xs": {"temperature": 1.0, "top_p": 1.0, "top_k": 20, "min_p": 0.1},
+                "occamy": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "presence_penalty": 1.5},
+                "gemma4": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}}
+        self.assertEqual({f: fam.get("sampling") for f, fam in setup.FAMILIES.items()}, want)
+        for family, sampling in want.items():
+            with self.subTest(family=family):
+                self.tearDown()
+                self.setUp()
+                code, out, cfg = self.main(family=family, ram=128.0, vram=15.9, n_gpus=2)
+                self.assertEqual(code, 0, out[-3000:])
+                self.assertEqual(cfg["sampling"], sampling)
+                self.assertIn("sampling for requests that set none", out)
+                # the server takes the block as it is (a bad value would stop it at its start)
+                sys.path.insert(0, str(ROOT / "serve"))
+                from serve import server
+                self.assertEqual(server.sampling_defaults_from_config(cfg), sampling)
+
+    def test_a_sampling_block_of_the_user_s_is_kept(self):
+        mine = {"temperature": 0.6, "top_p": 0.9}
+        code, out, cfg = self.main(family="laguna-s", model="UD-Q3_K_XL", ram=128.0, vram=15.9, n_gpus=2,
+                                   configs=[("strata-laguna-s21-ud-q3_k_xl.json",
+                                             {"exe": "x", "args": [], "sampling": mine})])
+        self.assertEqual(code, 0, out[-3000:])
+        self.assertEqual(cfg["sampling"], mine)
+        self.assertNotIn("sampling for requests that set none", out)
+
     def test_the_menu_s_default_is_laguna_s(self):
         code, out, cfg = self.main(family=None, ram=128.0, vram=15.9, n_gpus=2)
         self.assertEqual(code, 0, out[-3000:])

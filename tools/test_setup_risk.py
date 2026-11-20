@@ -171,29 +171,23 @@ class SmallCard(unittest.TestCase):
         self.assertEqual(cfg["gpu"], 0)                                   # one card: as before
 
 
-class SplitShortCard(unittest.TestCase):
-    """#448: a second card too small to lend a split's prompt chunk: the first card alone recommended, the pair kept
-    when named."""
+class SmallSecondCard(unittest.TestCase):
+    """#448's rule (the bigger card alone when the second has under 12 GB) was measured on PolyStrata's Qwen engine
+    and is gone: a pair that can share the model is recommended, one card alone is still there when named."""
     FOUND = [card(0, "NVIDIA RTX PRO 4500 Blackwell", 31.8, "120"), card(1, "NVIDIA GeForce RTX 3080", 10.0, "86")]
 
-    def test_rule(self):
-        self.assertEqual([g["index"] for g in setup.split_short(self.FOUND)], [1])
-        self.assertEqual(setup.split_short(PROFILES["32GB-2x24GB"][1]), [])
-        self.assertEqual(setup.split_short(PROFILES["47GB-2x16GB"][1]), [])
-        eights = [card(i, "NVIDIA GeForce RTX 3070", 8.0, "86") for i in range(2)]
-        self.assertEqual(setup.split_short(eights), [])                   # neither card alone reads more
-
-    def test_yes_takes_the_first_card(self):
+    def test_yes_takes_the_pair(self):
         code, out, cfg, _ = install(127.8, self.FOUND, ["--family", "gemma4", "--model", "UD-Q3_K_M", "--no-start"])
         self.assertEqual(code, 0, out)
-        self.assertEqual(cfg["gpu"], 0)
-        self.assertIn("too small to lend a split its prompt buffers", out)
-
-    def test_named_pair_is_kept(self):
-        code, out, cfg, _ = install(127.8, self.FOUND, ["--family", "gemma4", "--model", "UD-Q3_K_M", "--no-start",
-                                                        "--gpus", "0,1"])
-        self.assertEqual(code, 0, out)
         self.assertEqual(cfg["gpu"], [0, 1])
+        self.assertNotIn("too small to lend a split", out)
+        self.assertNotIn("20%", out)                                     # the Qwen engine's prompt figure is gone too
+
+    def test_named_first_card(self):
+        code, out, cfg, _ = install(127.8, self.FOUND, ["--family", "gemma4", "--model", "UD-Q3_K_M", "--no-start",
+                                                        "--gpu", "0"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(cfg["gpu"], 0)
 
 
 if __name__ == "__main__":
