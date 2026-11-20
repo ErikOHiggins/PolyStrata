@@ -553,17 +553,6 @@ __device__ __align__(4) int8_t mxfp4_values[16] = {0, 1, 2, 3, 4, 6, 8, 12, 0, -
 
 // Eight four-bit codes of q4 looked up in a codebook of 16: the even nibbles' values in .x, the odd ones' in .y.
 __device__ __forceinline__ int2 table16_lookup(const int8_t* table, int q4) {
-#if defined(STRATA_HIP_GFX906)
-    // AMD: llama.cpp's HIP lookup (see iq_kernels.cu get_int_from_table_16): 4 v_perm_b32 per 8 values
-    const uint32_t* v32 = reinterpret_cast<const uint32_t*>(table);
-    const uint32_t q_even = (uint32_t) q4, q_odd = (uint32_t) q4 >> 4;
-    const uint32_t el = __builtin_amdgcn_perm(v32[1], v32[0], q_even & 0x07070707u);
-    const uint32_t ol = __builtin_amdgcn_perm(v32[1], v32[0], q_odd & 0x07070707u);
-    const uint32_t eh = __builtin_amdgcn_perm(v32[3], v32[2], q_even & 0x07070707u);
-    const uint32_t oh = __builtin_amdgcn_perm(v32[3], v32[2], q_odd & 0x07070707u);
-    return make_int2((int) __builtin_amdgcn_perm(eh, el, 0x03020100u | ((q_even & 0x08080808u) >> 1)),
-                     (int) __builtin_amdgcn_perm(oh, ol, 0x03020100u | ((q_odd & 0x08080808u) >> 1)));
-#else
     const uint32_t* table32 = reinterpret_cast<const uint32_t*>(table);
     uint32_t tmp[2];
     const uint32_t low_high_selection_indices = 0x32103210 | ((q4 & 0x88888888) >> 1);
@@ -575,7 +564,6 @@ __device__ __forceinline__ int2 table16_lookup(const int8_t* table, int q4) {
         tmp[i] = __byte_perm(low, high, low_high_selection_indices >> shift);
     }
     return make_int2(__byte_perm(tmp[0], tmp[1], 0x6420), __byte_perm(tmp[0], tmp[1], 0x7531));
-#endif
 }
 
 __device__ __forceinline__ int2 iq4_table_lookup(int q4) { return table16_lookup(iq4nl_values, q4); }
@@ -1819,75 +1807,6 @@ void launch_check() {
     }
 }
 
-#if defined(STRATA_HIP_GFX906)
-// ---- AMD (wave64) layout: one wavefront per R rows, four wavefronts per block, the row's blocks strided over the
-// 64 lanes exactly as the CUDA kernels stride them over a block (kbx = lane / T, stride 64 / T), and a 64-lane
-// butterfly instead of the LDS partials and __syncthreads of the one-block-per-row layout: on gfx906 a block per
-// 2 KB row spent most of its time being launched and joined.  The SAME kernel serves every column count 1..8, so a
-// column's sums do not depend on how many columns (verify tokens) ride along.  STRATA_MMVQ_WAVE=0: the CUDA layout.
-bool g_wave_off = std::getenv("STRATA_MMVQ_WAVE") && std::string(std::getenv("STRATA_MMVQ_WAVE")) == "0";
-template<typename F, int NCOLS, int R>
-__launch_bounds__(256)
-__global__ void native_mmvq_wave_kernel(const typename F::Block* __restrict__ w, const Q81Block* __restrict__ x,
-                                        float* __restrict__ y, int n_in, int n_out) {
-    constexpr int BPIW = 64 / F::T;
-    static_assert(64 % F::T == 0, "a block's threads must tile the wavefront");
-    const int lane = int(threadIdx.x) & 63;
-    const int row0 = (int(blockIdx.x) * 4 + (int(threadIdx.x) >> 6)) * R;
-    if (row0 >= n_out) return;
-    const int blocks_per_row = n_in / F::DIV;
-    const int x_stride = n_in / Q8K;
-    const int kqs = F::kqs(lane);
-    float tmp[NCOLS][R] = {};
-    for (int kbx = lane / F::T; kbx < blocks_per_row; kbx += BPIW) {
-        const int kby = kbx * F::KBY;
-#pragma unroll
-        for (int i = 0; i < R; ++i) {
-            if (row0 + i < n_out) {
-                const typename F::W wv = F::load(w + std::size_t(row0 + i) * blocks_per_row + kbx, kqs);
-#pragma unroll
-                for (int j = 0; j < NCOLS; ++j) tmp[j][i] += F::apply(wv, x + std::size_t(j) * x_stride + kby, kqs);
-            }
-        }
-    }
-#pragma unroll
-    for (int j = 0; j < NCOLS; ++j)
-#pragma unroll
-        for (int i = 0; i < R; ++i) {
-            float v = tmp[j][i];
-#pragma unroll
-            for (int off = 32; off > 0; off >>= 1) v += __shfl_xor(v, off, 64);
-            if (lane == 0 && row0 + i < n_out) y[std::size_t(j) * n_out + row0 + i] = v;
-        }
-}
-template<typename F, int NCOLS>
-void wave_launch_n(const void* weights, const void* x_q8_1, float* y, int n_in, int n_out, cudaStream_t s) {
-    const auto* w = static_cast<const typename F::Block*>(weights);
-    const auto* x = static_cast<const Q81Block*>(x_q8_1);
-    constexpr int R = 1;
-    const unsigned blocks = unsigned((std::size_t(n_out) + 4 * R - 1) / (4 * R));
-    native_mmvq_wave_kernel<F, NCOLS, R><<<blocks, 256, 0, s>>>(w, x, y, n_in, n_out);
-}
-template<typename F>
-void wave_launch(const void* weights, const void* x_q8_1, float* y, int n_in, int n_out, int ncols, void* stream) {
-    const auto s = static_cast<cudaStream_t>(stream);
-    switch (ncols) {
-        case 1: wave_launch_n<F, 1>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 2: wave_launch_n<F, 2>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 3: wave_launch_n<F, 3>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 4: wave_launch_n<F, 4>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 5: wave_launch_n<F, 5>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 6: wave_launch_n<F, 6>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 7: wave_launch_n<F, 7>(weights, x_q8_1, y, n_in, n_out, s); break;
-        case 8: wave_launch_n<F, 8>(weights, x_q8_1, y, n_in, n_out, s); break;
-        default: throw std::invalid_argument("native MMVQ (wave) requires 1 <= ncols <= 8");
-    }
-}
-#define STRATA_WAVE_MMVQ(...) \
-    if (!g_wave_off) { wave_launch<__VA_ARGS__>(weights, x_q8_1, y, n_in, n_out, ncols, stream); launch_check(); return; }
-#else
-#define STRATA_WAVE_MMVQ(...)
-#endif
 
 template<typename Weight, int Qi>
 void small_mmvq(const void* weights, const void* x_q8_1, float* y,
@@ -1898,7 +1817,6 @@ void small_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(SmallTraits<Weight, Qi>)
     if (ncols > 1) {
         launch_multi<SmallTraits<Weight, Qi>>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -1970,7 +1888,6 @@ void native_q5_k_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(Q5KTraits)
     if (ncols > 1) {
         launch_multi<Q5KTraits>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -2064,7 +1981,6 @@ void native_q2_0_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(Q20Traits)
 #if !defined(__HIPCC__)
     // one column always (bitwise the single-column kernel); two to four only where the exact layout is the one in use
     if (ncols <= 4 && (ncols == 1 || g_multi_exact) && q2_0_warp_rows_on()) {
@@ -2109,7 +2025,6 @@ void native_q3_k_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(Q3KTraits)
     if (ncols > 1) {
         launch_multi<Q3KTraits>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -2161,7 +2076,6 @@ void native_iq4_xs_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(IQ4XSTraits)
     if (ncols > 1) {
         launch_multi<IQ4XSTraits>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -2188,7 +2102,6 @@ void native_q4_k_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(Q4KTraits)
     if (ncols > 1) {
         launch_multi<Q4KTraits>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -2215,7 +2128,6 @@ void native_q6_k_mmvq(const void* weights, const void* x_q8_1, float* y,
     validate_pointer(x_q8_1);
     validate_pointer(y);
     validate_stream(stream);
-    STRATA_WAVE_MMVQ(Q6KTraits)
     if (ncols > 1) {
         launch_multi<Q6KTraits>(weights, x_q8_1, y, n_in, n_out, ncols, stream);
         launch_check();
@@ -2317,16 +2229,11 @@ namespace {
 
 // The formats a slots launch has a kernel for: 1 this file's, 2 iq_kernels.cu's, 0 none.
 int slots_kind(int ggml_type) {
-#if defined(STRATA_HIP_GFX906)
-    (void) ggml_type;
-    return 0;   // the wave layout has no kernel for it
-#else
     switch (ggml_type) {
     case 2: case 6: case 8: case 20: case 39: case 10: case 11: case 12: case 13: case 14: case 23: case 42: return 1;
     case 7: case 16: case 17: case 18: case 21: case 22: case 29: case 40: return 2;   // the ones native_mmvq() hands to iq_mmvq()
     default: return 0;
     }
-#endif
 }
 
 template<typename S>

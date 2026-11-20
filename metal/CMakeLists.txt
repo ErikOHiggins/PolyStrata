@@ -1,7 +1,7 @@
 # metal/ - strata-poly on Apple Silicon (Metal).  Its own CMake project, macOS only, never part of the CUDA / HIP builds.
 #
 # strata-poly's host sources from ../src, UNCHANGED: include/metal_compat goes first on the include path and gives them
-# the CUDA runtime names on Metal, as include/strata/platform/hip_compat does on HIP, over the Metal device runtime
+# the CUDA runtime names on Metal, as include/strata/hip_compat does on HIP, over the Metal device runtime
 # src/gpu/runtime.cpp (metal-cpp) and strata-poly's Metal kernels in src/poly/.
 #
 #   cmake -S metal -B build-metal -G Ninja -DCMAKE_BUILD_TYPE=Release -DMETAL_CPP_DIR=... -DSTRATA_GGML_DIR=... \

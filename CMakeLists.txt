@@ -45,24 +45,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(STRATA_ENABLE_CUDA "Build the CUDA targets (Phase 2+)" OFF)
-# AMD gfx906 (MI50, wave64): the same .cu sources compiled as HIP through the gfx906 compat layer.  The CUDA runtime and
-# cuBLAS names are mapped by the headers in include/strata/platform/hip_compat/, which go first on the include path,
-# and CUDA::cudart / CUDA::cublas become aliases of HIP's targets, so every CUDA target below stays as it is.  This is
-# separate from STRATA_ENABLE_HIP (the wave32 RDNA backend): with it on, STRATA_ENABLE_CUDA is on and
-# STRATA_ENABLE_HIP stays off, so every "CUDA" branch of the tree is the one taken.
-option(STRATA_HIP_GFX906 "Build the CUDA targets for AMD gfx906 through HIP (wave64 compat layer)" OFF)
-if(STRATA_HIP_GFX906)
-  if(STRATA_ENABLE_HIP)
-    message(FATAL_ERROR "STRATA_HIP_GFX906 and STRATA_ENABLE_HIP are separate backends; enable only one")
-  endif()
-  set(STRATA_ENABLE_CUDA ON CACHE BOOL "" FORCE)
-endif()
 option(STRATA_ENABLE_HIP "Build the HIP targets for wave32 AMD GPUs (gfx1100, gfx1201; gfx1012/gfx1030 unvalidated)" OFF)
 option(STRATA_PREFILL_MMQ "Build the optional GGML MMQ prefill path for HIP" OFF)
 if(STRATA_PREFILL_MMQ AND NOT STRATA_ENABLE_HIP)
   message(FATAL_ERROR "STRATA_PREFILL_MMQ requires STRATA_ENABLE_HIP=ON")
 endif()
-if(STRATA_ENABLE_CUDA AND STRATA_ENABLE_HIP AND NOT STRATA_HIP_GFX906)
+if(STRATA_ENABLE_CUDA AND STRATA_ENABLE_HIP)
   message(FATAL_ERROR "STRATA_ENABLE_CUDA and STRATA_ENABLE_HIP are separate backends; enable only one")
 endif()
 if(STRATA_ENABLE_HIP)
@@ -92,27 +80,7 @@ if(STRATA_BUILD_CONVERSATION_TESTS)
   add_test(NAME poly_guesses_test COMMAND poly_guesses_test)
 endif()
 
-if(STRATA_HIP_GFX906)
-  if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
-    set(CMAKE_HIP_ARCHITECTURES gfx906 CACHE STRING "HIP architectures" FORCE)
-  endif()
-  enable_language(HIP)
-  find_package(hip REQUIRED)
-  find_package(hipblas REQUIRED)
-  add_library(CUDA::cudart INTERFACE IMPORTED)
-  target_link_libraries(CUDA::cudart INTERFACE hip::host)
-  target_compile_definitions(CUDA::cudart INTERFACE STRATA_HIP_GFX906=1 __HIP_PLATFORM_AMD__=1)
-  target_include_directories(CUDA::cudart BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include/strata/platform/hip_compat)
-  add_library(CUDA::cublas INTERFACE IMPORTED)
-  target_link_libraries(CUDA::cublas INTERFACE roc::hipblas CUDA::cudart)
-  set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/include/strata/platform/hip_compat)
-  include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include/strata/platform/hip_compat)
-  add_compile_definitions(STRATA_HIP_GFX906=1)
-  message(STATUS "Strata: HIP (gfx906 compat) enabled, arch ${CMAKE_HIP_ARCHITECTURES}")
-  set(_strata_gpu_runtime_target CUDA::cudart)
-  set(_strata_gpu_blas_target CUDA::cublas)
-  set(_strata_gpu_include_directories ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-elseif(STRATA_ENABLE_CUDA)
+if(STRATA_ENABLE_CUDA)
   # #585: CMake links CUDA code with the STATIC runtime by default, and the targets below also link CUDA::cudart (the
   # DLL's import library).  MSVC with a CUDA 12.x toolkit - the experimental Pascal/Volta build - then fails with
   # LNK1169 (every cudart symbol defined twice); GNU ld lets it pass.  That build links the shared runtime alone.  The
@@ -232,7 +200,7 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   # Match the pinned llama.cpp CUDA arithmetic contract for this adapter only.
   if(STRATA_ENABLE_CUDA)
     set_source_files_properties(src/kernels/cuda/native_mmvq.cu
-      PROPERTIES COMPILE_OPTIONS "$<IF:$<BOOL:${STRATA_HIP_GFX906}>,,--use_fast_math>")
+      PROPERTIES COMPILE_OPTIONS "--use_fast_math")
   endif()
 
   # available_host_bytes(): MemAvailable, cgroup limits and the operator's --memory-limit-mib cap on fixture directories
@@ -359,8 +327,8 @@ endif()
 #
 # A second engine beside `strata`.  It shares the quantized matvec kernels and the GGUF reader, and takes the
 # CPU experts' dot products from ggml-cpu.  On HIP it is the same CUDA-shaped code through the hip_compat headers
-# (the wave32 RDNA backend; gfx906's wave64 compat layer is not supported here).
-if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT STRATA_HIP_GFX906)
+# (the wave32 RDNA backend).
+if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP))
   # The prompt path's quantized products: llama.cpp's MMQ kernels (ggml-cuda, MIT) for the types the model's
   # GGUFs keep their matrices in (the list in src/poly/mmq.cu), from the checkout strata_mmq is compiled from and
   # with the same host symbols.  A library of its own, so that what `strata` multiplies with MMQ stays as it is.
@@ -578,16 +546,5 @@ if(STRATA_BUILD_TESTS)
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
   endif()
-endif()
-
-# ---- HIP gfx906: every CUDA source of the tree (and the ggml-cuda MMQ sources) is compiled as HIP ----
-if(STRATA_HIP_GFX906)
-  file(GLOB_RECURSE _strata_cu CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu ${CMAKE_CURRENT_SOURCE_DIR}/bench/micro/*.cu
-       ${CMAKE_CURRENT_SOURCE_DIR}/tools/vision/*.cu)
-  if(_strata_mmq)
-    file(GLOB _strata_mmq_cu ${_strata_mmq}/*.cu ${_strata_mmq}/template-instances/*.cu)
-    list(APPEND _strata_cu ${_strata_mmq_cu})
-  endif()
-  set_source_files_properties(${_strata_cu} PROPERTIES LANGUAGE HIP)
 endif()
 
