@@ -31,6 +31,12 @@ class Compare(unittest.TestCase):
         self.assertEqual(C.answer(reply), ("brief", "Hello!", 327))
         self.assertEqual(C.answer({"choices": [{"message": {"content": "x"}}]}), ("", "x", None))
 
+    def test_an_http_error_says_the_servers_own_words(self):
+        e = C.urllib.error.HTTPError("http://x", 400, "Bad Request", {}, io.BytesIO(
+            b'{"error": {"code": 400, "message": "Failed to tokenize prompt"}}'))
+        self.assertEqual(C.error_words(e), "HTTP 400: Failed to tokenize prompt")
+        self.assertEqual(C.error_words(RuntimeError("it stopped")), "it stopped")
+
     def test_only_a_llama_server_config(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = Path(d) / "strata-x.json"

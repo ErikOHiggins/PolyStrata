@@ -31,6 +31,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -47,6 +48,24 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def error_words(e: Exception) -> str:
+    """An HTTP error with the server's own message (its JSON "error" body), else the error as it is."""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = json.loads(e.read() or b"{}")
+            msg = (body.get("error") or {}).get("message") if isinstance(body.get("error"), dict) else body.get("error")
+            if msg:
+                return f"HTTP {e.code}: {msg}"
+        except (ValueError, OSError, AttributeError):
+            pass
+    return str(e)
+
+
+def get_json(url: str, timeout: float = 30.0) -> dict:
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read())
 
 
 def post(url: str, body: dict, key: str | None = None, timeout: float = 900.0) -> dict:
@@ -152,7 +171,7 @@ def main(argv=None) -> int:
         key = str(cfg.get("api_key") or "").split(",")[0].strip() or None   # the config's own key, if it has one
         mine = post(f"http://127.0.0.1:{port}/v1/chat/completions", body, key)
     except (RuntimeError, OSError, urllib.error.URLError, ValueError) as e:
-        print(f"Puddle: {e} (its output: {a.log})")
+        print(f"Puddle: {error_words(e)} (its output: {a.log})")
         return 2
     finally:
         stop(puddle)
@@ -174,9 +193,15 @@ def main(argv=None) -> int:
         replay = json.loads(request_file.read_text(encoding="utf-8")) if request_file.is_file() else None
         if replay is not None:
             replay["cache_prompt"] = False
+            prompt = replay.get("prompt")
+            if isinstance(prompt, dict) and isinstance(prompt.get("prompt_string"), str):
+                # llama-server makes a new media marker at each start: this one's goes where Puddle's was
+                marker = get_json(f"http://127.0.0.1:{port}/props").get("media_marker") or ""
+                prompt["prompt_string"] = re.sub(r"<__media_[A-Za-z0-9]*__>", lambda m: marker,
+                                                 prompt["prompt_string"])
             replayed = stream_text(f"http://127.0.0.1:{port}/completion", replay)
     except (RuntimeError, OSError, urllib.error.URLError, ValueError) as e:
-        print(f"llama-server: {e} (its output: {a.log})")
+        print(f"llama-server: {error_words(e)} (its output: {a.log})")
         return 2
     finally:
         stop(llama)
