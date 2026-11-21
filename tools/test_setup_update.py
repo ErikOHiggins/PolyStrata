@@ -120,6 +120,92 @@ class Update(unittest.TestCase):
         start.assert_not_called()
 
 
+class EngineTests(unittest.TestCase):
+    """./update.sh --tests [REGEX]: strata-poly with its tests in build-poly-tests/, run by ctest, after the update; the
+    installed engine is not touched.  The build and ctest are mocked."""
+
+    def run_tests(self, meta, pattern="", rc=0):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "engine-poly").mkdir()
+            (root / "engine-poly" / "BUILD.json").write_text(json.dumps(meta), encoding="utf-8")
+            bindir = root / "bin"
+            bindir.mkdir()
+            (bindir / ("ctest.exe" if setup.WIN else "ctest")).write_bytes(b"")
+            cmake = str(bindir / ("cmake.exe" if setup.WIN else "cmake"))
+            out = io.StringIO()
+            with mock.patch.object(setup, "ROOT", root), \
+                    mock.patch.object(setup, "install_build_tools", return_value=("/cuda/bin/nvcc", None)) as tools, \
+                    mock.patch.object(setup, "get_llama_cpp", return_value=Path("/llama")), \
+                    mock.patch.object(setup, "cmake_build") as build, \
+                    mock.patch.object(setup, "find_tool", return_value=cmake), \
+                    mock.patch.object(setup, "run", return_value=mock.Mock(returncode=rc)) as run, \
+                    contextlib.redirect_stdout(out):
+                got = setup.run_poly_tests(pattern)
+            return got, tools, build, run, root, out.getvalue()
+
+    META = {"source": "local", "archs": [120], "toolkit": 13, "cuda_dirs": ["/cuda/lib64"]}
+
+    def test_builds_in_its_own_folder_and_runs_ctest(self):
+        got, tools, build, run, root, out = self.run_tests(self.META, "nemotron")
+        self.assertEqual(got, 0)
+        self.assertEqual(tools.call_args[0][0]["archs"], [120])
+        src, bdir, target, defs = build.call_args[0][:4]
+        self.assertEqual((src, bdir, target), (root, root / "build-poly-tests", "all"))
+        self.assertIn("-DSTRATA_BUILD_TESTS=ON", defs)
+        self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=120", defs)
+        self.assertIn("-DCMAKE_CUDA_COMPILER=/cuda/bin/nvcc", defs)
+        cmd = [str(x) for x in run.call_args[0][0]]
+        self.assertTrue(Path(cmd[0]).name.startswith("ctest"))
+        self.assertEqual(cmd[1:3], ["--test-dir", str(root / "build-poly-tests")])
+        self.assertEqual(cmd[-2:], ["-R", "nemotron"])
+        env = run.call_args[1]["env"]
+        self.assertTrue(env["PATH" if setup.WIN else "LD_LIBRARY_PATH"].startswith("/cuda/lib64"))
+        self.assertIn("tests passed", out)
+
+    def test_every_test_without_a_pattern_and_a_failure_is_said(self):
+        got, _, _, run, _, out = self.run_tests(self.META, "", rc=8)
+        self.assertEqual(got, 8)
+        self.assertNotIn("-R", [str(x) for x in run.call_args[0][0]])
+        self.assertIn("did not all pass (ctest exit 8)", out)
+
+    def test_cuda12_engine_gets_its_own_folder(self):
+        _, _, build, _, root, _ = self.run_tests({**self.META, "archs": [61], "toolkit": 12})
+        self.assertEqual(build.call_args[0][1], root / "build-poly-tests-cuda12")
+        self.assertIn("-DSTRATA_EXPERIMENTAL_SM60=ON", build.call_args[0][3])
+
+    def test_needs_an_engine_compiled_here(self):
+        for meta in ({}, {"source": "release", "archs": [120]}, {"backend": "hip", "archs": ["gfx1100"]}):
+            with self.subTest(meta=meta), self.assertRaises(SystemExit):
+                self.run_tests(meta)
+
+    def test_update_runs_them_only_when_asked(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Update.config(self, Path(d))
+            for tests, rc, want in ((None, 0, 0), ("", 0, 0), ("mamba", 3, 3)):
+                with self.subTest(tests=tests), \
+                        mock.patch.object(setup, "run_poly_tests", return_value=rc) as rt, \
+                        mock.patch.object(setup, "pip_install"), mock.patch.object(setup, "update_poly_engine"), \
+                        mock.patch.object(setup, "poly_tail_skip"), mock.patch.object(setup, "poly_kv_whole"), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(setup.update_install([p], mock.Mock(tests=tests)), want)
+                    if tests is None:
+                        rt.assert_not_called()
+                    else:
+                        rt.assert_called_once_with(tests)
+
+    def test_tests_without_update_is_refused(self):
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(sys, "argv", ["setup.py", "--tests"]), \
+                mock.patch.object(setup, "data_folder", return_value=(Path(d), [])), \
+                mock.patch.object(setup, "installed_configs", return_value=[]), \
+                mock.patch.object(setup, "run_poly_tests") as rt, \
+                contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
+            setup.main()
+        rt.assert_not_called()
+        self.assertIn("--tests goes with --update", out.getvalue())
+
+
 class SettingsLine(unittest.TestCase):
     """#564: a start prints the settings it uses (the engine options without the model's paths, and the server's
     fields), so a change made by hand to strata-<model>.json shows without reading the log."""

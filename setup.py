@@ -3030,6 +3030,11 @@ def update_install(have: list, a) -> int:
         if cfg.get("backend") == "hip" and WIN:
             hip_runtime_beside_exe(Path(cfg["exe"]).parent)   # #468 #461
         ok(f"{cfg.get('model_name', cfg_path.stem)}: up to date")
+    tests = getattr(a, "tests", None)
+    if isinstance(tests, str):                         # --tests [REGEX]: the engine's own tests, compiled and run
+        rc = run_poly_tests(tests)
+        if rc != 0:
+            return rc
     ver = engine_version(Path(json.loads(have[0].read_text(encoding="utf-8-sig"))["exe"]))
     say()
     ok("Puddle is updated" + (f" (engine {'.'.join(map(str, ver))})" if any(ver) else "") +
@@ -3426,6 +3431,47 @@ def build_engine_poly(gpu, yes, llama, vision="none", toolkit=13, portable=False
                                 indent=1))
     ok(f"strata-poly compiled: {eng / POLY_EXE}" + (f", image encoder: {eng / VEXE}" if vision != "none" else ""))
     return eng
+
+
+POLY_TESTS_DIR = "build-poly-tests"
+
+
+def run_poly_tests(pattern: str = "") -> int:
+    """`setup.py --update --tests [REGEX]` (./update.sh --tests): strata-poly and its own tests (STRATA_BUILD_TESTS=ON)
+    compiled in a build folder of their own, for the cards and with the toolkit the installed engine was built for,
+    then run by ctest: every registered test, or those whose names match REGEX.  The engine in engine-poly/ is not
+    touched.  A test that needs a card and finds none is skipped (exit code 77).  Returns ctest's exit code."""
+    eng = ROOT / ENGINE_POLY_DIR
+    stamp = eng / "BUILD.json"
+    meta = json.loads(stamp.read_text(encoding="utf-8")) if stamp.exists() else {}
+    if meta.get("backend") == "hip" or meta.get("source") == "release" or not meta.get("archs"):
+        fail("--tests: there is no strata-poly compiled here for NVIDIA cards to take the build's settings from",
+             "run ./setup.sh (START-HERE.bat) first")
+    archs = sorted(int(x) for x in meta["archs"])
+    toolkit = int(meta.get("toolkit", 13))
+    nvcc, vcvars = install_build_tools({"arch": archs[0], "archs": archs, "toolkit": toolkit,
+                                        "need_cuda": (12, 8) if max(archs) >= 120 else (12, 0)}, True)
+    bdir = ROOT / (POLY_TESTS_DIR if toolkit == 13 else POLY_TESTS_DIR + "-cuda12")
+    defs = ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=ON", f"-DCMAKE_CUDA_ARCHITECTURES={';'.join(map(str, archs))}",
+            f"-DCMAKE_CUDA_COMPILER={nvcc}", f"-DSTRATA_GGML_DIR={get_llama_cpp()}",
+            f"-DSTRATA_PORTABLE={'ON' if meta.get('portable') else 'OFF'}"]
+    if min(archs) < CUDA13_MIN_ARCH:
+        defs.append("-DSTRATA_EXPERIMENTAL_SM60=ON")
+    say(f"  Compiling strata-poly and its tests in {bdir.name}/ (the engine in {ENGINE_POLY_DIR}/ stays as it is) ...")
+    cmake_build(ROOT, bdir, "all", defs, vcvars, "build-poly-tests.bat")
+    cmake = find_tool("cmake")                         # ctest comes with it (pip's cmake has both)
+    ctest = Path(cmake).parent / ("ctest.exe" if WIN else "ctest") if cmake else None
+    if ctest is None or not ctest.exists():
+        fail("ctest not found next to cmake", "run: .venv python -m pip install cmake")
+    env = dict(os.environ)
+    dirs = [str(d) for d in (meta.get("cuda_dirs") or [])]
+    var = "PATH" if WIN else "LD_LIBRARY_PATH"
+    env[var] = os.pathsep.join(dirs + ([env[var]] if env.get(var) else []))
+    r = run([ctest, "--test-dir", str(bdir), "--output-on-failure", *(["-R", pattern] if pattern else [])],
+            env=env, check=False)
+    (ok if r.returncode == 0 else warn)("strata-poly's tests " + ("passed" if r.returncode == 0 else
+                                       f"did not all pass (ctest exit {r.returncode}): the failures are above"))
+    return r.returncode
 
 
 def build_engine_poly_hip(gpu, llama, portable=False) -> Path:
@@ -4355,6 +4401,10 @@ def main() -> int:
                     help="update the installed engine (compiled again when its source changed), Python packages and "
                          "model settings as a start would, without starting the model (UPDATE.bat / update.sh run it "
                          "after a git pull)")
+    ap.add_argument("--tests", nargs="?", const="", default=None, metavar="REGEX",
+                    help="with --update (./update.sh --tests): also compile strata-poly with its own tests in "
+                         f"{POLY_TESTS_DIR}/ and run them (ctest); REGEX: only the tests whose names match. The "
+                         "installed engine is not touched")
     ap.add_argument("--max-compatibility", action="store_true",
                     help="on Windows: compile the engine for other PCs too (STRATA_PORTABLE: AVX2 baseline, static "
                          "MSVC runtime); the default build uses this PC's own CPU instructions")
@@ -4429,6 +4479,8 @@ def main() -> int:
 
     # ---- 0. already installed: just start it
     have = installed_configs()
+    if a.tests is not None and not a.update:
+        fail("--tests goes with --update", "run ./update.sh --tests (UPDATE.bat --tests)")
     if a.update:                                       # #475: UPDATE.bat / update.sh - never starts the model
         return update_install(have, a)
     explicit = a.setup or a.model or a.family or a.check or a.no_start

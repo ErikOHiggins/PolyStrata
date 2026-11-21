@@ -35,6 +35,9 @@ offers the same steps as tools.
 - Laguna's bring-up and measurement tools: [laguna/README.md](laguna/README.md).
 - Tests that run without a GPU or downloads: setup's, `python -m unittest tools.test_setup_<name>`; the server's,
   `python -m unittest serve.test_<name>`; the tools', `python -m unittest tools.test_<name>`.
+- strata-poly's own tests (C++/CUDA; those that need a card skip without one): `./update.sh --tests` compiles the
+  engine with them in `build-poly-tests/` and runs them with ctest, `./update.sh --tests REGEX` the matching ones.
+  The installed engine is not touched.
 - Keep the docs' style: plain words, measured numbers with what they were measured on, no claims without a
   measurement.
 
