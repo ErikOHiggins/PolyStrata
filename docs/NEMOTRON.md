@@ -107,8 +107,20 @@ the paper, the date and both headlines correctly, and wrote its 369 tokens at 61
 Not measured yet: a long conversation through Puddle, any other card, and Windows.
 
 `tools/llama_server_check.py --config strata-nemotron-bolt-24gb.json --image <picture>` asks the same question,
-greedy, through Puddle and then of llama-server alone (the model must not be running), and says whether the two
-answers and prompt counts are the same.
+greedy, through Puddle and then of llama-server alone (the model must not be running). It compares the prompt-token
+counts, the prompts as llama-server read them, and the answers. It also replays Puddle's own request on
+llama-server alone's `/completion`.
+
+On echo, 2026-11-20, with llama.cpp's test picture, run three times:
+
+- the prompts were the same: 327 tokens on both paths (Puddle's count of the picture, 302 tokens, was llama-server's),
+  and the same text;
+- Puddle's request on llama-server alone wrote Puddle's thinking and answer exactly;
+- llama-server's own chat endpoint wrote the same first 401 characters of thinking, then took another word at a near
+  tie ("other text" where Puddle's has "other elements"), and its answer followed from there. It reads the same
+  prompt in other batches: it ends a batch where a user message starts, for its checkpoints of the Mamba state
+  (`message_spans` in llama.cpp's `server-context.cpp`), and `/completion` has no such breaks. The rounding of the
+  two parts a little, the same way on every run. Neither answer is the wrong one.
 
 ## Pictures
 
