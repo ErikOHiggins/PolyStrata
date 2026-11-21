@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from serve import models as registry
@@ -177,6 +178,17 @@ class Requests(unittest.TestCase):
         self.assertEqual(e.last, {"generated": 3, "prompt_tokens": 3, "prompt_ms": 12.5, "decode_ms": 40.0,
                                   "finish": "stop", "reused": 0, "prompt_read": 3})
         self.assertEqual(e.progress, (3, 3))
+
+    def test_the_prompt_llama_server_read_can_be_written_out(self):
+        fake = Fake(self, [[HELLO, IM_END]])
+        e = fake.engine(self)
+        out = fake.dir / "prompt.txt"
+        with unittest.mock.patch.dict(S.os.environ, {"STRATA_LLAMA_PROMPT_FILE": str(out)}):
+            run(e, [5, 6, 7])
+        self.assertEqual(out.read_text(encoding="utf-8"), "the prompt, 3 tokens")
+        out.unlink()
+        run(e, [5, 6, 7])                                  # off by default
+        self.assertFalse(out.exists())
 
     def test_a_reply_cut_by_max_tokens_ends_as_length(self):
         fake = Fake(self, [[HELLO] * 10])

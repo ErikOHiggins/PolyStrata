@@ -185,6 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             record({**entry, "end": stop_type, "generated": n})   # before the last event: a test reads it after that
             self._chunk({"content": "", "tokens": [], "stop": True, "tokens_predicted": n,
                          "tokens_evaluated": len(prompt), "stop_type": stop_type, "truncated": False,
+                         "prompt": f"the prompt, {len(prompt)} tokens",     # llama-server's detokenized prompt
                          "tokens_cached": len(prompt) + n,
                          "timings": {"cache_n": cache, "prompt_n": len(prompt) - cache, "prompt_ms": 12.5,
                                      "predicted_n": n, "predicted_ms": 40.0}})

@@ -4,7 +4,9 @@ question with a picture (or none).
 Puddle renders the chat template, tokenizes the text and sends llama-server the prompt (as token ids, or as text with
 llama-server's media marker when there is a picture); llama-server alone does all of that itself through its own
 /v1/chat/completions.  With the same file, the same arguments and greedy decoding the two should write the same
-answer, and count the same prompt tokens (Puddle plans a picture's tokens by serve/media_tokens.py).
+answer, and count the same prompt tokens (Puddle plans a picture's tokens by serve/media_tokens.py).  Both prompts
+as llama-server read them are compared too (its own detokenization: Puddle's from its last event, through
+STRATA_LLAMA_PROMPT_FILE; llama-server alone's from a "verbose" reply).
 
 The model must not be running: the check starts Puddle with the run config (on 127.0.0.1, its own port), asks, stops
 it, then starts llama-server with the config's own command and environment (the cards in the same order), asks,
@@ -111,10 +113,13 @@ def main(argv=None) -> int:
 
     # 1. through Puddle (the run config's own settings; greedy by the request)
     port = free_port()
+    prompt_file = Path(a.log).with_suffix(".puddle-prompt.txt")
+    prompt_file.unlink(missing_ok=True)
     puddle = subprocess.Popen([sys.executable, str(ROOT / "serve" / "server.py"), "--engine", "strata", "--config",
                                str(cfg_path), "--host", "127.0.0.1", "--port", str(port)],
                               cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT,
-                              env={k: v for k, v in os.environ.items() if k != "STRATA_API_KEY"})
+                              env={**{k: v for k, v in os.environ.items() if k != "STRATA_API_KEY"},
+                                   "STRATA_LLAMA_PROMPT_FILE": str(prompt_file.resolve())})
     try:
         print("starting Puddle with the model ...", flush=True)
         wait_up(f"http://127.0.0.1:{port}/health", puddle, "Puddle")
@@ -138,7 +143,7 @@ def main(argv=None) -> int:
     try:
         print("starting llama-server alone ...", flush=True)
         wait_up(f"http://127.0.0.1:{port}/health", llama, "llama-server")
-        theirs = post(f"http://127.0.0.1:{port}/v1/chat/completions", body)
+        theirs = post(f"http://127.0.0.1:{port}/v1/chat/completions", {**body, "verbose": True})
     except (RuntimeError, OSError, urllib.error.URLError, ValueError) as e:
         print(f"llama-server: {e} (its output: {a.log})")
         return 2
@@ -150,6 +155,15 @@ def main(argv=None) -> int:
     r2, c2, n2 = answer(theirs)
     print(f"prompt tokens: Puddle planned {n1}, llama-server counted {n2}" +
           (" (the same)" if n1 == n2 else f" (off by {n1 - n2})" if n1 is not None and n2 is not None else ""))
+    p1 = prompt_file.read_text(encoding="utf-8") if prompt_file.is_file() else None
+    p2 = (theirs.get("__verbose") or {}).get("prompt")
+    if p1 is None or p2 is None:
+        print("prompts: not both known (" + ("Puddle's missing" if p1 is None else "llama-server's missing") + ")")
+    else:
+        d = first_difference(p1, p2)
+        print(f"prompts as llama-server read them: the same ({len(p1)} characters)" if d is None else
+              f"prompts as llama-server read them: differ {d}")
+        Path(a.log).with_suffix(".llama-prompt.txt").write_text(p2, encoding="utf-8")
     same = True
     for what, x, y in (("thinking", r1, r2), ("answer", c1, c2)):
         d = first_difference(x, y)

@@ -2493,7 +2493,15 @@ class LlamaServerEngine:
 
     def _finish(self, ev: dict, prompt_tokens: int, pictures: bool = False):
         """The request's figures from llama-server's last event (its own clock).  With `pictures`, a prompt length other
-        than the one Puddle planned with (serve/media_tokens.py's estimate of the pictures) is said."""
+        than the one Puddle planned with (serve/media_tokens.py's estimate of the pictures) is said.
+        STRATA_LLAMA_PROMPT_FILE (opt-in, for tools/llama_server_check.py): the prompt as llama-server read it (the
+        event's "prompt", its own detokenization) is written to that file."""
+        dump = os.environ.get("STRATA_LLAMA_PROMPT_FILE")
+        if dump and isinstance(ev.get("prompt"), str):
+            try:
+                Path(dump).write_text(ev["prompt"], encoding="utf-8")
+            except OSError:
+                pass
         tm = ev.get("timings") if isinstance(ev.get("timings"), dict) else {}
         last = {"generated": int(ev.get("tokens_predicted") or tm.get("predicted_n") or 0),
                 "prompt_tokens": int(ev.get("tokens_evaluated") or prompt_tokens),
