@@ -2622,6 +2622,12 @@ class LlamaServerEngine:
                       "multimodal_data": pictures["images"]}
         body = {"prompt": prompt, "n_predict": int(max_new), "stream": True, "return_tokens": True,
                 "return_progress": True, "cache_prompt": True, **self.sampling_fields(sampling)}
+        dump = os.environ.get("STRATA_LLAMA_REQUEST_FILE")   # opt-in, for tools/llama_server_check.py's replay
+        if dump:
+            try:
+                Path(dump).write_text(json.dumps(body), encoding="utf-8")
+            except OSError:
+                pass
         out: queue.Queue = queue.Queue()
         stream = _LlamaStream(self.port, self.key, "/completion", body, out)
         stream.start()

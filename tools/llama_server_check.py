@@ -3,10 +3,16 @@ question with a picture (or none).
 
 Puddle renders the chat template, tokenizes the text and sends llama-server the prompt (as token ids, or as text with
 llama-server's media marker when there is a picture); llama-server alone does all of that itself through its own
-/v1/chat/completions.  With the same file, the same arguments and greedy decoding the two should write the same
-answer, and count the same prompt tokens (Puddle plans a picture's tokens by serve/media_tokens.py).  Both prompts
-as llama-server read them are compared too (its own detokenization: Puddle's from its last event, through
-STRATA_LLAMA_PROMPT_FILE; llama-server alone's from a "verbose" reply).
+/v1/chat/completions.  The check compares what the model was given - the prompt-token counts (Puddle plans a
+picture's tokens by serve/media_tokens.py) and both prompts as llama-server read them (its own detokenization:
+Puddle's from its last event, through STRATA_LLAMA_PROMPT_FILE; llama-server alone's from a "verbose" reply) - and
+what it wrote, greedy.
+
+The two answers can part at a near tie even with the same prompt: llama-server's chat endpoints end a prompt batch
+where a user message starts (for their checkpoints of the Mamba state: server-context.cpp's message_spans, at
+08c252e22), and /completion, which Puddle uses, has no such breaks, so the same prompt is read in other batches and
+rounds a little differently.  So the check also replays Puddle's own request (STRATA_LLAMA_REQUEST_FILE) on
+llama-server alone's /completion: that one must write Puddle's answer exactly.
 
 The model must not be running: the check starts Puddle with the run config (on 127.0.0.1, its own port), asks, stops
 it, then starts llama-server with the config's own command and environment (the cards in the same order), asks,
@@ -15,7 +21,9 @@ stops it, and compares.  One model in VRAM at a time.
     python tools/llama_server_check.py --config strata-nemotron-bolt-24gb.json --image picture.jpg
         [--prompt "What does this picture show? Two sentences."] [--max-tokens 600]
 
-Exit code 0: the same answer; 1: a difference (the first one is printed); 2: something did not start or answer.
+Exit code 0: the same prompt, and Puddle's answer from llama-server alone's /completion (the chat endpoint's answer
+the same or not); 1: a difference in the prompt or in the replay (the first one is printed); 2: something did not
+start or answer.
 """
 from __future__ import annotations
 
@@ -73,6 +81,21 @@ def stop(proc: subprocess.Popen) -> None:
             proc.wait(timeout=30)
 
 
+def stream_text(url: str, body: dict, timeout: float = 900.0) -> str:
+    """The text of a streamed /completion reply (its `data:` events' content, in order)."""
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    out = []
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        for line in r:
+            if line.startswith(b"data: "):
+                ev = json.loads(line[6:])
+                if "prompt_progress" not in ev:
+                    out.append(ev.get("content") or "")
+                if ev.get("stop"):
+                    break
+    return "".join(out)
+
+
 def first_difference(a: str, b: str, around: int = 40) -> str | None:
     """None when equal, else where they part, with some text of each."""
     if a == b:
@@ -114,12 +137,15 @@ def main(argv=None) -> int:
     # 1. through Puddle (the run config's own settings; greedy by the request)
     port = free_port()
     prompt_file = Path(a.log).with_suffix(".puddle-prompt.txt")
-    prompt_file.unlink(missing_ok=True)
+    request_file = Path(a.log).with_suffix(".puddle-request.json")
+    for f in (prompt_file, request_file):
+        f.unlink(missing_ok=True)
     puddle = subprocess.Popen([sys.executable, str(ROOT / "serve" / "server.py"), "--engine", "strata", "--config",
                                str(cfg_path), "--host", "127.0.0.1", "--port", str(port)],
                               cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT,
                               env={**{k: v for k, v in os.environ.items() if k != "STRATA_API_KEY"},
-                                   "STRATA_LLAMA_PROMPT_FILE": str(prompt_file.resolve())})
+                                   "STRATA_LLAMA_PROMPT_FILE": str(prompt_file.resolve()),
+                                   "STRATA_LLAMA_REQUEST_FILE": str(request_file.resolve())})
     try:
         print("starting Puddle with the model ...", flush=True)
         wait_up(f"http://127.0.0.1:{port}/health", puddle, "Puddle")
@@ -144,6 +170,11 @@ def main(argv=None) -> int:
         print("starting llama-server alone ...", flush=True)
         wait_up(f"http://127.0.0.1:{port}/health", llama, "llama-server")
         theirs = post(f"http://127.0.0.1:{port}/v1/chat/completions", {**body, "verbose": True})
+        # Puddle's own request, as it sent it, on a fresh slot (the chat request's cache would be reused otherwise)
+        replay = json.loads(request_file.read_text(encoding="utf-8")) if request_file.is_file() else None
+        if replay is not None:
+            replay["cache_prompt"] = False
+            replayed = stream_text(f"http://127.0.0.1:{port}/completion", replay)
     except (RuntimeError, OSError, urllib.error.URLError, ValueError) as e:
         print(f"llama-server: {e} (its output: {a.log})")
         return 2
@@ -164,6 +195,15 @@ def main(argv=None) -> int:
         print(f"prompts as llama-server read them: the same ({len(p1)} characters)" if d is None else
               f"prompts as llama-server read them: differ {d}")
         Path(a.log).with_suffix(".llama-prompt.txt").write_text(p2, encoding="utf-8")
+    prompt_same = p1 is not None and p1 == p2 and n1 == n2
+    replay_same = None
+    if replay is None:
+        print("replay: Puddle's request was not written")
+    else:
+        replay_same = r1.strip() in replayed and c1.strip() in replayed
+        print("Puddle's request on llama-server alone's /completion: " +
+              ("the same thinking and answer as through Puddle" if replay_same else
+               "differs from Puddle's answer " + (first_difference(r1.strip(), replayed[:len(r1.strip())]) or "")))
     same = True
     for what, x, y in (("thinking", r1, r2), ("answer", c1, c2)):
         d = first_difference(x, y)
@@ -174,8 +214,11 @@ def main(argv=None) -> int:
             print(f"{what}: differs {d}")
     if not same and first_difference(r1 + c1, r2 + c2) is None:
         print("(the whole text is the same: only where the thinking ends differs)")
+    if not same and prompt_same and replay_same:
+        print("(the chat endpoint's answer parts from it with the same prompt: it reads the prompt in other batches, "
+              "ending one where a user message starts)")
     print("\nPuddle's answer:\n" + c1)
-    return 0 if same else 1
+    return 0 if prompt_same and (same or replay_same) else 1
 
 
 if __name__ == "__main__":
