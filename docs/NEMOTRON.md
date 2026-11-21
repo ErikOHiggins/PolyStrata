@@ -104,6 +104,11 @@ Through Puddle on the same machine, the same day, its first two requests: a shor
 thinking apart), and llama.cpp's own test picture, a 640 x 488 scan of the New York Times of July 21, 1969: it named
 the paper, the date and both headlines correctly, and wrote its 369 tokens at 61.2 tokens/s.
 
+A tool call through Puddle (2026-11-20): asked for the weather with a `get_weather` tool, it called it with
+`{"city": "Paris"}` (`finish_reason` `tool_calls`). Given the tool's answer in a second request, it answered from it.
+That second request read only its 60 new tokens: llama-server reused 276 of the 336 (`cache_n`), up to its checkpoint
+4 tokens before the first prompt's end.
+
 Not measured yet: a long conversation through Puddle, any other card, and Windows.
 
 `tools/llama_server_check.py --config strata-nemotron-bolt-24gb.json --image <picture>` asks the same question,
