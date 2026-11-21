@@ -285,6 +285,9 @@ FAMILIES = {
                "hf": hf("unsloth/gemma-4-26B-A4B-it-GGUF"), "file": "gemma-4-26B-A4B-it-{q}.gguf", "shards": 1,
                "tag": "gemma4-", "name": "gemma-4-26b-a4b", "engine": "poly", "vision": True, "experimental": True,
                "windows": True, "ran_on_gb": 8,
+               # the context menu's lengths (else POLY_CONTEXTS): its files' own length, gemma4.context_length =
+               # 262144 (both repositories' headers, read 2026-11-21), as one more; not run at that length yet
+               "contexts": [8192, 32768, 65536, 131072, 262144],
                "row_bytes": 28672, "mmproj_hf": hf("unsloth/gemma-4-26B-A4B-it-GGUF"), "mmproj": "mmproj-F16.gguf",
                "vision_gb": 1.2, "vision_vram_gb": 2.4, "vision_most": 1024,
                "models": {"UD-Q3_K_M": {"about": "3-bit experts (Unsloth Dynamic), and Google's draft model for it",
@@ -3958,13 +3961,14 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
         # writing after a prompt that fills the context, tokens/s, on the 8 GB laptop (docs/BACKENDS.md)
         laptop = fam.get("laptop_tps") or ({32768: "52-58", 65536: "42-46", 131072: "28-30"}
                                            if fam.get("ran_on_gb") == 8 else {})
-        for i, c in enumerate(POLY_CONTEXTS, 1):
+        contexts = fam.get("contexts", POLY_CONTEXTS)
+        for i, c in enumerate(contexts, 1):
             on8 = f"; 8 GB card: {laptop[c]} tokens/s after a full prompt" if c in laptop else ""
             note = f"   (recommended{on8})" if c == 32768 else \
                 f"   ({(c - 32768) * row / 1e9:.1f} GB more VRAM{on8 or '; no long prompt run'})" if c > 32768 else ""
             say(f"  {i}) {c // 1024}K tokens{note}")
-        ctx = POLY_CONTEXTS[int(ask("Context?", [str(i) for i in range(1, len(POLY_CONTEXTS) + 1)],
-                                   str(POLY_CONTEXTS.index(32768) + 1), a.yes)) - 1]
+        ctx = contexts[int(ask("Context?", [str(i) for i in range(1, len(contexts) + 1)],
+                               str(contexts.index(32768) + 1), a.yes)) - 1]
     ok(f"context: {ctx} tokens")
 
     # the conversation cache: asked once, then kept as the model's run config has it

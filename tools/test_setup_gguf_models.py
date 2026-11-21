@@ -267,6 +267,23 @@ class Main(unittest.TestCase):
         self.assertIn("0.9 GB more VRAM", out)                           # 65536: 32768 tokens of 28672 bytes more
         self.assertEqual(cfg["args"][cfg["args"].index("--max-context") + 1], "65536")
 
+    def test_gemma4_offers_its_files_whole_context(self):
+        """Gemma 4's menu has a fifth line, 256K (its files' gemma4.context_length); the default stays 32K."""
+        code, out, cfg = self.main(family="gemma4", ram=32.0, vram=8.0, answers={"Context?": "5"})
+        self.assertEqual(code, 0, out)
+        self.assertIn("5) 256K tokens", out)
+        self.assertIn("6.6 GB more VRAM", out)                           # 229376 tokens of 28672 bytes more
+        self.assertEqual(cfg["args"][cfg["args"].index("--max-context") + 1], "262144")
+        code, out, cfg = self.main(family="gemma4", ram=32.0, vram=8.0)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(cfg["args"][cfg["args"].index("--max-context") + 1], "32768")
+
+    def test_the_other_families_keep_four_lengths(self):
+        code, out, cfg = self.main(family="laguna-xs", ram=64.0, vram=16.0)
+        self.assertEqual(code, 0, out)
+        self.assertIn("4) 128K tokens", out)
+        self.assertNotIn("256K tokens", out)
+
 
 if __name__ == "__main__":
     unittest.main()

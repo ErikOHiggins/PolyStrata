@@ -117,7 +117,7 @@ them and sets itself up the same way: nothing big is downloaded again.
   download and the RAM setup expects on your card.
 - **Which cards?** One, or several sharing the model.
 - **How much context?** How much text it can keep in mind at once: 8K, 32K (recommended), 64K or 128K, each with the
-  VRAM it takes from the expert cache. `--context N` takes any length up to 1048576. Nemotron 3.5 Bolt is not asked:
+  VRAM it takes from the expert cache. Gemma 4 also offers 256K, its files' own length (not yet run at that length). `--context N` takes any length up to 1048576. Nemotron 3.5 Bolt is not asked:
   168K on two 16 GB cards (as it runs on echo), else the largest that fits, chosen by llama-server each time it loads.
 - **Images?** For Gemma 4 and Nemotron 3.5 Bolt: whether the model should also read pictures. Gemma 4's image
   encoder runs on the GPU from 15.5 GB of VRAM, else on the CPU (a few seconds a picture); Bolt's is on the cards
